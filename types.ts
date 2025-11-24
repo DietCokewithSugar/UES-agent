@@ -42,3 +42,10 @@ export interface UESReport {
   issues: Issue[];
   optimizationSuggestions: string[]; // High level strategic suggestions
 }
+
+declare global {
+  interface AIStudio {
+    hasSelectedApiKey: () => Promise<boolean>;
+    openSelectKey: () => Promise<void>;
+  }
+}

@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Upload, Sparkles, Settings, ChevronRight, Check, Loader2, Plus, X } from 'lucide-react';
 import { Persona, UESReport, UserRole } from './types';
-import { analyzeDesign } from './services/geminiService';
+import { analyzeDesign, generateOptimizedDesign } from './services/geminiService';
 import { ReportView } from './components/ReportView';
 
 // --- Constants ---
@@ -73,9 +73,15 @@ export default function App() {
   const [personas, setPersonas] = useState<Persona[]>(DEFAULT_PERSONAS);
   const [selectedPersona, setSelectedPersona] = useState<Persona>(DEFAULT_PERSONAS[0]);
   const [image, setImage] = useState<string | null>(null);
+  
+  // Analysis State
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [report, setReport] = useState<UESReport | null>(null);
   const [error, setError] = useState<string | null>(null);
+  
+  // Image Generation State
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  const [optimizedImage, setOptimizedImage] = useState<string | null>(null);
   
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -90,7 +96,8 @@ export default function App() {
       const reader = new FileReader();
       reader.onloadend = () => {
         setImage(reader.result as string);
-        setReport(null); // Reset report on new image
+        setReport(null); 
+        setOptimizedImage(null);
         setError(null);
       };
       reader.readAsDataURL(file);
@@ -99,16 +106,51 @@ export default function App() {
 
   const handleAnalyze = async () => {
     if (!image) return;
+    
+    // REQUIREMENT: Check for paid API Key before using high-end models (Veo/Gemini 3 Pro)
+    // We assume window.aistudio is available in the environment
+    try {
+      if (window.aistudio) {
+        const hasKey = await window.aistudio.hasSelectedApiKey();
+        if (!hasKey) {
+          await window.aistudio.openSelectKey();
+          // We assume success after the dialog closes, as per instructions.
+        }
+      }
+    } catch (keyError) {
+      console.warn("API Key selection check failed or not supported:", keyError);
+      // Proceeding might fail if key is missing, but we attempt anyway
+    }
+
     setIsAnalyzing(true);
     setError(null);
+    setOptimizedImage(null);
+    setReport(null);
+
+    // 1. Start Text Analysis (Phase 1)
     try {
       const result = await analyzeDesign(image, selectedPersona);
       setReport(result);
+      setIsAnalyzing(false); // Stop main loading so user can read report
+
+      // 2. Start Image Generation (Phase 2) - DEPENDS on Report
+      // We start this immediately after report is ready
+      setIsGeneratingImage(true);
+      try {
+        const img = await generateOptimizedDesign(image, selectedPersona, result);
+        setOptimizedImage(img);
+      } catch (imgError) {
+        console.error("Visual optimization failed:", imgError);
+        // We don't set global error here because the main report is successful
+      } finally {
+        setIsGeneratingImage(false);
+      }
+
     } catch (err) {
-      setError("分析失败。请检查您的 API Key 或尝试其他图片。");
+      setError("分析失败。请检查您的网络连接或 API Key。");
       console.error(err);
-    } finally {
       setIsAnalyzing(false);
+      setIsGeneratingImage(false);
     }
   };
 
@@ -256,9 +298,9 @@ export default function App() {
         <div className="p-6 bg-white sticky bottom-0 border-t border-slate-200 z-10">
           <button
             onClick={handleAnalyze}
-            disabled={!image || isAnalyzing}
+            disabled={!image || isAnalyzing || isGeneratingImage} // Disable if either phase is running
             className={`w-full py-3 px-4 rounded-xl font-bold text-sm shadow-lg flex items-center justify-center gap-2 transition-all transform active:scale-95 ${
-              !image || isAnalyzing 
+              !image || isAnalyzing || isGeneratingImage
                 ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
                 : 'bg-indigo-600 text-white hover:bg-indigo-700 hover:shadow-indigo-200'
             }`}
@@ -266,7 +308,12 @@ export default function App() {
             {isAnalyzing ? (
               <>
                 <Loader2 size={18} className="animate-spin" />
-                体验分析中...
+                分析中 (第 1/2 步)...
+              </>
+            ) : isGeneratingImage ? (
+               <>
+                <Loader2 size={18} className="animate-spin" />
+                生成优化图中 (第 2/2 步)...
               </>
             ) : (
               <>
@@ -311,7 +358,7 @@ export default function App() {
             </div>
           )}
 
-          {/* Loading State */}
+          {/* Loading State for Phase 1 (Text Analysis) */}
           {isAnalyzing && (
              <div className="flex flex-col items-center justify-center h-[60vh] space-y-6">
                 <div className="relative">
@@ -322,7 +369,7 @@ export default function App() {
                 </div>
                 <div className="text-center space-y-2">
                   <h3 className="text-lg font-semibold text-slate-800">正在模拟 {selectedPersona.name}...</h3>
-                  <p className="text-sm text-slate-500">正在分析启发式原则、对比度与设计一致性。</p>
+                  <p className="text-sm text-slate-500">正在进行 UES 评分、问题检测与分析。</p>
                 </div>
              </div>
           )}
@@ -336,7 +383,12 @@ export default function App() {
 
           {/* Report View */}
           {report && !isAnalyzing && (
-            <ReportView report={report} />
+            <ReportView 
+              report={report} 
+              originalImage={image}
+              optimizedImage={optimizedImage}
+              isGeneratingImage={isGeneratingImage}
+            />
           )}
 
         </div>

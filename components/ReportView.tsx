@@ -1,10 +1,13 @@
 import React from 'react';
 import { UESReport } from '../types';
 import { UESRadarChart } from './RadarChart';
-import { AlertTriangle, CheckCircle, Target, User, FileText, Zap } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Target, User, FileText, Zap, Wand2, ArrowRight } from 'lucide-react';
 
 interface ReportViewProps {
   report: UESReport;
+  originalImage?: string | null;
+  optimizedImage?: string | null;
+  isGeneratingImage?: boolean;
 }
 
 const SeverityBadge: React.FC<{ severity: string }> = ({ severity }) => {
@@ -26,7 +29,7 @@ const SeverityBadge: React.FC<{ severity: string }> = ({ severity }) => {
   );
 };
 
-export const ReportView: React.FC<ReportViewProps> = ({ report }) => {
+export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, optimizedImage, isGeneratingImage }) => {
   return (
     <div className="space-y-8 animate-fade-in pb-12">
       
@@ -96,6 +99,64 @@ export const ReportView: React.FC<ReportViewProps> = ({ report }) => {
           </div>
         </div>
       </div>
+
+      {/* Visual Optimization Comparison */}
+      {(optimizedImage || isGeneratingImage) && (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+          <div className="p-6 border-b border-slate-100">
+            <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+              <Wand2 className="w-5 h-5 text-indigo-500" />
+              视觉优化方案 (AI 自动生成)
+            </h3>
+            <p className="text-sm text-slate-500 mt-1">基于 Google Nano Banana 2 (Gemini 3 Pro Image) 模型生成的优化建议效果图。</p>
+          </div>
+          <div className="p-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+              
+              {/* Original */}
+              <div className="space-y-3">
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block text-center">当前版本 (Before)</span>
+                <div className="relative group rounded-xl overflow-hidden border border-slate-200 bg-slate-50 aspect-square flex items-center justify-center">
+                  {originalImage && (
+                    <img 
+                      src={originalImage} 
+                      alt="Original Design" 
+                      className="max-w-full max-h-full object-contain"
+                    />
+                  )}
+                </div>
+              </div>
+
+              {/* Arrow on Desktop */}
+              <div className="hidden md:flex justify-center text-slate-300">
+                <ArrowRight size={32} />
+              </div>
+
+              {/* Optimized */}
+              <div className="space-y-3">
+                <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider block text-center">AI 优化建议 (After)</span>
+                <div className="relative group rounded-xl overflow-hidden border-2 border-indigo-100 bg-indigo-50/30 aspect-square flex items-center justify-center">
+                  {isGeneratingImage ? (
+                    <div className="flex flex-col items-center justify-center gap-3 text-indigo-500">
+                      <div className="w-8 h-8 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+                      <span className="text-sm font-medium animate-pulse">正在绘制优化方案...</span>
+                    </div>
+                  ) : optimizedImage ? (
+                    <img 
+                      src={optimizedImage} 
+                      alt="Optimized Design" 
+                      className="max-w-full max-h-full object-contain transition-transform duration-700 hover:scale-105"
+                    />
+                  ) : (
+                    <div className="text-slate-400 text-sm">无法生成优化图</div>
+                  )}
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Issues List */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
