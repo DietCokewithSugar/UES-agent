@@ -1,5 +1,5 @@
-import React, { useState, useRef } from 'react';
-import { Upload, Sparkles, Settings, ChevronRight, Check, Loader2, Plus, X } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Upload, Sparkles, Settings, ChevronRight, Check, Loader2, Plus, X, ShieldCheck, ShieldAlert, Key } from 'lucide-react';
 import { Persona, UESReport, UserRole } from './types';
 import { analyzeDesign, generateOptimizedDesign } from './services/geminiService';
 import { ReportView } from './components/ReportView';
@@ -87,7 +87,40 @@ export default function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newPersonaData, setNewPersonaData] = useState<Omit<Persona, 'id'>>(EMPTY_PERSONA);
 
+  // API Key State
+  const [apiKeyStatus, setApiKeyStatus] = useState<'checked' | 'unchecked'>('unchecked');
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Check API Key on Mount
+  useEffect(() => {
+    const checkKey = async () => {
+      if (window.aistudio) {
+        try {
+          const has = await window.aistudio.hasSelectedApiKey();
+          setApiKeyStatus(has ? 'checked' : 'unchecked');
+        } catch (e) {
+          console.warn("Failed to check API key status", e);
+        }
+      } else {
+        // Fallback for dev environments
+        setApiKeyStatus(process.env.API_KEY ? 'checked' : 'unchecked');
+      }
+    };
+    checkKey();
+  }, []);
+
+  const handleApiKeySelect = async () => {
+    if (window.aistudio) {
+      try {
+        await window.aistudio.openSelectKey();
+        const has = await window.aistudio.hasSelectedApiKey();
+        setApiKeyStatus(has ? 'checked' : 'unchecked');
+      } catch (e) {
+        console.error("Failed to select API key", e);
+      }
+    }
+  };
 
   // Reset report if image or persona changes significantly (optional, usually better to keep until re-analyze)
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -108,18 +141,16 @@ export default function App() {
     if (!image) return;
     
     // REQUIREMENT: Check for paid API Key before using high-end models (Veo/Gemini 3 Pro)
-    // We assume window.aistudio is available in the environment
     try {
       if (window.aistudio) {
         const hasKey = await window.aistudio.hasSelectedApiKey();
         if (!hasKey) {
           await window.aistudio.openSelectKey();
-          // We assume success after the dialog closes, as per instructions.
+          setApiKeyStatus('checked');
         }
       }
     } catch (keyError) {
       console.warn("API Key selection check failed or not supported:", keyError);
-      // Proceeding might fail if key is missing, but we attempt anyway
     }
 
     setIsAnalyzing(true);
@@ -139,18 +170,34 @@ export default function App() {
       try {
         const img = await generateOptimizedDesign(image, selectedPersona, result);
         setOptimizedImage(img);
-      } catch (imgError) {
+      } catch (imgError: any) {
         console.error("Visual optimization failed:", imgError);
-        // We don't set global error here because the main report is successful
+        // Specific error handling for API Key issues during image generation
+        if (imgError.toString().includes("Requested entity was not found") || imgError.message?.includes("Requested entity was not found")) {
+            setError("图像生成失败：API Key 似乎没有权限或已失效。请尝试重新连接 API Key。");
+            setApiKeyStatus('unchecked');
+        }
       } finally {
         setIsGeneratingImage(false);
       }
 
-    } catch (err) {
-      setError("分析失败。请检查您的网络连接或 API Key。");
-      console.error(err);
+    } catch (err: any) {
+      console.error("Analysis Failed:", err);
       setIsAnalyzing(false);
       setIsGeneratingImage(false);
+      
+      // Robust Error Handling for API Key issues
+      if (err.toString().includes("Requested entity was not found") || err.message?.includes("Requested entity was not found")) {
+         setError("API Key 无效或未找到项目。请重新选择 API Key。");
+         setApiKeyStatus('unchecked');
+         if (window.aistudio) {
+             await window.aistudio.openSelectKey();
+             const has = await window.aistudio.hasSelectedApiKey();
+             if (has) setApiKeyStatus('checked');
+         }
+      } else {
+         setError("分析失败。请检查您的网络连接或 API Key。");
+      }
     }
   };
 
@@ -184,13 +231,37 @@ export default function App() {
       {/* Sidebar / Configuration Panel */}
       <div className="w-full md:w-96 bg-white border-r border-slate-200 h-auto md:h-screen flex flex-col sticky top-0 z-20 overflow-y-auto">
         
-        {/* Brand */}
+        {/* Brand & API Key Management */}
         <div className="p-6 border-b border-slate-100 bg-white">
           <div className="flex items-center gap-2 text-indigo-600 mb-1">
             <Sparkles size={24} fill="currentColor" className="text-indigo-500" />
             <h1 className="text-xl font-bold tracking-tight text-slate-900">UES Agent</h1>
           </div>
-          <p className="text-xs text-slate-500 font-medium">产品体验自动化分析工具</p>
+          <p className="text-xs text-slate-500 font-medium mb-4">产品体验自动化分析工具</p>
+          
+          {/* API Key Status Indicator */}
+          <div className="flex items-center justify-between bg-slate-50 px-3 py-2 rounded-lg border border-slate-100">
+            <div className="flex items-center gap-2 text-xs">
+              {apiKeyStatus === 'checked' ? (
+                <>
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+                  <span className="text-slate-600 font-medium">API 已连接</span>
+                </>
+              ) : (
+                <>
+                  <ShieldAlert className="w-3.5 h-3.5 text-orange-500" />
+                  <span className="text-orange-600 font-medium">未连接 API</span>
+                </>
+              )}
+            </div>
+            <button 
+              onClick={handleApiKeySelect} 
+              className="text-xs flex items-center gap-1 text-indigo-600 hover:text-indigo-800 font-medium transition-colors"
+            >
+              <Key size={12} />
+              {apiKeyStatus === 'checked' ? '切换' : '设置'}
+            </button>
+          </div>
         </div>
 
         {/* Step 1: Upload */}
@@ -377,7 +448,10 @@ export default function App() {
           {/* Error State */}
           {error && (
             <div className="p-4 bg-red-50 border border-red-100 rounded-lg text-red-700 text-sm text-center mt-10">
-              {error}
+              <p className="font-bold flex items-center justify-center gap-2">
+                <ShieldAlert size={16} />
+                {error}
+              </p>
             </div>
           )}
 
