@@ -1,6 +1,7 @@
+
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, Sparkles, Settings, ChevronRight, Check, Loader2, Plus, X, ShieldCheck, ShieldAlert, Key } from 'lucide-react';
-import { Persona, UESReport, UserRole } from './types';
+import { Upload, Sparkles, Settings, ChevronRight, Check, Loader2, Plus, X, Layers, Square, CheckSquare, Users } from 'lucide-react';
+import { Persona, UESReport, UserRole, EvaluationModel } from './types';
 import { analyzeDesign, generateOptimizedDesign } from './services/geminiService';
 import { ReportView } from './components/ReportView';
 
@@ -71,146 +72,157 @@ const EMPTY_PERSONA: Omit<Persona, 'id'> = {
 // --- Main App Component ---
 export default function App() {
   const [personas, setPersonas] = useState<Persona[]>(DEFAULT_PERSONAS);
-  const [selectedPersona, setSelectedPersona] = useState<Persona>(DEFAULT_PERSONAS[0]);
+  
+  // Multi-select state
+  const [selectedPersonaIds, setSelectedPersonaIds] = useState<string[]>([DEFAULT_PERSONAS[0].id]);
+  
+  // Result Viewer State (Which persona tab is active)
+  const [viewingPersonaId, setViewingPersonaId] = useState<string>(DEFAULT_PERSONAS[0].id);
+
+  const [evaluationModel, setEvaluationModel] = useState<EvaluationModel>(EvaluationModel.UES);
   const [image, setImage] = useState<string | null>(null);
   
-  // Analysis State
+  // Analysis State (Map by Persona ID)
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [report, setReport] = useState<UESReport | null>(null);
+  const [reports, setReports] = useState<Record<string, UESReport>>({});
   const [error, setError] = useState<string | null>(null);
   
-  // Image Generation State
+  // Image Generation State (Map by Persona ID)
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
-  const [optimizedImage, setOptimizedImage] = useState<string | null>(null);
+  const [optimizedImages, setOptimizedImages] = useState<Record<string, string>>({});
   
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newPersonaData, setNewPersonaData] = useState<Omit<Persona, 'id'>>(EMPTY_PERSONA);
 
-  // API Key State
-  const [apiKeyStatus, setApiKeyStatus] = useState<'checked' | 'unchecked'>('unchecked');
-
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Check API Key on Mount
-  useEffect(() => {
-    const checkKey = async () => {
-      if (window.aistudio) {
-        try {
-          const has = await window.aistudio.hasSelectedApiKey();
-          setApiKeyStatus(has ? 'checked' : 'unchecked');
-        } catch (e) {
-          console.warn("Failed to check API key status", e);
-        }
-      } else {
-        // Fallback for dev environments
-        setApiKeyStatus(process.env.API_KEY ? 'checked' : 'unchecked');
-      }
-    };
-    checkKey();
-  }, []);
+  // Helper to get actual persona objects from selected IDs
+  const getSelectedPersonas = () => personas.filter(p => selectedPersonaIds.includes(p.id));
 
-  const handleApiKeySelect = async () => {
-    if (window.aistudio) {
-      try {
-        await window.aistudio.openSelectKey();
-        const has = await window.aistudio.hasSelectedApiKey();
-        setApiKeyStatus(has ? 'checked' : 'unchecked');
-      } catch (e) {
-        console.error("Failed to select API key", e);
-      }
-    }
-  };
-
-  // Reset report if image or persona changes significantly (optional, usually better to keep until re-analyze)
+  // Reset report if image changes
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
         setImage(reader.result as string);
-        setReport(null); 
-        setOptimizedImage(null);
+        setReports({}); 
+        setOptimizedImages({});
         setError(null);
       };
       reader.readAsDataURL(file);
     }
   };
 
+  const togglePersonaSelection = (id: string) => {
+    setSelectedPersonaIds(prev => {
+      if (prev.includes(id)) {
+        // Prevent deselecting the last one if you want to enforce at least one
+        if (prev.length === 1) return prev; 
+        return prev.filter(pId => pId !== id);
+      } else {
+        return [...prev, id];
+      }
+    });
+  };
+
   const handleAnalyze = async () => {
     if (!image) return;
     
-    // REQUIREMENT: Check for paid API Key before using high-end models (Veo/Gemini 3 Pro)
+    // Check for API Key
     try {
       if (window.aistudio) {
         const hasKey = await window.aistudio.hasSelectedApiKey();
         if (!hasKey) {
           await window.aistudio.openSelectKey();
-          setApiKeyStatus('checked');
         }
       }
     } catch (keyError) {
-      console.warn("API Key selection check failed or not supported:", keyError);
+      console.warn("API Key selection check failed:", keyError);
     }
+
+    const targets = getSelectedPersonas();
+    if (targets.length === 0) return;
 
     setIsAnalyzing(true);
     setError(null);
-    setOptimizedImage(null);
-    setReport(null);
+    setReports({});
+    setOptimizedImages({});
+    
+    // Reset viewing persona to the first selected one
+    setViewingPersonaId(targets[0].id);
 
-    // 1. Start Text Analysis (Phase 1)
     try {
-      const result = await analyzeDesign(image, selectedPersona);
-      setReport(result);
-      setIsAnalyzing(false); // Stop main loading so user can read report
-
-      // 2. Start Image Generation (Phase 2) - DEPENDS on Report
-      // We start this immediately after report is ready
-      setIsGeneratingImage(true);
-      try {
-        const img = await generateOptimizedDesign(image, selectedPersona, result);
-        setOptimizedImage(img);
-      } catch (imgError: any) {
-        console.error("Visual optimization failed:", imgError);
-        // Specific error handling for API Key issues during image generation
-        if (imgError.toString().includes("Requested entity was not found") || imgError.message?.includes("Requested entity was not found")) {
-            setError("图像生成失败：API Key 似乎没有权限或已失效。请尝试重新连接 API Key。");
-            setApiKeyStatus('unchecked');
+      // 1. Parallel Text Analysis
+      const analysisPromises = targets.map(async (p) => {
+        try {
+          const result = await analyzeDesign(image, p, evaluationModel);
+          return { id: p.id, report: result };
+        } catch (e) {
+          console.error(`Analysis failed for ${p.name}`, e);
+          return null;
         }
-      } finally {
-        setIsGeneratingImage(false);
+      });
+
+      const results = await Promise.all(analysisPromises);
+      
+      const newReports: Record<string, UESReport> = {};
+      results.forEach(res => {
+        if (res) newReports[res.id] = res.report;
+      });
+
+      if (Object.keys(newReports).length === 0) {
+        throw new Error("所有角色分析均失败，请重试。");
       }
+
+      setReports(newReports);
+      setIsAnalyzing(false); 
+
+      // 2. Parallel Image Generation
+      setIsGeneratingImage(true);
+      
+      const imagePromises = targets.map(async (p) => {
+        const report = newReports[p.id];
+        if (!report) return null;
+        try {
+          const img = await generateOptimizedDesign(image, p, report);
+          return { id: p.id, img };
+        } catch (e) {
+           console.error(`Image gen failed for ${p.name}`, e);
+           return null;
+        }
+      });
+
+      const imgResults = await Promise.all(imagePromises);
+      
+      const newImages: Record<string, string> = {};
+      imgResults.forEach(res => {
+        if (res) newImages[res.id] = res.img;
+      });
+
+      setOptimizedImages(newImages);
 
     } catch (err: any) {
-      console.error("Analysis Failed:", err);
+      setError(err.message || "分析过程中发生未知错误。");
       setIsAnalyzing(false);
+    } finally {
       setIsGeneratingImage(false);
-      
-      // Robust Error Handling for API Key issues
-      if (err.toString().includes("Requested entity was not found") || err.message?.includes("Requested entity was not found")) {
-         setError("API Key 无效或未找到项目。请重新选择 API Key。");
-         setApiKeyStatus('unchecked');
-         if (window.aistudio) {
-             await window.aistudio.openSelectKey();
-             const has = await window.aistudio.hasSelectedApiKey();
-             if (has) setApiKeyStatus('checked');
-         }
-      } else {
-         setError("分析失败。请检查您的网络连接或 API Key。");
-      }
     }
   };
 
   const handleCreatePersona = () => {
     if (!newPersonaData.name) return;
     
+    const newId = Date.now().toString();
     const newPersona: Persona = {
       ...newPersonaData,
-      id: Date.now().toString(),
+      id: newId,
     };
     
     setPersonas(prev => [...prev, newPersona]);
-    setSelectedPersona(newPersona);
+    // Automatically select the new persona
+    setSelectedPersonaIds(prev => [...prev, newId]);
     setIsModalOpen(false);
     setNewPersonaData(EMPTY_PERSONA);
   };
@@ -225,43 +237,23 @@ export default function App() {
     }));
   };
 
+  // Get current report to display
+  const currentReport = reports[viewingPersonaId];
+  const currentOptimizedImage = optimizedImages[viewingPersonaId];
+
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-slate-50 font-sans text-slate-900">
       
       {/* Sidebar / Configuration Panel */}
       <div className="w-full md:w-96 bg-white border-r border-slate-200 h-auto md:h-screen flex flex-col sticky top-0 z-20 overflow-y-auto">
         
-        {/* Brand & API Key Management */}
+        {/* Brand */}
         <div className="p-6 border-b border-slate-100 bg-white">
           <div className="flex items-center gap-2 text-indigo-600 mb-1">
             <Sparkles size={24} fill="currentColor" className="text-indigo-500" />
             <h1 className="text-xl font-bold tracking-tight text-slate-900">UES Agent</h1>
           </div>
-          <p className="text-xs text-slate-500 font-medium mb-4">产品体验自动化分析工具</p>
-          
-          {/* API Key Status Indicator */}
-          <div className="flex items-center justify-between bg-slate-50 px-3 py-2 rounded-lg border border-slate-100">
-            <div className="flex items-center gap-2 text-xs">
-              {apiKeyStatus === 'checked' ? (
-                <>
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
-                  <span className="text-slate-600 font-medium">API 已连接</span>
-                </>
-              ) : (
-                <>
-                  <ShieldAlert className="w-3.5 h-3.5 text-orange-500" />
-                  <span className="text-orange-600 font-medium">未连接 API</span>
-                </>
-              )}
-            </div>
-            <button 
-              onClick={handleApiKeySelect} 
-              className="text-xs flex items-center gap-1 text-indigo-600 hover:text-indigo-800 font-medium transition-colors"
-            >
-              <Key size={12} />
-              {apiKeyStatus === 'checked' ? '切换' : '设置'}
-            </button>
-          </div>
+          <p className="text-xs text-slate-500 font-medium">产品体验自动化分析工具</p>
         </div>
 
         {/* Step 1: Upload */}
@@ -303,12 +295,42 @@ export default function App() {
           </div>
         </div>
 
-        {/* Step 2: Persona */}
+        {/* Step 2: Evaluation Model Switcher */}
+        <div className="p-6 border-b border-slate-100">
+           <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-2">
+            <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-xs">2</span>
+            评估模型
+          </h2>
+          <div className="flex p-1 bg-slate-100 rounded-lg">
+            <button
+              onClick={() => setEvaluationModel(EvaluationModel.UES)}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-md text-xs font-semibold transition-all ${evaluationModel === EvaluationModel.UES ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              <Layers size={14} /> UES (5维度)
+            </button>
+            <button
+              onClick={() => setEvaluationModel(EvaluationModel.ETS)}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-md text-xs font-semibold transition-all ${evaluationModel === EvaluationModel.ETS ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              <Layers size={14} /> ETS (8维度)
+            </button>
+          </div>
+          <div className="mt-2 text-[10px] text-slate-500 bg-slate-50 p-2 rounded border border-slate-100">
+            {evaluationModel === EvaluationModel.UES 
+              ? "通用易用性系统：关注易用性、一致性、清晰度、美观度、效率。" 
+              : "体验追踪系统：包含功能、认知、交互、性能、安全、视觉、智能、运营 8 大维度。"}
+          </div>
+        </div>
+
+        {/* Step 3: Persona Selection (Multi-select) */}
         <div className="p-6 border-b border-slate-100 flex-1">
           <div className="flex items-center justify-between mb-4">
              <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
-              <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-xs">2</span>
+              <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-xs">3</span>
               选择测评角色
+              <span className="ml-1 text-xs font-normal normal-case text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                已选 {selectedPersonaIds.length}
+              </span>
             </h2>
             <button 
               onClick={() => setIsModalOpen(true)}
@@ -320,48 +342,38 @@ export default function App() {
           </div>
           
           <div className="space-y-3">
-            {personas.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => setSelectedPersona(p)}
-                className={`w-full text-left p-3 rounded-lg border transition-all relative ${selectedPersona.id === p.id ? 'border-indigo-500 bg-indigo-50 shadow-sm ring-1 ring-indigo-200' : 'border-slate-200 hover:border-indigo-300 bg-white'}`}
-              >
-                <div className="flex items-center justify-between mb-1">
-                  <span className="font-semibold text-sm text-slate-800">{p.name}</span>
-                  {p.role === UserRole.EXPERT && <span className="text-[10px] bg-slate-800 text-white px-1.5 py-0.5 rounded">专家</span>}
-                </div>
-                <p className="text-xs text-slate-500 line-clamp-2 mb-2">{p.description}</p>
-                
-                {/* Mini attributes visualization */}
-                <div className="flex gap-1 flex-wrap">
-                   <span className="text-[10px] px-1.5 py-0.5 bg-white border border-slate-200 rounded text-slate-500">
-                    {p.attributes.techSavviness} 科技感
-                   </span>
-                   <span className="text-[10px] px-1.5 py-0.5 bg-white border border-slate-200 rounded text-slate-500">
-                    {p.attributes.age}
-                   </span>
-                </div>
-
-                {selectedPersona.id === p.id && (
-                  <div className="absolute top-3 right-3">
-                    <div className="w-2 h-2 rounded-full bg-indigo-500"></div>
+            {personas.map((p) => {
+              const isSelected = selectedPersonaIds.includes(p.id);
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => togglePersonaSelection(p.id)}
+                  className={`w-full text-left p-3 rounded-lg border transition-all relative flex items-start gap-3 ${isSelected ? 'border-indigo-500 bg-indigo-50 shadow-sm ring-1 ring-indigo-200' : 'border-slate-200 hover:border-indigo-300 bg-white'}`}
+                >
+                  <div className={`mt-0.5 ${isSelected ? 'text-indigo-600' : 'text-slate-300'}`}>
+                    {isSelected ? <CheckSquare size={18} /> : <Square size={18} />}
                   </div>
-                )}
-              </button>
-            ))}
-          </div>
-
-          {/* Selected Persona Details (Collapsible-ish info) */}
-          <div className="mt-6 bg-slate-50 p-4 rounded-lg border border-slate-200 text-xs">
-            <h3 className="font-bold text-slate-700 mb-2 flex items-center gap-1">
-              <Settings size={12} /> 
-              当前配置
-            </h3>
-            <ul className="space-y-1 text-slate-500">
-              <li className="flex justify-between"><span>目标:</span> <span className="font-medium text-right truncate ml-2">{selectedPersona.attributes.goals}</span></li>
-              <li className="flex justify-between"><span>环境:</span> <span className="font-medium text-right">{selectedPersona.attributes.environment}</span></li>
-              <li className="flex justify-between"><span>容忍度:</span> <span className="font-medium text-right">{selectedPersona.attributes.frustrationTolerance}</span></li>
-            </ul>
+                  
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className={`font-semibold text-sm ${isSelected ? 'text-indigo-900' : 'text-slate-800'}`}>{p.name}</span>
+                      {p.role === UserRole.EXPERT && <span className="text-[10px] bg-slate-800 text-white px-1.5 py-0.5 rounded">专家</span>}
+                    </div>
+                    <p className="text-xs text-slate-500 line-clamp-2 mb-2">{p.description}</p>
+                    
+                    {/* Mini attributes visualization */}
+                    <div className="flex gap-1 flex-wrap">
+                      <span className="text-[10px] px-1.5 py-0.5 bg-white border border-slate-200 rounded text-slate-500">
+                        {p.attributes.techSavviness} 科技感
+                      </span>
+                      <span className="text-[10px] px-1.5 py-0.5 bg-white border border-slate-200 rounded text-slate-500">
+                        {p.attributes.age}
+                      </span>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -369,9 +381,9 @@ export default function App() {
         <div className="p-6 bg-white sticky bottom-0 border-t border-slate-200 z-10">
           <button
             onClick={handleAnalyze}
-            disabled={!image || isAnalyzing || isGeneratingImage} // Disable if either phase is running
+            disabled={!image || isAnalyzing || isGeneratingImage || selectedPersonaIds.length === 0}
             className={`w-full py-3 px-4 rounded-xl font-bold text-sm shadow-lg flex items-center justify-center gap-2 transition-all transform active:scale-95 ${
-              !image || isAnalyzing || isGeneratingImage
+              !image || isAnalyzing || isGeneratingImage || selectedPersonaIds.length === 0
                 ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
                 : 'bg-indigo-600 text-white hover:bg-indigo-700 hover:shadow-indigo-200'
             }`}
@@ -379,16 +391,16 @@ export default function App() {
             {isAnalyzing ? (
               <>
                 <Loader2 size={18} className="animate-spin" />
-                分析中 (第 1/2 步)...
+                正在并行分析 ({selectedPersonaIds.length} 个角色)...
               </>
             ) : isGeneratingImage ? (
                <>
                 <Loader2 size={18} className="animate-spin" />
-                生成优化图中 (第 2/2 步)...
+                生成优化方案中...
               </>
             ) : (
               <>
-                开始 UES 评估
+                开始 {evaluationModel} 评估
                 <ChevronRight size={18} />
               </>
             )}
@@ -401,46 +413,27 @@ export default function App() {
         <div className="max-w-5xl mx-auto">
           
           {/* Empty State */}
-          {!report && !isAnalyzing && !error && (
+          {Object.keys(reports).length === 0 && !isAnalyzing && !error && (
             <div className="h-full flex flex-col items-center justify-center text-center space-y-6 mt-20 opacity-60">
               <div className="w-32 h-32 bg-indigo-50 rounded-full flex items-center justify-center mb-4">
                 <Sparkles size={48} className="text-indigo-300" />
               </div>
               <h2 className="text-2xl font-bold text-slate-800">准备就绪</h2>
               <p className="text-slate-500 max-w-md">
-                请在左侧上传设计截图并选择测评角色，生成深度 UES 体验报告。
+                请在左侧上传设计截图、勾选需要测评的角色（支持多选），然后点击开始。
               </p>
-              
-              {/* Fake feature list for aesthetics */}
-              <div className="grid grid-cols-3 gap-4 w-full max-w-lg mt-8">
-                <div className="p-4 bg-white rounded-lg shadow-sm border border-slate-100">
-                  <div className="h-2 w-12 bg-indigo-100 rounded mb-2"></div>
-                  <div className="h-2 w-20 bg-slate-100 rounded"></div>
-                </div>
-                 <div className="p-4 bg-white rounded-lg shadow-sm border border-slate-100">
-                  <div className="h-2 w-12 bg-emerald-100 rounded mb-2"></div>
-                  <div className="h-2 w-20 bg-slate-100 rounded"></div>
-                </div>
-                 <div className="p-4 bg-white rounded-lg shadow-sm border border-slate-100">
-                  <div className="h-2 w-12 bg-orange-100 rounded mb-2"></div>
-                  <div className="h-2 w-20 bg-slate-100 rounded"></div>
-                </div>
-              </div>
             </div>
           )}
 
-          {/* Loading State for Phase 1 (Text Analysis) */}
+          {/* Loading State */}
           {isAnalyzing && (
              <div className="flex flex-col items-center justify-center h-[60vh] space-y-6">
                 <div className="relative">
                   <div className="w-16 h-16 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
-                  <div className="absolute top-0 left-0 w-16 h-16 flex items-center justify-center">
-                    <div className="w-2 h-2 bg-white rounded-full"></div>
-                  </div>
                 </div>
                 <div className="text-center space-y-2">
-                  <h3 className="text-lg font-semibold text-slate-800">正在模拟 {selectedPersona.name}...</h3>
-                  <p className="text-sm text-slate-500">正在进行 UES 评分、问题检测与分析。</p>
+                  <h3 className="text-lg font-semibold text-slate-800">AI 正在进行多维度会诊...</h3>
+                  <p className="text-sm text-slate-500">正在并行处理 {selectedPersonaIds.length} 个角色的 {evaluationModel} 评估。</p>
                 </div>
              </div>
           )}
@@ -448,21 +441,59 @@ export default function App() {
           {/* Error State */}
           {error && (
             <div className="p-4 bg-red-50 border border-red-100 rounded-lg text-red-700 text-sm text-center mt-10">
-              <p className="font-bold flex items-center justify-center gap-2">
-                <ShieldAlert size={16} />
-                {error}
-              </p>
+              {error}
             </div>
           )}
 
-          {/* Report View */}
-          {report && !isAnalyzing && (
-            <ReportView 
-              report={report} 
-              originalImage={image}
-              optimizedImage={optimizedImage}
-              isGeneratingImage={isGeneratingImage}
-            />
+          {/* Report Tabs & View */}
+          {Object.keys(reports).length > 0 && !isAnalyzing && (
+            <div className="animate-fade-in space-y-6">
+              
+              {/* Report Switcher Tabs */}
+              <div className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur py-2 border-b border-slate-200">
+                 <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar">
+                    <span className="text-xs font-bold text-slate-400 uppercase mr-2 shrink-0">当前查看:</span>
+                    {selectedPersonaIds.map(id => {
+                      const persona = personas.find(p => p.id === id);
+                      if (!persona) return null;
+                      const hasReport = !!reports[id];
+                      const isActive = viewingPersonaId === id;
+                      
+                      return (
+                        <button
+                          key={id}
+                          onClick={() => hasReport && setViewingPersonaId(id)}
+                          disabled={!hasReport}
+                          className={`
+                            flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap
+                            ${isActive 
+                              ? 'bg-indigo-600 text-white shadow-md ring-2 ring-indigo-200 ring-offset-2 ring-offset-slate-50' 
+                              : 'bg-white text-slate-600 border border-slate-200 hover:border-indigo-300 hover:text-indigo-600'}
+                            ${!hasReport ? 'opacity-50 cursor-not-allowed' : ''}
+                          `}
+                        >
+                          <Users size={14} />
+                          {persona.name}
+                        </button>
+                      );
+                    })}
+                 </div>
+              </div>
+
+              {/* Render Active Report */}
+              {currentReport ? (
+                 <ReportView 
+                   report={currentReport} 
+                   originalImage={image}
+                   optimizedImage={currentOptimizedImage}
+                   isGeneratingImage={isGeneratingImage}
+                 />
+              ) : (
+                <div className="text-center py-20 text-slate-400">
+                  未找到该角色的报告数据。
+                </div>
+              )}
+            </div>
           )}
 
         </div>

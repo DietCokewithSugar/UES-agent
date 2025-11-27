@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { UESReport } from '../types';
 import { UESRadarChart } from './RadarChart';
@@ -39,7 +40,7 @@ export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, o
         <div className="md:col-span-1">
           <div className="bg-gradient-to-br from-indigo-600 to-indigo-800 text-white p-6 rounded-2xl shadow-lg h-full flex flex-col justify-between relative overflow-hidden">
             <div className="relative z-10">
-              <h2 className="text-indigo-100 text-sm font-medium uppercase tracking-widest mb-1">UES 总体评分</h2>
+              <h2 className="text-indigo-100 text-sm font-medium uppercase tracking-widest mb-1">{report.modelType || 'UES'} 总体评分</h2>
               <div className="flex items-baseline gap-2">
                 <span className="text-6xl font-bold">{report.overallScore}</span>
                 <span className="text-xl text-indigo-300">/ 100</span>
@@ -60,17 +61,19 @@ export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, o
             <Target className="w-5 h-5 text-indigo-500" />
             维度分析
           </h3>
-          <div className="flex flex-row h-full">
-            <div className="flex-1">
+          <div className="flex flex-col md:flex-row h-full gap-4">
+            <div className="flex-1 h-64 md:h-auto">
                <UESRadarChart data={report.dimensionScores} />
             </div>
-            <div className="hidden md:flex flex-col justify-center gap-3 w-1/3 pl-4 border-l border-slate-100">
-              {report.dimensionScores.map((d) => (
-                <div key={d.dimension} className="flex justify-between items-center text-sm">
-                  <span className="text-slate-500">{d.dimension}</span>
-                  <span className={`font-bold ${d.score > 80 ? 'text-emerald-600' : 'text-slate-700'}`}>{d.score}</span>
-                </div>
-              ))}
+            <div className="md:w-48 overflow-y-auto max-h-64 pr-2 border-l border-slate-100 pl-4">
+              <div className="space-y-3">
+                {report.dimensionScores.map((d) => (
+                  <div key={d.dimension} className="flex justify-between items-center text-sm">
+                    <span className="text-slate-500 truncate mr-2" title={d.dimension}>{d.dimension}</span>
+                    <span className={`font-bold ${d.score > 80 ? 'text-emerald-600' : 'text-slate-700'}`}>{d.score}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>

@@ -1,6 +1,12 @@
+
 export enum UserRole {
   USER = 'USER', // Evaluates Usability
   EXPERT = 'EXPERT' // Evaluates Consistency
+}
+
+export enum EvaluationModel {
+  UES = 'UES', // 5 Dimensions
+  ETS = 'ETS'  // 8 Dimensions
 }
 
 export interface PersonaAttributes {
@@ -35,6 +41,7 @@ export interface Issue {
 }
 
 export interface UESReport {
+  modelType: EvaluationModel; // Track which model was used
   overallScore: number;
   dimensionScores: DimensionScore[];
   executiveSummary: string;
