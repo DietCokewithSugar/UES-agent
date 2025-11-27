@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, Sparkles, Settings, ChevronRight, Check, Loader2, Plus, X, Layers, Square, CheckSquare, Users, Download } from 'lucide-react';
+import { Upload, Sparkles, Settings, ChevronRight, Check, Loader2, Plus, X, Layers, Square, CheckSquare, Users, Download, Archive, Package } from 'lucide-react';
 import { toPng } from 'html-to-image';
+import JSZip from 'jszip';
+import FileSaver from 'file-saver';
 import { Persona, UESReport, UserRole, EvaluationModel } from './types';
 import { analyzeDesign, generateOptimizedDesign } from './services/geminiService';
 import { ReportView } from './components/ReportView';
@@ -97,6 +99,7 @@ export default function App() {
 
   // Export State
   const [isExporting, setIsExporting] = useState(false);
+  const [isBatchExporting, setIsBatchExporting] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -240,47 +243,41 @@ export default function App() {
     }));
   };
 
+  // Helper to generate PNG blob from a node
+  const generatePngBlob = async (node: HTMLElement): Promise<Blob | null> => {
+    const width = node.scrollWidth;
+    const height = node.scrollHeight;
+    const padding = 40;
+
+    const dataUrl = await toPng(node, { 
+      cacheBust: true, 
+      backgroundColor: '#f8fafc',
+      width: width + (padding * 2),
+      height: height + (padding * 2),
+      pixelRatio: 3,
+      style: {
+         padding: `${padding}px`,
+         height: 'auto',
+         width: 'auto',
+         overflow: 'visible' 
+      }
+    });
+    
+    // Convert dataURL to Blob
+    const res = await fetch(dataUrl);
+    return res.blob();
+  };
+
   const handleExportImage = async () => {
     if (!reportRef.current) return;
     
     setIsExporting(true);
     try {
-      const node = reportRef.current;
-      
-      // Calculate the full scroll dimensions to ensure the entire content is captured
-      // even if it's currently cut off by the viewport or scrollable container
-      const width = node.scrollWidth;
-      const height = node.scrollHeight;
-      
-      // Add padding for the exported image
-      const padding = 40;
-
-      const dataUrl = await toPng(node, { 
-        cacheBust: true, 
-        backgroundColor: '#f8fafc', // match slate-50 
-        
-        // Explicitly set the canvas dimensions to match the full scroll content plus padding
-        width: width + (padding * 2),
-        height: height + (padding * 2),
-
-        // Higher pixel ratio for better resolution
-        pixelRatio: 3,
-        
-        style: {
-           // Apply padding to the cloned element
-           padding: `${padding}px`,
-           // Ensure the clone expands to fit content and is not constrained
-           height: 'auto',
-           width: 'auto',
-           overflow: 'visible' 
-        }
-      });
-      
-      const currentPersonaName = personas.find(p => p.id === viewingPersonaId)?.name || 'Report';
-      const link = document.createElement('a');
-      link.download = `UES_Report_${currentPersonaName}.png`;
-      link.href = dataUrl;
-      link.click();
+      const blob = await generatePngBlob(reportRef.current);
+      if (blob) {
+        const currentPersonaName = personas.find(p => p.id === viewingPersonaId)?.name || 'Report';
+        FileSaver.saveAs(blob, `UES_Report_${currentPersonaName}.png`);
+      }
     } catch (err) {
       console.error('Failed to export image:', err);
       setError('导出图片失败，请重试。');
@@ -289,13 +286,84 @@ export default function App() {
     }
   };
 
+  const handleBatchExport = async () => {
+    const reportIds = Object.keys(reports);
+    if (reportIds.length === 0) return;
+
+    setIsBatchExporting(true);
+    try {
+      const zip = new JSZip();
+      
+      // Iterate over all generated reports
+      for (const id of reportIds) {
+        const persona = personas.find(p => p.id === id);
+        const name = persona?.name || `Persona_${id}`;
+        
+        // Find the hidden element for this report
+        const elementId = `report-capture-${id}`;
+        const element = document.getElementById(elementId);
+        
+        if (element) {
+          const blob = await generatePngBlob(element);
+          if (blob) {
+            zip.file(`UES_Report_${name}.png`, blob);
+          }
+        }
+      }
+
+      // Generate Zip and save
+      const content = await zip.generateAsync({ type: 'blob' });
+      FileSaver.saveAs(content, 'UES_Analysis_Reports.zip');
+
+    } catch (err) {
+      console.error('Batch export failed:', err);
+      setError('批量导出失败，请重试。');
+    } finally {
+      setIsBatchExporting(false);
+    }
+  };
+
   // Get current report to display
   const currentReport = reports[viewingPersonaId];
   const currentOptimizedImage = optimizedImages[viewingPersonaId];
+  
+  // Check if we have multiple reports for batch export logic
+  const hasMultipleReports = Object.keys(reports).length > 1;
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-slate-50 font-sans text-slate-900">
       
+      {/* Hidden Container for Batch Capture - Renders ALL reports off-screen */}
+      {Object.keys(reports).length > 0 && (
+        <div style={{ position: 'fixed', left: '-10000px', top: 0, opacity: 0, pointerEvents: 'none' }}>
+          {Object.entries(reports).map(([id, report]) => (
+            <div 
+              key={id} 
+              id={`report-capture-${id}`} 
+              className="w-[1024px] bg-slate-50 p-8" // Fixed width for consistent export layout
+            >
+              <div className="bg-white rounded-xl shadow-none p-8">
+                 <div className="mb-8 border-b border-slate-200 pb-4">
+                    <h1 className="text-3xl font-bold text-slate-800 mb-2">UES 体验评估报告</h1>
+                    <div className="flex items-center gap-4 text-slate-500">
+                      <span className="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full text-sm font-semibold">
+                         {personas.find(p => p.id === id)?.name}
+                      </span>
+                      <span>{new Date().toLocaleDateString()}</span>
+                    </div>
+                 </div>
+                 <ReportView 
+                    report={report} 
+                    originalImage={image}
+                    optimizedImage={optimizedImages[id]}
+                    isGeneratingImage={false} // For export, we assume generation is done or we capture what we have
+                  />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Sidebar / Configuration Panel */}
       <div className="w-full md:w-96 bg-white border-r border-slate-200 h-auto md:h-screen flex flex-col sticky top-0 z-20 overflow-y-auto print:hidden">
         
@@ -502,8 +570,8 @@ export default function App() {
             <div className="animate-fade-in space-y-6">
               
               {/* Report Switcher Tabs */}
-              <div className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur py-2 border-b border-slate-200 print:hidden flex justify-between items-center">
-                 <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar">
+              <div className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur py-2 border-b border-slate-200 print:hidden flex justify-between items-center flex-wrap gap-2">
+                 <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar max-w-[60%]">
                     <span className="text-xs font-bold text-slate-400 uppercase mr-2 shrink-0">当前查看:</span>
                     {selectedPersonaIds.map(id => {
                       const persona = personas.find(p => p.id === id);
@@ -531,18 +599,34 @@ export default function App() {
                     })}
                  </div>
 
-                 {/* Export Button */}
-                 {currentReport && (
-                    <button
-                      onClick={handleExportImage}
-                      disabled={isExporting}
-                      className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 hover:text-indigo-600 transition-colors ml-4 shadow-sm"
-                    >
-                      {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
-                      <span className="hidden sm:inline">导出报告长图</span>
-                      <span className="sm:hidden">导出</span>
-                    </button>
-                 )}
+                 {/* Export Buttons */}
+                 <div className="flex items-center gap-2 ml-auto">
+                    {/* Single Export */}
+                    {currentReport && (
+                      <button
+                        onClick={handleExportImage}
+                        disabled={isExporting || isBatchExporting}
+                        className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 hover:text-indigo-600 transition-colors shadow-sm whitespace-nowrap"
+                        title="导出当前查看的角色报告"
+                      >
+                        {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                        <span className="hidden sm:inline">导出长图</span>
+                      </button>
+                    )}
+
+                    {/* Batch Export */}
+                    {hasMultipleReports && (
+                      <button
+                        onClick={handleBatchExport}
+                        disabled={isExporting || isBatchExporting}
+                        className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-white bg-indigo-600 border border-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm whitespace-nowrap"
+                        title="打包下载所有角色的报告"
+                      >
+                         {isBatchExporting ? <Loader2 size={16} className="animate-spin" /> : <Package size={16} />}
+                         <span className="hidden sm:inline">批量导出 (ZIP)</span>
+                      </button>
+                    )}
+                 </div>
               </div>
 
               {/* Render Active Report */}
