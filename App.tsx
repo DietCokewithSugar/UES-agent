@@ -91,6 +91,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   
   // Image Generation State (Map by Persona ID)
+  const [shouldGenerateImages, setShouldGenerateImages] = useState(false); // Default to false (optional)
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [optimizedImages, setOptimizedImages] = useState<Record<string, string>>({});
   
@@ -192,17 +193,16 @@ export default function App() {
       setReports(newReports);
       setIsAnalyzing(false); 
 
-      // 2. Parallel Image Generation (Only supported via Google SDK for now, skips if on OpenRouter unless we implement image gen bridge)
-      // Note: OpenRouter 'chat/completions' doesn't typically return images. 
-      // We will skip image optimization generation if using OpenRouter to avoid key errors if user hasn't set up Google Key.
-      if (apiConfig.provider === 'google') {
+      // 2. Parallel Image Generation (Optional)
+      // Enable for both Google and OpenRouter ONLY IF CHECKED
+      if (shouldGenerateImages && (apiConfig.provider === 'google' || (apiConfig.provider === 'openrouter' && apiConfig.openRouterKey))) {
           setIsGeneratingImage(true);
           
           const imagePromises = targets.map(async (p) => {
             const report = newReports[p.id];
             if (!report) return null;
             try {
-              const img = await generateOptimizedDesign(image, p, report);
+              const img = await generateOptimizedDesign(image, p, report, apiConfig);
               return { id: p.id, img };
             } catch (e) {
                console.error(`Image gen failed for ${p.name}`, e);
@@ -519,6 +519,22 @@ export default function App() {
 
         {/* Action Button */}
         <div className="p-6 bg-white sticky bottom-0 border-t border-slate-200 z-10">
+          
+          {/* Option: Generate AI Visuals */}
+          <div className="mb-4 flex items-center gap-2 select-none">
+            <input 
+              type="checkbox" 
+              id="gen-visuals"
+              checked={shouldGenerateImages}
+              onChange={(e) => setShouldGenerateImages(e.target.checked)}
+              className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer"
+            />
+            <label htmlFor="gen-visuals" className="text-sm text-slate-700 cursor-pointer flex items-center gap-2">
+              <Sparkles size={14} className="text-indigo-500" />
+              生成 AI 视觉优化建议图
+            </label>
+          </div>
+
           {apiConfig.provider === 'openrouter' && (
             <div className="mb-3 px-3 py-2 bg-slate-50 border border-slate-200 rounded text-xs text-slate-600 flex items-center justify-between">
               <span className="flex items-center gap-1">
