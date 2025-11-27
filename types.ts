@@ -50,6 +50,14 @@ export interface UESReport {
   optimizationSuggestions: string[]; // High level strategic suggestions
 }
 
+export type ApiProvider = 'google' | 'openrouter';
+
+export interface ApiConfig {
+  provider: ApiProvider;
+  openRouterKey?: string;
+  openRouterModel?: string;
+}
+
 declare global {
   interface AIStudio {
     hasSelectedApiKey: () => Promise<boolean>;

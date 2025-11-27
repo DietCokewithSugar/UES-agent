@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { Persona, UESReport, EvaluationModel } from "../types";
+import { Persona, UESReport, EvaluationModel, ApiConfig } from "../types";
 
 // Note: API Key must be obtained from process.env.API_KEY or via window.aistudio for high-end models
 const getAIClient = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -60,19 +60,141 @@ const MODEL_DEFINITIONS = {
   `
 };
 
+const callOpenRouter = async (
+  prompt: string,
+  base64Image: string,
+  apiKey: string,
+  model: string
+): Promise<UESReport> => {
+  const cleanBase64 = base64Image.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
+  
+  // Construct messages for OpenRouter (OpenAI compatible)
+  const messages = [
+    {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: prompt + "\n\nIMPORTANT: Return ONLY valid JSON."
+        },
+        {
+          type: "image_url",
+          image_url: {
+            url: `data:image/png;base64,${cleanBase64}`
+          }
+        }
+      ]
+    }
+  ];
+
+  try {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": window.location.origin, // Required by OpenRouter
+        "X-Title": "UES Agent"
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: messages,
+        // Enable reasoning if using pro-preview models as requested
+        reasoning: { enabled: true },
+        // Try to enforce JSON mode if supported by the provider/model
+        response_format: { type: "json_object" } 
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(`OpenRouter API Error: ${err.error?.message || response.statusText}`);
+    }
+
+    const result = await response.json();
+    const messageContent = result.choices[0]?.message?.content;
+    
+    if (!messageContent) {
+      throw new Error("No content received from OpenRouter.");
+    }
+
+    // Clean up potential markdown code blocks
+    const jsonStr = messageContent.replace(/```json\n?|\n?```/g, "").trim();
+    return JSON.parse(jsonStr) as UESReport;
+
+  } catch (error) {
+    console.error("OpenRouter Call Failed:", error);
+    throw error;
+  }
+};
+
 export const analyzeDesign = async (
   base64Image: string,
   persona: Persona,
-  model: EvaluationModel = EvaluationModel.UES
+  model: EvaluationModel = EvaluationModel.UES,
+  apiConfig: ApiConfig = { provider: 'google' }
 ): Promise<UESReport> => {
-  const ai = getAIClient();
-  
-  // Dynamic description for the schema based on model
   const dimensionDescription = model === EvaluationModel.UES 
     ? "五个维度的评分：易用性, 一致性, 清晰度, 美观度, 效率"
     : "八个维度的评分：功能流程, 信息认知, 交互设计, 系统性能, 信息安全, 视觉设计, 智能化, 运营服务";
 
-  // Define the strict schema for the output
+  const personaDescription = `
+    角色类型: ${persona.role}
+    姓名: ${persona.name}
+    年龄: ${persona.attributes.age}
+    科技熟练度: ${persona.attributes.techSavviness}
+    领域知识: ${persona.attributes.domainKnowledge}
+    目标: ${persona.attributes.goals}
+    环境: ${persona.attributes.environment}
+    挫折容忍度: ${persona.attributes.frustrationTolerance}
+    设备习惯: ${persona.attributes.deviceHabits}
+  `;
+
+  const prompt = `
+    你是一个世界级的体验评估专家智能体。
+    你的任务是基于 **${model} 评估模型** 对上传的 UI 设计图进行严格审计。
+    
+    审计必须严格基于以下【用户画像】的视角进行：
+    ${personaDescription}
+
+    **评估标准：**
+    ${MODEL_DEFINITIONS[model]}
+
+    请提供严格的 JSON 输出，不要包含任何 Markdown 格式（如 \`\`\`json），直接返回 JSON 对象。**所有内容必须使用简体中文**：
+    
+    期望的 JSON 结构:
+    {
+      "overallScore": number (0-100),
+      "dimensionScores": [
+        { "dimension": "string", "score": number, "comment": "string" }
+      ],
+      "executiveSummary": "string",
+      "personaPerspective": "string",
+      "issues": [
+        { "severity": "严重" | "高" | "中" | "低", "location": "string", "description": "string", "recommendation": "string" }
+      ],
+      "optimizationSuggestions": ["string"]
+    }
+  `;
+
+  // --- BRANCH: OpenRouter ---
+  if (apiConfig.provider === 'openrouter') {
+    if (!apiConfig.openRouterKey) {
+      throw new Error("OpenRouter API Key is missing. Please configure it in Settings.");
+    }
+    const report = await callOpenRouter(
+      prompt, 
+      base64Image, 
+      apiConfig.openRouterKey, 
+      apiConfig.openRouterModel || "google/gemini-3-pro-preview"
+    );
+    report.modelType = model;
+    return report;
+  }
+
+  // --- BRANCH: Google GenAI (Default) ---
+  const ai = getAIClient();
+
   const responseSchema = {
     type: Type.OBJECT,
     properties: {
@@ -121,39 +243,7 @@ export const analyzeDesign = async (
     ],
   };
 
-  const personaDescription = `
-    角色类型: ${persona.role}
-    姓名: ${persona.name}
-    年龄: ${persona.attributes.age}
-    科技熟练度: ${persona.attributes.techSavviness}
-    领域知识: ${persona.attributes.domainKnowledge}
-    目标: ${persona.attributes.goals}
-    环境: ${persona.attributes.environment}
-    挫折容忍度: ${persona.attributes.frustrationTolerance}
-    设备习惯: ${persona.attributes.deviceHabits}
-  `;
-
-  const prompt = `
-    你是一个世界级的体验评估专家智能体。
-    你的任务是基于 **${model} 评估模型** 对上传的 UI 设计图进行严格审计。
-    
-    审计必须严格基于以下【用户画像】的视角进行：
-    ${personaDescription}
-
-    **评估标准：**
-    ${MODEL_DEFINITIONS[model]}
-
-    请提供严格的 JSON 输出，**所有内容必须使用简体中文**：
-    - 一个总体评分 (0-100)。
-    - 对应 ${model === EvaluationModel.ETS ? '8' : '5'} 个维度的具体评分和简短评语。
-    - 一份定性的执行摘要。
-    - 一个专门的章节，描述该特定画像眼中的体验（例如：“作为一个新手用户，我感觉……”）。
-    - 发现的具体 UI 问题列表 (严重程度分为: 严重/高/中/低)，如果没有发现 UI 问题,不必强行提出来。
-    - 几条有战略性和建设性的优化建议,如果没有好的优化建议不用强行提出来。
-  `;
-
   try {
-    // Strip base64 prefix if present
     const cleanBase64 = base64Image.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
 
     const response = await ai.models.generateContent({
@@ -182,7 +272,7 @@ export const analyzeDesign = async (
     }
 
     const report = JSON.parse(response.text) as UESReport;
-    report.modelType = model; // Ensure the model type is attached to the report object locally
+    report.modelType = model;
     return report;
   } catch (error) {
     console.error("Gemini Analysis Failed:", error);

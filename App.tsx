@@ -1,9 +1,10 @@
+
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, Sparkles, Settings, ChevronRight, Check, Loader2, Plus, X, Layers, Square, CheckSquare, Users, Download, Archive, Package } from 'lucide-react';
+import { Upload, Sparkles, Settings, ChevronRight, Check, Loader2, Plus, X, Layers, Square, CheckSquare, Users, Download, Archive, Package, Globe } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import JSZip from 'jszip';
 import FileSaver from 'file-saver';
-import { Persona, UESReport, UserRole, EvaluationModel } from './types';
+import { Persona, UESReport, UserRole, EvaluationModel, ApiConfig } from './types';
 import { analyzeDesign, generateOptimizedDesign } from './services/geminiService';
 import { ReportView } from './components/ReportView';
 
@@ -95,7 +96,15 @@ export default function App() {
   
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [newPersonaData, setNewPersonaData] = useState<Omit<Persona, 'id'>>(EMPTY_PERSONA);
+
+  // Settings State
+  const [apiConfig, setApiConfig] = useState<ApiConfig>({
+    provider: 'google',
+    openRouterKey: '',
+    openRouterModel: 'google/gemini-3-pro-preview'
+  });
 
   // Export State
   const [isExporting, setIsExporting] = useState(false);
@@ -136,16 +145,18 @@ export default function App() {
   const handleAnalyze = async () => {
     if (!image) return;
     
-    // Check for API Key
-    try {
-      if (window.aistudio) {
-        const hasKey = await window.aistudio.hasSelectedApiKey();
-        if (!hasKey) {
-          await window.aistudio.openSelectKey();
+    // Check for API Key if using Google
+    if (apiConfig.provider === 'google') {
+        try {
+        if (window.aistudio) {
+            const hasKey = await window.aistudio.hasSelectedApiKey();
+            if (!hasKey) {
+            await window.aistudio.openSelectKey();
+            }
         }
-      }
-    } catch (keyError) {
-      console.warn("API Key selection check failed:", keyError);
+        } catch (keyError) {
+        console.warn("API Key selection check failed:", keyError);
+        }
     }
 
     const targets = getSelectedPersonas();
@@ -163,11 +174,11 @@ export default function App() {
       // 1. Parallel Text Analysis
       const analysisPromises = targets.map(async (p) => {
         try {
-          const result = await analyzeDesign(image, p, evaluationModel);
+          const result = await analyzeDesign(image, p, evaluationModel, apiConfig);
           return { id: p.id, report: result };
-        } catch (e) {
+        } catch (e: any) {
           console.error(`Analysis failed for ${p.name}`, e);
-          return null;
+          throw new Error(`${p.name} 分析失败: ${e.message}`);
         }
       });
 
@@ -178,36 +189,36 @@ export default function App() {
         if (res) newReports[res.id] = res.report;
       });
 
-      if (Object.keys(newReports).length === 0) {
-        throw new Error("所有角色分析均失败，请重试。");
-      }
-
       setReports(newReports);
       setIsAnalyzing(false); 
 
-      // 2. Parallel Image Generation
-      setIsGeneratingImage(true);
-      
-      const imagePromises = targets.map(async (p) => {
-        const report = newReports[p.id];
-        if (!report) return null;
-        try {
-          const img = await generateOptimizedDesign(image, p, report);
-          return { id: p.id, img };
-        } catch (e) {
-           console.error(`Image gen failed for ${p.name}`, e);
-           return null;
-        }
-      });
+      // 2. Parallel Image Generation (Only supported via Google SDK for now, skips if on OpenRouter unless we implement image gen bridge)
+      // Note: OpenRouter 'chat/completions' doesn't typically return images. 
+      // We will skip image optimization generation if using OpenRouter to avoid key errors if user hasn't set up Google Key.
+      if (apiConfig.provider === 'google') {
+          setIsGeneratingImage(true);
+          
+          const imagePromises = targets.map(async (p) => {
+            const report = newReports[p.id];
+            if (!report) return null;
+            try {
+              const img = await generateOptimizedDesign(image, p, report);
+              return { id: p.id, img };
+            } catch (e) {
+               console.error(`Image gen failed for ${p.name}`, e);
+               return null;
+            }
+          });
 
-      const imgResults = await Promise.all(imagePromises);
-      
-      const newImages: Record<string, string> = {};
-      imgResults.forEach(res => {
-        if (res) newImages[res.id] = res.img;
-      });
+          const imgResults = await Promise.all(imagePromises);
+          
+          const newImages: Record<string, string> = {};
+          imgResults.forEach(res => {
+            if (res) newImages[res.id] = res.img;
+          });
 
-      setOptimizedImages(newImages);
+          setOptimizedImages(newImages);
+      }
 
     } catch (err: any) {
       setError(err.message || "分析过程中发生未知错误。");
@@ -368,12 +379,21 @@ export default function App() {
       <div className="w-full md:w-96 bg-white border-r border-slate-200 h-auto md:h-screen flex flex-col sticky top-0 z-20 overflow-y-auto print:hidden">
         
         {/* Brand */}
-        <div className="p-6 border-b border-slate-100 bg-white">
-          <div className="flex items-center gap-2 text-indigo-600 mb-1">
-            <Sparkles size={24} fill="currentColor" className="text-indigo-500" />
-            <h1 className="text-xl font-bold tracking-tight text-slate-900">UES Agent</h1>
+        <div className="p-6 border-b border-slate-100 bg-white flex justify-between items-center">
+          <div>
+            <div className="flex items-center gap-2 text-indigo-600 mb-1">
+              <Sparkles size={24} fill="currentColor" className="text-indigo-500" />
+              <h1 className="text-xl font-bold tracking-tight text-slate-900">UES Agent</h1>
+            </div>
+            <p className="text-xs text-slate-500 font-medium">产品体验自动化分析工具</p>
           </div>
-          <p className="text-xs text-slate-500 font-medium">产品体验自动化分析工具</p>
+          <button 
+            onClick={() => setIsSettingsOpen(true)}
+            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+            title="API 设置"
+          >
+            <Settings size={20} />
+          </button>
         </div>
 
         {/* Step 1: Upload */}
@@ -499,6 +519,17 @@ export default function App() {
 
         {/* Action Button */}
         <div className="p-6 bg-white sticky bottom-0 border-t border-slate-200 z-10">
+          {apiConfig.provider === 'openrouter' && (
+            <div className="mb-3 px-3 py-2 bg-slate-50 border border-slate-200 rounded text-xs text-slate-600 flex items-center justify-between">
+              <span className="flex items-center gap-1">
+                <Globe size={12} className="text-indigo-500" />
+                API Provider: OpenRouter
+              </span>
+              <span className="font-mono text-[10px] opacity-70 truncate max-w-[120px]" title={apiConfig.openRouterModel}>
+                {apiConfig.openRouterModel}
+              </span>
+            </div>
+          )}
           <button
             onClick={handleAnalyze}
             disabled={!image || isAnalyzing || isGeneratingImage || selectedPersonaIds.length === 0}
@@ -649,6 +680,97 @@ export default function App() {
 
         </div>
       </div>
+
+      {/* Settings Modal */}
+      {isSettingsOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsSettingsOpen(false)}></div>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden relative flex flex-col z-10 animate-fade-in">
+             <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-white">
+              <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                <Settings className="w-5 h-5 text-indigo-500" />
+                系统设置
+              </h2>
+              <button onClick={() => setIsSettingsOpen(false)} className="text-slate-400 hover:text-slate-600">
+                <X size={24} />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-6">
+              
+              {/* API Provider Selection */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">AI 模型提供商</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => setApiConfig(prev => ({ ...prev, provider: 'google' }))}
+                    className={`flex items-center justify-center gap-2 py-3 px-4 rounded-xl border transition-all text-sm font-semibold
+                      ${apiConfig.provider === 'google' 
+                        ? 'border-indigo-500 bg-indigo-50 text-indigo-700' 
+                        : 'border-slate-200 hover:border-indigo-200 text-slate-600'}`}
+                  >
+                    Google Gemini
+                  </button>
+                  <button
+                    onClick={() => setApiConfig(prev => ({ ...prev, provider: 'openrouter' }))}
+                    className={`flex items-center justify-center gap-2 py-3 px-4 rounded-xl border transition-all text-sm font-semibold
+                      ${apiConfig.provider === 'openrouter' 
+                        ? 'border-indigo-500 bg-indigo-50 text-indigo-700' 
+                        : 'border-slate-200 hover:border-indigo-200 text-slate-600'}`}
+                  >
+                    OpenRouter
+                  </button>
+                </div>
+              </div>
+
+              {/* Conditional Fields */}
+              {apiConfig.provider === 'openrouter' && (
+                <div className="space-y-4 animate-fade-in p-4 bg-slate-50 rounded-xl border border-slate-100">
+                   <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">OpenRouter API Key</label>
+                      <input 
+                        type="password" 
+                        value={apiConfig.openRouterKey}
+                        onChange={(e) => setApiConfig(prev => ({ ...prev, openRouterKey: e.target.value }))}
+                        placeholder="sk-or-..."
+                        className="w-full rounded-lg border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm py-2 px-3 border bg-white text-slate-900"
+                      />
+                      <p className="text-xs text-slate-500 mt-1">Key 仅存储在本地内存中，刷新后需重新输入。</p>
+                   </div>
+                   <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Model ID</label>
+                      <input 
+                        type="text" 
+                        value={apiConfig.openRouterModel}
+                        onChange={(e) => setApiConfig(prev => ({ ...prev, openRouterModel: e.target.value }))}
+                        placeholder="例如: google/gemini-3-pro-preview"
+                        className="w-full rounded-lg border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm py-2 px-3 border bg-white text-slate-900 font-mono"
+                      />
+                      <p className="text-xs text-slate-500 mt-1">默认使用 google/gemini-3-pro-preview (支持推理)</p>
+                   </div>
+                </div>
+              )}
+
+              {apiConfig.provider === 'google' && (
+                <div className="p-4 bg-blue-50 text-blue-800 text-xs rounded-xl border border-blue-100 leading-relaxed">
+                  当前使用 Google 官方 SDK (gemini-2.5-flash) 进行分析，使用 (gemini-3-pro-image-preview) 进行视觉优化。
+                  无需额外配置，将自动使用系统内置的 API Key。
+                </div>
+              )}
+
+            </div>
+
+            <div className="p-6 border-t border-slate-100 bg-slate-50 flex justify-end">
+               <button 
+                onClick={() => setIsSettingsOpen(false)}
+                className="px-6 py-2 text-sm font-bold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"
+              >
+                完成配置
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Create Persona Modal */}
       {isModalOpen && (
