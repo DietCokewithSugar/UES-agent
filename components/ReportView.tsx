@@ -2,7 +2,7 @@
 import React from 'react';
 import { UESReport } from '../types';
 import { UESRadarChart } from './RadarChart';
-import { AlertTriangle, CheckCircle, Target, User, FileText, Zap, Wand2, ArrowRight } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Target, User, FileText, Zap, Wand2, ArrowRight, Image as ImageIcon } from 'lucide-react';
 
 interface ReportViewProps {
   report: UESReport;
@@ -34,6 +34,25 @@ export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, o
   return (
     <div className="space-y-8 animate-fade-in pb-12">
       
+      {/* Uploaded Image Section (Top) */}
+      {originalImage && (
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center">
+            <div className="w-full flex items-center justify-start mb-4 border-b border-slate-100 pb-2">
+                <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                    <ImageIcon className="w-5 h-5 text-indigo-500" />
+                    测评界面截图
+                </h3>
+            </div>
+            <div className="max-w-2xl w-full rounded-xl overflow-hidden border border-slate-200 bg-slate-50 p-2">
+                 <img 
+                  src={originalImage} 
+                  alt="Analyzed UI" 
+                  className="w-full h-auto max-h-[400px] object-contain mx-auto rounded-lg shadow-sm"
+                />
+            </div>
+        </div>
+      )}
+
       {/* Header Section */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Overall Score */}
@@ -222,3 +241,4 @@ export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, o
     </div>
   );
 };
+    

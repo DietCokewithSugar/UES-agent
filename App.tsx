@@ -1,6 +1,6 @@
-
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, Sparkles, Settings, ChevronRight, Check, Loader2, Plus, X, Layers, Square, CheckSquare, Users } from 'lucide-react';
+import { Upload, Sparkles, Settings, ChevronRight, Check, Loader2, Plus, X, Layers, Square, CheckSquare, Users, Download } from 'lucide-react';
+import { toPng } from 'html-to-image';
 import { Persona, UESReport, UserRole, EvaluationModel } from './types';
 import { analyzeDesign, generateOptimizedDesign } from './services/geminiService';
 import { ReportView } from './components/ReportView';
@@ -95,6 +95,9 @@ export default function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newPersonaData, setNewPersonaData] = useState<Omit<Persona, 'id'>>(EMPTY_PERSONA);
 
+  // Export State
+  const [isExporting, setIsExporting] = useState(false);
+  const reportRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Helper to get actual persona objects from selected IDs
@@ -237,6 +240,52 @@ export default function App() {
     }));
   };
 
+  const handleExportImage = async () => {
+    if (!reportRef.current) return;
+    
+    setIsExporting(true);
+    try {
+      const node = reportRef.current;
+      
+      // Calculate the full scroll dimensions to ensure the entire content is captured
+      // even if it's currently cut off by the viewport or scrollable container
+      const width = node.scrollWidth;
+      const height = node.scrollHeight;
+      
+      // Add padding for the exported image
+      const padding = 40;
+
+      const dataUrl = await toPng(node, { 
+        cacheBust: true, 
+        backgroundColor: '#f8fafc', // match slate-50 
+        
+        // Explicitly set the canvas dimensions to match the full scroll content plus padding
+        width: width + (padding * 2),
+        height: height + (padding * 2),
+        
+        style: {
+           // Apply padding to the cloned element
+           padding: `${padding}px`,
+           // Ensure the clone expands to fit content and is not constrained
+           height: 'auto',
+           width: 'auto',
+           overflow: 'visible' 
+        }
+      });
+      
+      const currentPersonaName = personas.find(p => p.id === viewingPersonaId)?.name || 'Report';
+      const link = document.createElement('a');
+      link.download = `UES_Report_${currentPersonaName}.png`;
+      link.href = dataUrl;
+      link.click();
+    } catch (err) {
+      console.error('Failed to export image:', err);
+      setError('导出图片失败，请重试。');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   // Get current report to display
   const currentReport = reports[viewingPersonaId];
   const currentOptimizedImage = optimizedImages[viewingPersonaId];
@@ -245,7 +294,7 @@ export default function App() {
     <div className="min-h-screen flex flex-col md:flex-row bg-slate-50 font-sans text-slate-900">
       
       {/* Sidebar / Configuration Panel */}
-      <div className="w-full md:w-96 bg-white border-r border-slate-200 h-auto md:h-screen flex flex-col sticky top-0 z-20 overflow-y-auto">
+      <div className="w-full md:w-96 bg-white border-r border-slate-200 h-auto md:h-screen flex flex-col sticky top-0 z-20 overflow-y-auto print:hidden">
         
         {/* Brand */}
         <div className="p-6 border-b border-slate-100 bg-white">
@@ -409,12 +458,12 @@ export default function App() {
       </div>
 
       {/* Main Content Area - Reports */}
-      <div className="flex-1 overflow-auto h-screen bg-slate-50 p-4 md:p-8">
+      <div className="flex-1 overflow-auto h-screen bg-slate-50 p-4 md:p-8 print:h-auto print:overflow-visible print:p-0">
         <div className="max-w-5xl mx-auto">
           
           {/* Empty State */}
           {Object.keys(reports).length === 0 && !isAnalyzing && !error && (
-            <div className="h-full flex flex-col items-center justify-center text-center space-y-6 mt-20 opacity-60">
+            <div className="h-full flex flex-col items-center justify-center text-center space-y-6 mt-20 opacity-60 print:hidden">
               <div className="w-32 h-32 bg-indigo-50 rounded-full flex items-center justify-center mb-4">
                 <Sparkles size={48} className="text-indigo-300" />
               </div>
@@ -427,7 +476,7 @@ export default function App() {
 
           {/* Loading State */}
           {isAnalyzing && (
-             <div className="flex flex-col items-center justify-center h-[60vh] space-y-6">
+             <div className="flex flex-col items-center justify-center h-[60vh] space-y-6 print:hidden">
                 <div className="relative">
                   <div className="w-16 h-16 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
                 </div>
@@ -440,7 +489,7 @@ export default function App() {
 
           {/* Error State */}
           {error && (
-            <div className="p-4 bg-red-50 border border-red-100 rounded-lg text-red-700 text-sm text-center mt-10">
+            <div className="p-4 bg-red-50 border border-red-100 rounded-lg text-red-700 text-sm text-center mt-10 print:hidden">
               {error}
             </div>
           )}
@@ -450,7 +499,7 @@ export default function App() {
             <div className="animate-fade-in space-y-6">
               
               {/* Report Switcher Tabs */}
-              <div className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur py-2 border-b border-slate-200">
+              <div className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur py-2 border-b border-slate-200 print:hidden flex justify-between items-center">
                  <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar">
                     <span className="text-xs font-bold text-slate-400 uppercase mr-2 shrink-0">当前查看:</span>
                     {selectedPersonaIds.map(id => {
@@ -478,16 +527,31 @@ export default function App() {
                       );
                     })}
                  </div>
+
+                 {/* Export Button */}
+                 {currentReport && (
+                    <button
+                      onClick={handleExportImage}
+                      disabled={isExporting}
+                      className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 hover:text-indigo-600 transition-colors ml-4 shadow-sm"
+                    >
+                      {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                      <span className="hidden sm:inline">导出报告长图</span>
+                      <span className="sm:hidden">导出</span>
+                    </button>
+                 )}
               </div>
 
               {/* Render Active Report */}
               {currentReport ? (
-                 <ReportView 
-                   report={currentReport} 
-                   originalImage={image}
-                   optimizedImage={currentOptimizedImage}
-                   isGeneratingImage={isGeneratingImage}
-                 />
+                 <div className="pt-2" ref={reportRef}>
+                   <ReportView 
+                     report={currentReport} 
+                     originalImage={image}
+                     optimizedImage={currentOptimizedImage}
+                     isGeneratingImage={isGeneratingImage}
+                   />
+                 </div>
               ) : (
                 <div className="text-center py-20 text-slate-400">
                   未找到该角色的报告数据。
@@ -529,7 +593,7 @@ export default function App() {
                           value={newPersonaData.name}
                           onChange={(e) => setNewPersonaData({...newPersonaData, name: e.target.value})}
                           placeholder="例如：年轻的游戏玩家"
-                          className="w-full rounded-lg border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm py-2 px-3 border bg-white"
+                          className="w-full rounded-lg border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm py-2 px-3 border bg-white text-slate-900"
                         />
                      </div>
                      <div>
@@ -537,7 +601,7 @@ export default function App() {
                         <select 
                           value={newPersonaData.role}
                           onChange={(e) => setNewPersonaData({...newPersonaData, role: e.target.value as UserRole})}
-                          className="w-full rounded-lg border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm py-2 px-3 border bg-white"
+                          className="w-full rounded-lg border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm py-2 px-3 border bg-white text-slate-900"
                         >
                           <option value={UserRole.USER}>普通用户 (User)</option>
                           <option value={UserRole.EXPERT}>专家 (Expert)</option>
@@ -551,7 +615,7 @@ export default function App() {
                       value={newPersonaData.description}
                       onChange={(e) => setNewPersonaData({...newPersonaData, description: e.target.value})}
                       placeholder="简要描述该角色的背景和特点..."
-                      className="w-full rounded-lg border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm py-2 px-3 border h-20 resize-none bg-white"
+                      className="w-full rounded-lg border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm py-2 px-3 border h-20 resize-none bg-white text-slate-900"
                     />
                   </div>
                 </div>
@@ -570,7 +634,7 @@ export default function App() {
                         value={newPersonaData.attributes.age}
                         onChange={(e) => updateNewPersonaAttr('age', e.target.value)}
                         placeholder="例如：25-30岁"
-                        className="w-full rounded-lg border-slate-200 focus:border-indigo-500 text-sm py-2 px-3 border bg-white"
+                        className="w-full rounded-lg border-slate-200 focus:border-indigo-500 text-sm py-2 px-3 border bg-white text-slate-900"
                       />
                    </div>
                    <div>
@@ -578,7 +642,7 @@ export default function App() {
                        <select 
                           value={newPersonaData.attributes.techSavviness}
                           onChange={(e) => updateNewPersonaAttr('techSavviness', e.target.value)}
-                          className="w-full rounded-lg border-slate-200 focus:border-indigo-500 text-sm py-2 px-3 border bg-white"
+                          className="w-full rounded-lg border-slate-200 focus:border-indigo-500 text-sm py-2 px-3 border bg-white text-slate-900"
                         >
                           <option value="低">低 (小白)</option>
                           <option value="中">中 (普通)</option>
@@ -592,7 +656,7 @@ export default function App() {
                         value={newPersonaData.attributes.domainKnowledge}
                         onChange={(e) => updateNewPersonaAttr('domainKnowledge', e.target.value)}
                         placeholder="例如：新手 / 专家"
-                        className="w-full rounded-lg border-slate-200 focus:border-indigo-500 text-sm py-2 px-3 border bg-white"
+                        className="w-full rounded-lg border-slate-200 focus:border-indigo-500 text-sm py-2 px-3 border bg-white text-slate-900"
                       />
                    </div>
                    <div>
@@ -602,7 +666,7 @@ export default function App() {
                         value={newPersonaData.attributes.deviceHabits}
                         onChange={(e) => updateNewPersonaAttr('deviceHabits', e.target.value)}
                         placeholder="例如：单手操作手机"
-                        className="w-full rounded-lg border-slate-200 focus:border-indigo-500 text-sm py-2 px-3 border bg-white"
+                        className="w-full rounded-lg border-slate-200 focus:border-indigo-500 text-sm py-2 px-3 border bg-white text-slate-900"
                       />
                    </div>
                 </div>
@@ -616,7 +680,7 @@ export default function App() {
                         value={newPersonaData.attributes.goals}
                         onChange={(e) => updateNewPersonaAttr('goals', e.target.value)}
                         placeholder="例如：快速完成支付"
-                        className="w-full rounded-lg border-slate-200 focus:border-indigo-500 text-sm py-2 px-3 border bg-white"
+                        className="w-full rounded-lg border-slate-200 focus:border-indigo-500 text-sm py-2 px-3 border bg-white text-slate-900"
                       />
                    </div>
                    <div>
@@ -626,7 +690,7 @@ export default function App() {
                         value={newPersonaData.attributes.environment}
                         onChange={(e) => updateNewPersonaAttr('environment', e.target.value)}
                         placeholder="例如：嘈杂的地铁"
-                        className="w-full rounded-lg border-slate-200 focus:border-indigo-500 text-sm py-2 px-3 border bg-white"
+                        className="w-full rounded-lg border-slate-200 focus:border-indigo-500 text-sm py-2 px-3 border bg-white text-slate-900"
                       />
                    </div>
                    <div>
@@ -634,7 +698,7 @@ export default function App() {
                        <select 
                           value={newPersonaData.attributes.frustrationTolerance}
                           onChange={(e) => updateNewPersonaAttr('frustrationTolerance', e.target.value)}
-                          className="w-full rounded-lg border-slate-200 focus:border-indigo-500 text-sm py-2 px-3 border bg-white"
+                          className="w-full rounded-lg border-slate-200 focus:border-indigo-500 text-sm py-2 px-3 border bg-white text-slate-900"
                         >
                           <option value="低">低 (容易放弃)</option>
                           <option value="中">中 (愿意尝试)</option>
