@@ -529,7 +529,7 @@ export default function App() {
                           value={newPersonaData.name}
                           onChange={(e) => setNewPersonaData({...newPersonaData, name: e.target.value})}
                           placeholder="例如：年轻的游戏玩家"
-                          className="w-full rounded-lg border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm py-2 px-3 border"
+                          className="w-full rounded-lg border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm py-2 px-3 border bg-white"
                         />
                      </div>
                      <div>
@@ -551,7 +551,7 @@ export default function App() {
                       value={newPersonaData.description}
                       onChange={(e) => setNewPersonaData({...newPersonaData, description: e.target.value})}
                       placeholder="简要描述该角色的背景和特点..."
-                      className="w-full rounded-lg border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm py-2 px-3 border h-20 resize-none"
+                      className="w-full rounded-lg border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm py-2 px-3 border h-20 resize-none bg-white"
                     />
                   </div>
                 </div>
@@ -570,7 +570,7 @@ export default function App() {
                         value={newPersonaData.attributes.age}
                         onChange={(e) => updateNewPersonaAttr('age', e.target.value)}
                         placeholder="例如：25-30岁"
-                        className="w-full rounded-lg border-slate-200 focus:border-indigo-500 text-sm py-2 px-3 border"
+                        className="w-full rounded-lg border-slate-200 focus:border-indigo-500 text-sm py-2 px-3 border bg-white"
                       />
                    </div>
                    <div>
@@ -592,7 +592,7 @@ export default function App() {
                         value={newPersonaData.attributes.domainKnowledge}
                         onChange={(e) => updateNewPersonaAttr('domainKnowledge', e.target.value)}
                         placeholder="例如：新手 / 专家"
-                        className="w-full rounded-lg border-slate-200 focus:border-indigo-500 text-sm py-2 px-3 border"
+                        className="w-full rounded-lg border-slate-200 focus:border-indigo-500 text-sm py-2 px-3 border bg-white"
                       />
                    </div>
                    <div>
@@ -602,7 +602,7 @@ export default function App() {
                         value={newPersonaData.attributes.deviceHabits}
                         onChange={(e) => updateNewPersonaAttr('deviceHabits', e.target.value)}
                         placeholder="例如：单手操作手机"
-                        className="w-full rounded-lg border-slate-200 focus:border-indigo-500 text-sm py-2 px-3 border"
+                        className="w-full rounded-lg border-slate-200 focus:border-indigo-500 text-sm py-2 px-3 border bg-white"
                       />
                    </div>
                 </div>
@@ -616,7 +616,7 @@ export default function App() {
                         value={newPersonaData.attributes.goals}
                         onChange={(e) => updateNewPersonaAttr('goals', e.target.value)}
                         placeholder="例如：快速完成支付"
-                        className="w-full rounded-lg border-slate-200 focus:border-indigo-500 text-sm py-2 px-3 border"
+                        className="w-full rounded-lg border-slate-200 focus:border-indigo-500 text-sm py-2 px-3 border bg-white"
                       />
                    </div>
                    <div>
@@ -626,7 +626,7 @@ export default function App() {
                         value={newPersonaData.attributes.environment}
                         onChange={(e) => updateNewPersonaAttr('environment', e.target.value)}
                         placeholder="例如：嘈杂的地铁"
-                        className="w-full rounded-lg border-slate-200 focus:border-indigo-500 text-sm py-2 px-3 border"
+                        className="w-full rounded-lg border-slate-200 focus:border-indigo-500 text-sm py-2 px-3 border bg-white"
                       />
                    </div>
                    <div>
