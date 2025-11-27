@@ -262,6 +262,9 @@ export default function App() {
         // Explicitly set the canvas dimensions to match the full scroll content plus padding
         width: width + (padding * 2),
         height: height + (padding * 2),
+
+        // Higher pixel ratio for better resolution
+        pixelRatio: 3,
         
         style: {
            // Apply padding to the cloned element
