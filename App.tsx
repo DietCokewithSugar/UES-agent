@@ -434,7 +434,7 @@ export default function App() {
           <div>
             <div className="flex items-center gap-2 text-indigo-600 mb-1">
               <Sparkles size={24} fill="currentColor" className="text-indigo-500" />
-              <h1 className="text-xl font-bold tracking-tight text-slate-900">UES Agent</h1>
+              <h1 className="text-xl font-bold tracking-tight text-slate-900">ETS Agent</h1>
             </div>
             <p className="text-xs text-slate-500 font-medium">产品体验自动化分析工具</p>
           </div>

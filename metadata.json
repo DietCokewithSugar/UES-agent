@@ -1,5 +1,5 @@
 {
-  "name": "UES Agent - Experience Analysis",
+  "name": "ETS Agent - Experience Analysis",
   "description": "Automated Product Experience Analysis Agent. Generates deep insight reports based on UI uploads and virtual persona simulation, covering UES scores, qualitative summaries, and optimization suggestions.",
   "requestFramePermissions": []
 }
