@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, Sparkles, Settings, ChevronRight, Check, Loader2, Plus, X, Layers, Square, CheckSquare, Users, Download, Archive, Package, Globe } from 'lucide-react';
+import { Upload, Sparkles, Settings, ChevronRight, Check, Loader2, Plus, X, Layers, Square, CheckSquare, Users, Download, Archive, Package, Globe, FileUp, FileJson } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import JSZip from 'jszip';
 import FileSaver from 'file-saver';
@@ -112,6 +112,7 @@ export default function App() {
   const [isBatchExporting, setIsBatchExporting] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const jsonImportRef = useRef<HTMLInputElement>(null);
 
   // Helper to get actual persona objects from selected IDs
   const getSelectedPersonas = () => personas.filter(p => selectedPersonaIds.includes(p.id));
@@ -253,6 +254,56 @@ export default function App() {
       }
     }));
   };
+
+  // --- Import/Export Logic ---
+
+  // Export a single persona configuration to JSON
+  const handleExportPersona = (e: React.MouseEvent, persona: Persona) => {
+    e.stopPropagation();
+    const { id, ...dataToSave } = persona; // Exclude ID
+    const blob = new Blob([JSON.stringify(dataToSave, null, 2)], { type: 'application/json' });
+    FileSaver.saveAs(blob, `UES_Persona_${persona.name.replace(/\s+/g, '_')}.json`);
+  };
+
+  // Download a template for creating new personas
+  const handleDownloadTemplate = () => {
+    const template = { ...EMPTY_PERSONA, name: "示例角色模版", description: "请在此处填写描述..." };
+    const blob = new Blob([JSON.stringify(template, null, 2)], { type: 'application/json' });
+    FileSaver.saveAs(blob, 'UES_Persona_Template.json');
+  };
+
+  // Import JSON to fill the modal
+  const handleImportJson = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          const content = ev.target?.result as string;
+          const data = JSON.parse(content);
+          
+          // Basic validation
+          if (data.name && data.role && data.attributes) {
+            setNewPersonaData({
+              name: data.name,
+              role: data.role,
+              description: data.description || '',
+              attributes: { ...EMPTY_PERSONA.attributes, ...data.attributes }
+            });
+          } else {
+             alert('无效的 JSON 格式。请确保文件包含 name, role 和 attributes 字段。');
+          }
+        } catch (err) {
+          console.error('JSON parsing error:', err);
+          alert('解析 JSON 文件失败。');
+        }
+      };
+      reader.readAsText(file);
+    }
+    // Reset input
+    if (jsonImportRef.current) jsonImportRef.current.value = '';
+  };
+
 
   // Helper to generate PNG blob from a node
   const generatePngBlob = async (node: HTMLElement): Promise<Blob | null> => {
@@ -485,33 +536,42 @@ export default function App() {
             {personas.map((p) => {
               const isSelected = selectedPersonaIds.includes(p.id);
               return (
-                <button
-                  key={p.id}
-                  onClick={() => togglePersonaSelection(p.id)}
-                  className={`w-full text-left p-3 rounded-lg border transition-all relative flex items-start gap-3 ${isSelected ? 'border-indigo-500 bg-indigo-50 shadow-sm ring-1 ring-indigo-200' : 'border-slate-200 hover:border-indigo-300 bg-white'}`}
-                >
-                  <div className={`mt-0.5 ${isSelected ? 'text-indigo-600' : 'text-slate-300'}`}>
-                    {isSelected ? <CheckSquare size={18} /> : <Square size={18} />}
-                  </div>
-                  
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className={`font-semibold text-sm ${isSelected ? 'text-indigo-900' : 'text-slate-800'}`}>{p.name}</span>
-                      {p.role === UserRole.EXPERT && <span className="text-[10px] bg-slate-800 text-white px-1.5 py-0.5 rounded">专家</span>}
-                    </div>
-                    <p className="text-xs text-slate-500 line-clamp-2 mb-2">{p.description}</p>
-                    
-                    {/* Mini attributes visualization */}
-                    <div className="flex gap-1 flex-wrap">
-                      <span className="text-[10px] px-1.5 py-0.5 bg-white border border-slate-200 rounded text-slate-500">
-                        {p.attributes.techSavviness} 科技感
-                      </span>
-                      <span className="text-[10px] px-1.5 py-0.5 bg-white border border-slate-200 rounded text-slate-500">
-                        {p.attributes.age}
-                      </span>
-                    </div>
-                  </div>
-                </button>
+                <div key={p.id} className="relative group">
+                    <button
+                      onClick={() => togglePersonaSelection(p.id)}
+                      className={`w-full text-left p-3 rounded-lg border transition-all relative flex items-start gap-3 ${isSelected ? 'border-indigo-500 bg-indigo-50 shadow-sm ring-1 ring-indigo-200' : 'border-slate-200 hover:border-indigo-300 bg-white'}`}
+                    >
+                      <div className={`mt-0.5 ${isSelected ? 'text-indigo-600' : 'text-slate-300'}`}>
+                        {isSelected ? <CheckSquare size={18} /> : <Square size={18} />}
+                      </div>
+                      
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className={`font-semibold text-sm ${isSelected ? 'text-indigo-900' : 'text-slate-800'}`}>{p.name}</span>
+                          {p.role === UserRole.EXPERT && <span className="text-[10px] bg-slate-800 text-white px-1.5 py-0.5 rounded">专家</span>}
+                        </div>
+                        <p className="text-xs text-slate-500 line-clamp-2 mb-2">{p.description}</p>
+                        
+                        {/* Mini attributes visualization */}
+                        <div className="flex gap-1 flex-wrap">
+                          <span className="text-[10px] px-1.5 py-0.5 bg-white border border-slate-200 rounded text-slate-500">
+                            {p.attributes.techSavviness} 科技感
+                          </span>
+                          <span className="text-[10px] px-1.5 py-0.5 bg-white border border-slate-200 rounded text-slate-500">
+                            {p.attributes.age}
+                          </span>
+                        </div>
+                      </div>
+                    </button>
+                    {/* Export Icon */}
+                    <button 
+                      onClick={(e) => handleExportPersona(e, p)}
+                      className="absolute top-2 right-2 p-1.5 text-slate-400 hover:text-indigo-600 bg-white/0 hover:bg-white rounded-md transition-all opacity-0 group-hover:opacity-100"
+                      title="导出角色配置 (JSON)"
+                    >
+                      <FileJson size={14} />
+                    </button>
+                </div>
               );
             })}
           </div>
@@ -802,6 +862,40 @@ export default function App() {
               <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600">
                 <X size={24} />
               </button>
+            </div>
+
+            {/* Import/Export Toolbar (New Feature) */}
+            <div className="px-6 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+               <div className="flex items-center gap-2 text-xs text-slate-500">
+                  <Sparkles size={14} className="text-indigo-400" />
+                  <span>快捷导入模版</span>
+               </div>
+               <div className="flex items-center gap-2">
+                  {/* Download Template */}
+                  <button 
+                    onClick={handleDownloadTemplate}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:text-indigo-600 hover:border-indigo-200 transition-colors"
+                  >
+                    <Download size={14} />
+                    下载空白模版
+                  </button>
+                  
+                  {/* Upload JSON */}
+                  <button 
+                    onClick={() => jsonImportRef.current?.click()}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-slate-800 border border-slate-800 rounded-lg hover:bg-slate-700 transition-colors"
+                  >
+                    <FileUp size={14} />
+                    导入 JSON 
+                  </button>
+                  <input 
+                    type="file" 
+                    accept=".json" 
+                    ref={jsonImportRef} 
+                    onChange={handleImportJson} 
+                    className="hidden" 
+                  />
+               </div>
             </div>
 
             {/* Modal Body */}
