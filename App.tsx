@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { Upload, Sparkles, Settings, ChevronRight, Check, Loader2, Plus, X, Layers, Square, CheckSquare, Users, Download, Archive, Package, Globe, FileUp, FileJson } from 'lucide-react';
 import { toPng } from 'html-to-image';
@@ -71,6 +72,18 @@ const EMPTY_PERSONA: Omit<Persona, 'id'> = {
   }
 };
 
+const OPENROUTER_TEXT_MODELS = [
+  { value: "google/gemini-3-pro-preview", label: "Gemini 3 Pro Preview (Google)" },
+  { value: "qwen/qwen3-vl-235b-a22b-instruct", label: "Qwen 3 VL Instruct (Qwen)" },
+  { value: "x-ai/grok-4.1-fast:free", label: "Grok 4.1 Fast (xAI)" }
+];
+
+const IMAGE_MODELS = [
+  { value: "google/gemini-3-pro-image-preview", label: "Gemini 3 Pro Image (Google)" },
+  { value: "google/gemini-2.5-flash-image", label: "Gemini 2.5 Flash Image (Google)" },
+  { value: "openai/gpt-5-image", label: "GPT-5 Image (OpenAI)" }
+];
+
 // --- Main App Component ---
 export default function App() {
   const [personas, setPersonas] = useState<Persona[]>(DEFAULT_PERSONAS);
@@ -81,7 +94,7 @@ export default function App() {
   // Result Viewer State (Which persona tab is active)
   const [viewingPersonaId, setViewingPersonaId] = useState<string>(DEFAULT_PERSONAS[0].id);
 
-  const [evaluationModel, setEvaluationModel] = useState<EvaluationModel>(EvaluationModel.UES);
+  const [evaluationModel, setEvaluationModel] = useState<EvaluationModel>(EvaluationModel.ETS); // Default to ETS as requested implicitly
   const [image, setImage] = useState<string | null>(null);
   
   // Analysis State (Map by Persona ID)
@@ -103,7 +116,8 @@ export default function App() {
   const [apiConfig, setApiConfig] = useState<ApiConfig>({
     provider: 'google',
     openRouterKey: '',
-    openRouterModel: 'google/gemini-3-pro-preview'
+    openRouterModel: 'google/gemini-3-pro-preview',
+    imageModel: 'google/gemini-3-pro-image-preview'
   });
 
   // Export State
@@ -195,7 +209,7 @@ export default function App() {
 
       // 2. Parallel Image Generation (Optional)
       // Enable for both Google and OpenRouter ONLY IF CHECKED
-      if (shouldGenerateImages && (apiConfig.provider === 'google' || (apiConfig.provider === 'openrouter' && apiConfig.openRouterKey))) {
+      if (shouldGenerateImages) {
           setIsGeneratingImage(true);
           
           const imagePromises = targets.map(async (p) => {
@@ -225,6 +239,7 @@ export default function App() {
       setIsAnalyzing(false);
     } finally {
       setIsGeneratingImage(false);
+      setIsAnalyzing(false); // Ensure this is off in case of catch
     }
   };
 
@@ -306,6 +321,7 @@ export default function App() {
 
   // Helper to generate PNG blob from a node
   const generatePngBlob = async (node: HTMLElement): Promise<Blob | null> => {
+    if (!node) return null;
     const width = node.scrollWidth;
     const height = node.scrollHeight;
     const padding = 40;
@@ -315,7 +331,7 @@ export default function App() {
       backgroundColor: '#f8fafc',
       width: width + (padding * 2),
       height: height + (padding * 2),
-      pixelRatio: 3,
+      pixelRatio: 2,
       style: {
          padding: `${padding}px`,
          height: 'auto',
@@ -429,7 +445,7 @@ export default function App() {
       <div className="w-full md:w-96 bg-white border-r border-slate-200 h-auto md:h-screen flex flex-col sticky top-0 z-20 overflow-y-auto print:hidden">
         
         {/* Brand */}
-        <div className="p-6 border-b border-slate-100 bg-white flex justify-between items-center">
+        <div className="p-6 border-b border-slate-100 bg-white flex justify-between items-center sticky top-0 z-30">
           <div>
             <div className="flex items-center gap-2 text-indigo-600 mb-1">
               <Sparkles size={24} fill="currentColor" className="text-indigo-500" />
@@ -448,407 +464,350 @@ export default function App() {
 
         {/* Step 1: Upload */}
         <div className="p-6 border-b border-slate-100">
-          <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-2">
-            <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-xs">1</span>
-            上传设计图
-          </h2>
-          
+          <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">1. 上传界面截图</h2>
           <div 
             onClick={() => fileInputRef.current?.click()}
-            className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all relative group ${image ? 'border-indigo-200 bg-indigo-50' : 'border-slate-200 hover:border-indigo-400 hover:bg-slate-50'}`}
+            className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all ${image ? 'border-indigo-200 bg-indigo-50' : 'border-slate-200 hover:border-indigo-400 hover:bg-slate-50'}`}
           >
             <input 
+              ref={fileInputRef}
               type="file" 
-              ref={fileInputRef} 
-              className="hidden" 
               accept="image/*" 
               onChange={handleFileChange} 
+              className="hidden" 
             />
-            
             {image ? (
-              <div className="relative">
-                <img src={image} alt="Preview" className="w-full h-40 object-contain rounded-md mb-2" />
-                <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/20 transition-colors rounded-md">
-                  <p className="text-white opacity-0 group-hover:opacity-100 text-xs font-bold bg-black/50 px-3 py-1 rounded-full">更换图片</p>
-                </div>
-                <p className="text-xs text-indigo-600 font-medium mt-2 flex items-center justify-center gap-1">
-                  <Check size={12} /> 图片已加载
-                </p>
-              </div>
+               <div className="relative">
+                 <img src={image} alt="Preview" className="max-h-32 mx-auto rounded-lg shadow-sm" />
+                 <div className="absolute inset-0 flex items-center justify-center bg-black/10 rounded-lg opacity-0 hover:opacity-100 transition-opacity">
+                    <span className="bg-white text-slate-800 text-xs py-1 px-3 rounded shadow-sm font-medium">更换图片</span>
+                 </div>
+               </div>
             ) : (
-              <div className="flex flex-col items-center py-4 text-slate-400">
-                <Upload size={32} className="mb-2" />
-                <p className="text-sm font-medium text-slate-600">点击上传 UI 界面</p>
-                <p className="text-xs">支持 PNG, JPG, WebP</p>
+              <div className="flex flex-col items-center gap-2 text-slate-400">
+                <Upload size={24} />
+                <span className="text-sm font-medium">点击上传或拖入图片</span>
               </div>
             )}
           </div>
         </div>
 
-        {/* Step 2: Evaluation Model Switcher */}
-        <div className="p-6 border-b border-slate-100">
-           <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-2">
-            <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-xs">2</span>
-            评估模型
-          </h2>
-          <div className="flex p-1 bg-slate-100 rounded-lg">
-            <button
-              onClick={() => setEvaluationModel(EvaluationModel.UES)}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-md text-xs font-semibold transition-all ${evaluationModel === EvaluationModel.UES ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-              <Layers size={14} /> UES (5维度)
-            </button>
-            <button
-              onClick={() => setEvaluationModel(EvaluationModel.ETS)}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-md text-xs font-semibold transition-all ${evaluationModel === EvaluationModel.ETS ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-              <Layers size={14} /> ETS (8维度)
-            </button>
-          </div>
-          <div className="mt-2 text-[10px] text-slate-500 bg-slate-50 p-2 rounded border border-slate-100">
-            {evaluationModel === EvaluationModel.UES 
-              ? "通用易用性系统：关注易用性、一致性、清晰度、美观度、效率。" 
-              : "体验追踪系统：包含功能、认知、交互、性能、安全、视觉、智能、运营 8 大维度。"}
-          </div>
-        </div>
-
-        {/* Step 3: Persona Selection (Multi-select) */}
-        <div className="p-6 border-b border-slate-100 flex-1">
-          <div className="flex items-center justify-between mb-4">
-             <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
-              <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-xs">3</span>
-              选择测评角色
-              <span className="ml-1 text-xs font-normal normal-case text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
-                已选 {selectedPersonaIds.length}
-              </span>
-            </h2>
-            <button 
-              onClick={() => setIsModalOpen(true)}
-              className="text-xs flex items-center gap-1 text-indigo-600 hover:text-indigo-800 font-medium px-2 py-1 bg-indigo-50 rounded-md transition-colors"
-            >
-              <Plus size={14} />
-              新建
-            </button>
+        {/* Step 2: Personas */}
+        <div className="p-6 flex-1 overflow-y-auto">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider">2. 选择模拟角色</h2>
+            <div className="flex gap-2">
+                <button 
+                onClick={handleDownloadTemplate}
+                className="text-slate-400 hover:text-indigo-600 transition-colors"
+                title="下载角色模版"
+                >
+                <FileJson size={16} />
+                </button>
+                <button 
+                onClick={() => setIsModalOpen(true)}
+                className="text-indigo-600 hover:text-indigo-700 transition-colors"
+                title="新建角色"
+                >
+                <Plus size={18} />
+                </button>
+            </div>
           </div>
           
           <div className="space-y-3">
-            {personas.map((p) => {
-              const isSelected = selectedPersonaIds.includes(p.id);
-              return (
-                <div key={p.id} className="relative group">
-                    <button
-                      onClick={() => togglePersonaSelection(p.id)}
-                      className={`w-full text-left p-3 rounded-lg border transition-all relative flex items-start gap-3 ${isSelected ? 'border-indigo-500 bg-indigo-50 shadow-sm ring-1 ring-indigo-200' : 'border-slate-200 hover:border-indigo-300 bg-white'}`}
+            {personas.map(persona => {
+                const isSelected = selectedPersonaIds.includes(persona.id);
+                return (
+                    <div 
+                        key={persona.id}
+                        onClick={() => togglePersonaSelection(persona.id)}
+                        className={`p-3 rounded-xl border cursor-pointer transition-all relative group ${
+                        isSelected
+                            ? 'bg-white border-indigo-500 shadow-md ring-1 ring-indigo-500' 
+                            : 'bg-white border-slate-200 hover:border-indigo-300'
+                        }`}
                     >
-                      <div className={`mt-0.5 ${isSelected ? 'text-indigo-600' : 'text-slate-300'}`}>
-                        {isSelected ? <CheckSquare size={18} /> : <Square size={18} />}
-                      </div>
-                      
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className={`font-semibold text-sm ${isSelected ? 'text-indigo-900' : 'text-slate-800'}`}>{p.name}</span>
-                          {p.role === UserRole.EXPERT && <span className="text-[10px] bg-slate-800 text-white px-1.5 py-0.5 rounded">专家</span>}
+                        <div className="flex justify-between items-start mb-1">
+                            <span className={`font-semibold text-sm ${isSelected ? 'text-indigo-700' : 'text-slate-700'}`}>
+                                {persona.name}
+                            </span>
+                            {isSelected ? (
+                                <CheckSquare size={16} className="text-indigo-500" />
+                            ) : (
+                                <Square size={16} className="text-slate-300 group-hover:text-indigo-300" />
+                            )}
                         </div>
-                        <p className="text-xs text-slate-500 line-clamp-2 mb-2">{p.description}</p>
+                        <p className="text-xs text-slate-500 line-clamp-2">{persona.description}</p>
                         
-                        {/* Mini attributes visualization */}
-                        <div className="flex gap-1 flex-wrap">
-                          <span className="text-[10px] px-1.5 py-0.5 bg-white border border-slate-200 rounded text-slate-500">
-                            {p.attributes.techSavviness} 科技感
-                          </span>
-                          <span className="text-[10px] px-1.5 py-0.5 bg-white border border-slate-200 rounded text-slate-500">
-                            {p.attributes.age}
-                          </span>
-                        </div>
-                      </div>
-                    </button>
-                    {/* Export Icon */}
-                    <button 
-                      onClick={(e) => handleExportPersona(e, p)}
-                      className="absolute top-2 right-2 p-1.5 text-slate-400 hover:text-indigo-600 bg-white/0 hover:bg-white rounded-md transition-all opacity-0 group-hover:opacity-100"
-                      title="导出角色配置 (JSON)"
-                    >
-                      <FileJson size={14} />
-                    </button>
-                </div>
-              );
+                        {/* Export Button (only visible on hover) */}
+                        <button 
+                            onClick={(e) => handleExportPersona(e, persona)}
+                            className="absolute bottom-2 right-2 p-1 text-slate-300 hover:text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                            title="导出角色配置"
+                        >
+                            <Download size={14} />
+                        </button>
+                    </div>
+                );
             })}
+          </div>
+
+          <div className="mt-6 space-y-4 border-t border-slate-100 pt-6">
+             <div className="flex items-center justify-between">
+                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider">附加选项</h2>
+             </div>
+             
+             {/* Model Selector */}
+            <div className="flex items-center justify-between">
+               <label className="text-sm font-medium text-slate-600">评估模型</label>
+               <select 
+                 value={evaluationModel}
+                 onChange={(e) => setEvaluationModel(e.target.value as EvaluationModel)}
+                 className="text-xs bg-slate-100 border-none rounded-lg py-1 px-2 text-slate-700 focus:ring-2 focus:ring-indigo-500"
+               >
+                 <option value={EvaluationModel.ETS}>ETS (8 维度)</option>
+                 <option value={EvaluationModel.UES}>UES (5 维度)</option>
+               </select>
+            </div>
+
+            {/* Image Generation Toggle */}
+            <div 
+                onClick={() => setShouldGenerateImages(!shouldGenerateImages)}
+                className="flex items-center gap-3 cursor-pointer group"
+            >
+                <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${shouldGenerateImages ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300 bg-white'}`}>
+                    {shouldGenerateImages && <Check size={14} className="text-white" />}
+                </div>
+                <div>
+                   <span className={`text-sm font-medium transition-colors ${shouldGenerateImages ? 'text-indigo-700' : 'text-slate-600'}`}>生成优化效果图</span>
+                   <p className="text-xs text-slate-400">AI 将尝试绘制优化后的界面</p>
+                </div>
+            </div>
           </div>
         </div>
 
-        {/* Action Button */}
-        <div className="p-6 bg-white sticky bottom-0 border-t border-slate-200 z-10">
-          
-          {/* Option: Generate AI Visuals */}
-          <div className="mb-4 flex items-center gap-2 select-none">
-            <input 
-              type="checkbox" 
-              id="gen-visuals"
-              checked={shouldGenerateImages}
-              onChange={(e) => setShouldGenerateImages(e.target.checked)}
-              className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer"
-            />
-            <label htmlFor="gen-visuals" className="text-sm text-slate-700 cursor-pointer flex items-center gap-2">
-              <Sparkles size={14} className="text-indigo-500" />
-              生成 AI 视觉优化建议图
-            </label>
-          </div>
-
-          {apiConfig.provider === 'openrouter' && (
-            <div className="mb-3 px-3 py-2 bg-slate-50 border border-slate-200 rounded text-xs text-slate-600 flex items-center justify-between">
-              <span className="flex items-center gap-1">
-                <Globe size={12} className="text-indigo-500" />
-                API Provider: OpenRouter
-              </span>
-              <span className="font-mono text-[10px] opacity-70 truncate max-w-[120px]" title={apiConfig.openRouterModel}>
-                {apiConfig.openRouterModel}
-              </span>
-            </div>
-          )}
-          <button
+        {/* Step 3: Analyze Button */}
+        <div className="p-6 border-t border-slate-200 bg-white sticky bottom-0 z-30">
+          <button 
             onClick={handleAnalyze}
-            disabled={!image || isAnalyzing || isGeneratingImage || selectedPersonaIds.length === 0}
-            className={`w-full py-3 px-4 rounded-xl font-bold text-sm shadow-lg flex items-center justify-center gap-2 transition-all transform active:scale-95 ${
-              !image || isAnalyzing || isGeneratingImage || selectedPersonaIds.length === 0
-                ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
-                : 'bg-indigo-600 text-white hover:bg-indigo-700 hover:shadow-indigo-200'
+            disabled={!image || isAnalyzing || selectedPersonaIds.length === 0}
+            className={`w-full py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 font-bold text-white shadow-lg transition-all transform active:scale-95 ${
+              !image || isAnalyzing || selectedPersonaIds.length === 0
+                ? 'bg-slate-300 cursor-not-allowed shadow-none' 
+                : 'bg-gradient-to-r from-indigo-600 to-violet-600 hover:shadow-indigo-200 hover:brightness-105'
             }`}
           >
             {isAnalyzing ? (
               <>
-                <Loader2 size={18} className="animate-spin" />
-                正在并行分析 ({selectedPersonaIds.length} 个角色)...
-              </>
-            ) : isGeneratingImage ? (
-               <>
-                <Loader2 size={18} className="animate-spin" />
-                生成优化方案中...
+                <Loader2 size={20} className="animate-spin" />
+                <span>分析中...</span>
               </>
             ) : (
               <>
-                开始 {evaluationModel} 评估
-                <ChevronRight size={18} />
+                <Sparkles size={20} />
+                <span>开始全维度审计</span>
               </>
             )}
           </button>
+          <div className="text-center mt-2">
+             <span className="text-xs text-slate-400">预计消耗: {selectedPersonaIds.length} x Token</span>
+          </div>
         </div>
       </div>
 
-      {/* Main Content Area - Reports */}
-      <div className="flex-1 overflow-auto h-screen bg-slate-50 p-4 md:p-8 print:h-auto print:overflow-visible print:p-0">
-        <div className="max-w-5xl mx-auto">
-          
-          {/* Empty State */}
-          {Object.keys(reports).length === 0 && !isAnalyzing && !error && (
-            <div className="h-full flex flex-col items-center justify-center text-center space-y-6 mt-20 opacity-60 print:hidden">
-              <div className="w-32 h-32 bg-indigo-50 rounded-full flex items-center justify-center mb-4">
-                <Sparkles size={48} className="text-indigo-300" />
-              </div>
-              <h2 className="text-2xl font-bold text-slate-800">准备就绪</h2>
-              <p className="text-slate-500 max-w-md">
-                请在左侧上传设计截图、勾选需要测评的角色（支持多选），然后点击开始。
-              </p>
-            </div>
-          )}
-
-          {/* Loading State */}
-          {isAnalyzing && (
-             <div className="flex flex-col items-center justify-center h-[60vh] space-y-6 print:hidden">
-                <div className="relative">
-                  <div className="w-16 h-16 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
+      {/* Main Content Area */}
+      <div className="flex-1 overflow-y-auto bg-slate-50/50 relative h-screen">
+        
+        {/* Top Navigation Bar (Tabs) */}
+        {Object.keys(reports).length > 0 && (
+             <div className="sticky top-0 z-20 bg-white/80 backdrop-blur-md border-b border-slate-200 px-6 py-3 flex items-center justify-between">
+                <div className="flex gap-2 overflow-x-auto no-scrollbar">
+                    {Object.keys(reports).map(id => {
+                        const persona = personas.find(p => p.id === id);
+                        return (
+                            <button
+                                key={id}
+                                onClick={() => setViewingPersonaId(id)}
+                                className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all flex items-center gap-2 ${
+                                    viewingPersonaId === id 
+                                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200' 
+                                    : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                                }`}
+                            >
+                                <Users size={14} />
+                                {persona?.name}
+                            </button>
+                        )
+                    })}
                 </div>
-                <div className="text-center space-y-2">
-                  <h3 className="text-lg font-semibold text-slate-800">AI 正在进行多维度会诊...</h3>
-                  <p className="text-sm text-slate-500">正在并行处理 {selectedPersonaIds.length} 个角色的 {evaluationModel} 评估。</p>
+                
+                <div className="flex gap-2 shrink-0">
+                    <button 
+                        onClick={handleBatchExport}
+                        disabled={isBatchExporting || !hasMultipleReports}
+                        className={`p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-colors ${!hasMultipleReports ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        title="批量导出所有报告 (ZIP)"
+                    >
+                         {isBatchExporting ? <Loader2 size={20} className="animate-spin" /> : <Package size={20} />}
+                    </button>
+                    <button 
+                        onClick={handleExportImage}
+                        disabled={isExporting}
+                        className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-colors"
+                        title="导出当前报告 (PNG)"
+                    >
+                        {isExporting ? <Loader2 size={20} className="animate-spin" /> : <FileUp size={20} />}
+                    </button>
                 </div>
              </div>
-          )}
+        )}
 
-          {/* Error State */}
-          {error && (
-            <div className="p-4 bg-red-50 border border-red-100 rounded-lg text-red-700 text-sm text-center mt-10 print:hidden">
-              {error}
-            </div>
-          )}
-
-          {/* Report Tabs & View */}
-          {Object.keys(reports).length > 0 && !isAnalyzing && (
-            <div className="animate-fade-in space-y-6">
-              
-              {/* Report Switcher Tabs */}
-              <div className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur py-2 border-b border-slate-200 print:hidden flex justify-between items-center flex-wrap gap-2">
-                 <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar max-w-[60%]">
-                    <span className="text-xs font-bold text-slate-400 uppercase mr-2 shrink-0">当前查看:</span>
-                    {selectedPersonaIds.map(id => {
-                      const persona = personas.find(p => p.id === id);
-                      if (!persona) return null;
-                      const hasReport = !!reports[id];
-                      const isActive = viewingPersonaId === id;
-                      
-                      return (
-                        <button
-                          key={id}
-                          onClick={() => hasReport && setViewingPersonaId(id)}
-                          disabled={!hasReport}
-                          className={`
-                            flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap
-                            ${isActive 
-                              ? 'bg-indigo-600 text-white shadow-md ring-2 ring-indigo-200 ring-offset-2 ring-offset-slate-50' 
-                              : 'bg-white text-slate-600 border border-slate-200 hover:border-indigo-300 hover:text-indigo-600'}
-                            ${!hasReport ? 'opacity-50 cursor-not-allowed' : ''}
-                          `}
-                        >
-                          <Users size={14} />
-                          {persona.name}
-                        </button>
-                      );
-                    })}
-                 </div>
-
-                 {/* Export Buttons */}
-                 <div className="flex items-center gap-2 ml-auto">
-                    {/* Single Export */}
-                    {currentReport && (
-                      <button
-                        onClick={handleExportImage}
-                        disabled={isExporting || isBatchExporting}
-                        className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 hover:text-indigo-600 transition-colors shadow-sm whitespace-nowrap"
-                        title="导出当前查看的角色报告"
-                      >
-                        {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
-                        <span className="hidden sm:inline">导出长图</span>
-                      </button>
-                    )}
-
-                    {/* Batch Export */}
-                    {hasMultipleReports && (
-                      <button
-                        onClick={handleBatchExport}
-                        disabled={isExporting || isBatchExporting}
-                        className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-white bg-indigo-600 border border-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm whitespace-nowrap"
-                        title="打包下载所有角色的报告"
-                      >
-                         {isBatchExporting ? <Loader2 size={16} className="animate-spin" /> : <Package size={16} />}
-                         <span className="hidden sm:inline">批量导出 (ZIP)</span>
-                      </button>
-                    )}
-                 </div>
-              </div>
-
-              {/* Render Active Report */}
-              {currentReport ? (
-                 <div className="pt-2" ref={reportRef}>
-                   <ReportView 
-                     report={currentReport} 
-                     originalImage={image}
-                     optimizedImage={currentOptimizedImage}
-                     isGeneratingImage={isGeneratingImage}
-                   />
-                 </div>
-              ) : (
-                <div className="text-center py-20 text-slate-400">
-                  未找到该角色的报告数据。
+        <div className="p-6 md:p-12 max-w-5xl mx-auto">
+            {isAnalyzing ? (
+                <div className="flex flex-col items-center justify-center h-[60vh] text-center space-y-6">
+                    <div className="relative">
+                        <div className="w-20 h-20 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
+                        <Sparkles className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-indigo-600" size={24} />
+                    </div>
+                    <div>
+                        <h3 className="text-xl font-bold text-slate-800">ETS 智能体正在深度思考...</h3>
+                        <p className="text-slate-500 mt-2">正在进行多维度拆解、模拟 {selectedPersonaIds.length} 个用户角色的交互行为...</p>
+                    </div>
                 </div>
-              )}
-            </div>
-          )}
-
+            ) : error ? (
+                <div className="flex flex-col items-center justify-center h-[60vh] text-center">
+                    <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mb-4">
+                        <X size={32} />
+                    </div>
+                    <h3 className="text-lg font-bold text-slate-800">分析中断</h3>
+                    <p className="text-slate-500 max-w-md mt-2">{error}</p>
+                </div>
+            ) : currentReport ? (
+                <div ref={reportRef} id={`report-view-${viewingPersonaId}`} className="bg-white rounded-2xl shadow-xl shadow-slate-200/50 p-8 border border-slate-100">
+                     <div className="mb-8 border-b border-slate-100 pb-6 flex justify-between items-end">
+                        <div>
+                            <h2 className="text-3xl font-bold text-slate-800 mb-2">ETS 体验评估报告</h2>
+                            <div className="flex items-center gap-2 text-slate-500 text-sm">
+                                <span className="bg-slate-100 px-2 py-1 rounded-md font-medium text-slate-700">
+                                    {personas.find(p => p.id === viewingPersonaId)?.name}
+                                </span>
+                                <span>•</span>
+                                <span>{new Date().toLocaleDateString()}</span>
+                            </div>
+                        </div>
+                        <Sparkles className="text-indigo-200" size={48} />
+                     </div>
+                     <ReportView 
+                        report={currentReport} 
+                        originalImage={image}
+                        optimizedImage={currentOptimizedImage}
+                        isGeneratingImage={isGeneratingImage}
+                     />
+                </div>
+            ) : (
+                <div className="flex flex-col items-center justify-center h-[70vh] text-center space-y-6 opacity-50">
+                    <div className="w-32 h-32 bg-slate-200 rounded-full flex items-center justify-center">
+                        <Layers size={48} className="text-slate-400" />
+                    </div>
+                    <div className="max-w-md">
+                        <h3 className="text-xl font-bold text-slate-800">准备就绪</h3>
+                        <p className="text-slate-500 mt-2">请上传界面截图并选择模拟用户画像，ETS Agent 将为您生成专业的体验审计报告。</p>
+                    </div>
+                </div>
+            )}
         </div>
       </div>
 
       {/* Settings Modal */}
       {isSettingsOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsSettingsOpen(false)}></div>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden relative flex flex-col z-10 animate-fade-in">
-             <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-white">
-              <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                <Settings className="w-5 h-5 text-indigo-500" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                <Settings size={18} />
                 系统设置
-              </h2>
-              <button onClick={() => setIsSettingsOpen(false)} className="text-slate-400 hover:text-slate-600">
-                <X size={24} />
+              </h3>
+              <button onClick={() => setIsSettingsOpen(false)} className="p-1 hover:bg-slate-200 rounded-full transition-colors">
+                <X size={20} className="text-slate-500" />
               </button>
             </div>
             
             <div className="p-6 space-y-6">
               
-              {/* API Provider Selection */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">AI 模型提供商</label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    onClick={() => setApiConfig(prev => ({ ...prev, provider: 'google' }))}
-                    className={`flex items-center justify-center gap-2 py-3 px-4 rounded-xl border transition-all text-sm font-semibold
-                      ${apiConfig.provider === 'google' 
-                        ? 'border-indigo-500 bg-indigo-50 text-indigo-700' 
-                        : 'border-slate-200 hover:border-indigo-200 text-slate-600'}`}
-                  >
-                    Google Gemini
-                  </button>
-                  <button
-                    onClick={() => setApiConfig(prev => ({ ...prev, provider: 'openrouter' }))}
-                    className={`flex items-center justify-center gap-2 py-3 px-4 rounded-xl border transition-all text-sm font-semibold
-                      ${apiConfig.provider === 'openrouter' 
-                        ? 'border-indigo-500 bg-indigo-50 text-indigo-700' 
-                        : 'border-slate-200 hover:border-indigo-200 text-slate-600'}`}
-                  >
-                    OpenRouter
-                  </button>
-                </div>
+              {/* Provider Selection */}
+              <div className="space-y-3">
+                 <label className="text-sm font-medium text-slate-700 block">AI 模型提供商</label>
+                 <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-lg">
+                    <button 
+                       onClick={() => setApiConfig({...apiConfig, provider: 'google'})}
+                       className={`py-2 text-sm font-medium rounded-md transition-all ${apiConfig.provider === 'google' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                       Google GenAI
+                    </button>
+                    <button 
+                       onClick={() => setApiConfig({...apiConfig, provider: 'openrouter'})}
+                       className={`py-2 text-sm font-medium rounded-md transition-all ${apiConfig.provider === 'openrouter' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                       OpenRouter
+                    </button>
+                 </div>
               </div>
 
-              {/* Conditional Fields */}
+              {/* API Key Input */}
               {apiConfig.provider === 'openrouter' && (
-                <div className="space-y-4 animate-fade-in p-4 bg-slate-50 rounded-xl border border-slate-100">
-                   <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">OpenRouter API Key</label>
-                      <input 
+                  <div className="space-y-3">
+                    <label className="text-sm font-medium text-slate-700 block">OpenRouter API Key</label>
+                    <input 
                         type="password" 
                         value={apiConfig.openRouterKey}
-                        onChange={(e) => setApiConfig(prev => ({ ...prev, openRouterKey: e.target.value }))}
+                        onChange={(e) => setApiConfig({...apiConfig, openRouterKey: e.target.value})}
                         placeholder="sk-or-..."
-                        className="w-full rounded-lg border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm py-2 px-3 border bg-white text-slate-900"
-                      />
-                      <p className="text-xs text-slate-500 mt-1">Key 仅存储在本地内存中，刷新后需重新输入。</p>
-                   </div>
-                   <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Model ID</label>
-                      <div className="relative">
-                        <input 
-                          list="openrouter-models"
-                          type="text" 
-                          value={apiConfig.openRouterModel}
-                          onChange={(e) => setApiConfig(prev => ({ ...prev, openRouterModel: e.target.value }))}
-                          placeholder="选择或输入模型 ID"
-                          className="w-full rounded-lg border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm py-2 px-3 border bg-white text-slate-900 font-mono"
-                        />
-                        <datalist id="openrouter-models">
-                          <option value="google/gemini-3-pro-preview" />
-                          <option value="qwen/qwen3-vl-235b-a22b-instruct" />
-                          <option value="x-ai/grok-4.1-fast:free" />
-                        </datalist>
-                      </div>
-                      <p className="text-xs text-slate-500 mt-1">默认使用 google/gemini-3-pro-preview (支持推理)</p>
-                   </div>
+                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all font-mono text-sm"
+                    />
+                  </div>
+              )}
+
+              {/* Text Model Selection (OpenRouter Only) */}
+              {apiConfig.provider === 'openrouter' && (
+                <div className="space-y-3">
+                  <label className="text-sm font-medium text-slate-700 block">文本分析模型 (Text Model)</label>
+                  <select
+                    value={apiConfig.openRouterModel}
+                    onChange={(e) => setApiConfig({...apiConfig, openRouterModel: e.target.value})}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                  >
+                    {OPENROUTER_TEXT_MODELS.map(model => (
+                      <option key={model.value} value={model.value}>{model.label}</option>
+                    ))}
+                  </select>
                 </div>
               )}
 
-              {apiConfig.provider === 'google' && (
-                <div className="p-4 bg-blue-50 text-blue-800 text-xs rounded-xl border border-blue-100 leading-relaxed">
-                  当前使用 Google 官方 SDK (gemini-2.5-flash) 进行分析，使用 (gemini-3-pro-image-preview) 进行视觉优化。
-                  无需额外配置，将自动使用系统内置的 API Key。
-                </div>
-              )}
+              {/* Image Model Selection */}
+              <div className="space-y-3">
+                <label className="text-sm font-medium text-slate-700 block">视觉生成模型 (Image Model)</label>
+                <select
+                  value={apiConfig.imageModel}
+                  onChange={(e) => setApiConfig({...apiConfig, imageModel: e.target.value})}
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                >
+                  {IMAGE_MODELS.map(model => (
+                    <option key={model.value} value={model.value}>{model.label}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-slate-400 mt-1">
+                  注意: GPT-5 Image 等模型仅在配置了 OpenRouter 时可用。Google GenAI 模式下请使用 Gemini 系列。
+                </p>
+              </div>
 
             </div>
-
-            <div className="p-6 border-t border-slate-100 bg-slate-50 flex justify-end">
-               <button 
+            
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end">
+              <button 
                 onClick={() => setIsSettingsOpen(false)}
-                className="px-6 py-2 text-sm font-bold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"
+                className="px-6 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors shadow-sm shadow-indigo-200"
               >
-                完成配置
+                保存设置
               </button>
             </div>
           </div>
@@ -857,198 +816,103 @@ export default function App() {
 
       {/* Create Persona Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsModalOpen(false)}></div>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden relative flex flex-col z-10 animate-fade-in">
-            {/* Modal Header */}
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-white">
-              <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                <Plus className="w-5 h-5 text-indigo-500" />
-                创建自定义角色
-              </h2>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600">
-                <X size={24} />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h3 className="text-xl font-bold text-slate-800">新建用户画像</h3>
+              <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
+                <X size={20} className="text-slate-500" />
               </button>
             </div>
-
-            {/* Import/Export Toolbar (New Feature) */}
-            <div className="px-6 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
-               <div className="flex items-center gap-2 text-xs text-slate-500">
-                  <Sparkles size={14} className="text-indigo-400" />
-                  <span>快捷导入模版</span>
-               </div>
-               <div className="flex items-center gap-2">
-                  {/* Download Template */}
-                  <button 
-                    onClick={handleDownloadTemplate}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:text-indigo-600 hover:border-indigo-200 transition-colors"
-                  >
-                    <Download size={14} />
-                    下载空白模版
-                  </button>
-                  
-                  {/* Upload JSON */}
-                  <button 
-                    onClick={() => jsonImportRef.current?.click()}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-slate-800 border border-slate-800 rounded-lg hover:bg-slate-700 transition-colors"
-                  >
-                    <FileUp size={14} />
-                    导入 JSON 
-                  </button>
-                  <input 
-                    type="file" 
-                    accept=".json" 
-                    ref={jsonImportRef} 
-                    onChange={handleImportJson} 
-                    className="hidden" 
-                  />
-               </div>
-            </div>
-
-            {/* Modal Body */}
-            <div className="p-6 overflow-y-auto">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                
-                {/* Basic Info */}
-                <div className="md:col-span-2 space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                     <div className="col-span-2">
-                        <label className="block text-sm font-medium text-slate-700 mb-1">角色名称 <span className="text-red-500">*</span></label>
-                        <input 
-                          type="text" 
-                          value={newPersonaData.name}
-                          onChange={(e) => setNewPersonaData({...newPersonaData, name: e.target.value})}
-                          placeholder="例如：年轻的游戏玩家"
-                          className="w-full rounded-lg border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm py-2 px-3 border bg-white text-slate-900"
-                        />
-                     </div>
-                     <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">测评类型</label>
-                        <select 
-                          value={newPersonaData.role}
-                          onChange={(e) => setNewPersonaData({...newPersonaData, role: e.target.value as UserRole})}
-                          className="w-full rounded-lg border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm py-2 px-3 border bg-white text-slate-900"
-                        >
-                          <option value={UserRole.USER}>普通用户 (User)</option>
-                          <option value={UserRole.EXPERT}>专家 (Expert)</option>
-                        </select>
-                     </div>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">角色描述</label>
-                    <textarea 
-                      value={newPersonaData.description}
-                      onChange={(e) => setNewPersonaData({...newPersonaData, description: e.target.value})}
-                      placeholder="简要描述该角色的背景和特点..."
-                      className="w-full rounded-lg border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm py-2 px-3 border h-20 resize-none bg-white text-slate-900"
+            
+            <div className="p-6 overflow-y-auto space-y-6 flex-1">
+               {/* Basic Info */}
+               <div className="grid grid-cols-2 gap-4">
+                  <div className="col-span-2 md:col-span-1">
+                    <label className="block text-sm font-medium text-slate-700 mb-1">角色名称</label>
+                    <input 
+                        type="text" 
+                        value={newPersonaData.name}
+                        onChange={(e) => setNewPersonaData({...newPersonaData, name: e.target.value})}
+                        className="w-full p-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                        placeholder="例如：忙碌的家庭主妇"
                     />
                   </div>
+                  <div className="col-span-2 md:col-span-1">
+                    <label className="block text-sm font-medium text-slate-700 mb-1">评估角色类型</label>
+                    <select 
+                        value={newPersonaData.role}
+                        onChange={(e) => setNewPersonaData({...newPersonaData, role: e.target.value as UserRole})}
+                        className="w-full p-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                    >
+                        <option value={UserRole.USER}>普通用户 (User)</option>
+                        <option value={UserRole.EXPERT}>专家评审 (Expert)</option>
+                    </select>
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-slate-700 mb-1">简短描述</label>
+                    <input 
+                        type="text" 
+                        value={newPersonaData.description}
+                        onChange={(e) => setNewPersonaData({...newPersonaData, description: e.target.value})}
+                        className="w-full p-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                        placeholder="一句话描述该角色的核心特征"
+                    />
+                  </div>
+               </div>
+
+               {/* Import Button */}
+                <div className="flex items-center gap-2">
+                    <button 
+                        onClick={() => jsonImportRef.current?.click()}
+                        className="text-xs flex items-center gap-1 text-indigo-600 hover:text-indigo-800 font-medium px-3 py-1.5 bg-indigo-50 rounded-lg transition-colors"
+                    >
+                        <FileUp size={14} />
+                        导入 JSON 配置
+                    </button>
+                    <input 
+                        ref={jsonImportRef}
+                        type="file" 
+                        accept=".json" 
+                        onChange={handleImportJson} 
+                        className="hidden" 
+                    />
                 </div>
 
-                <div className="md:col-span-2 py-2">
-                  <div className="h-px bg-slate-100"></div>
-                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider mt-2 block">详细属性配置</span>
-                </div>
-
-                {/* Attributes - Left Column */}
-                <div className="space-y-4">
-                   <div>
-                      <label className="block text-xs font-medium text-slate-600 mb-1">年龄段</label>
-                      <input 
-                        type="text" 
-                        value={newPersonaData.attributes.age}
-                        onChange={(e) => updateNewPersonaAttr('age', e.target.value)}
-                        placeholder="例如：25-30岁"
-                        className="w-full rounded-lg border-slate-200 focus:border-indigo-500 text-sm py-2 px-3 border bg-white text-slate-900"
-                      />
-                   </div>
-                   <div>
-                      <label className="block text-xs font-medium text-slate-600 mb-1">科技熟练度</label>
-                       <select 
-                          value={newPersonaData.attributes.techSavviness}
-                          onChange={(e) => updateNewPersonaAttr('techSavviness', e.target.value)}
-                          className="w-full rounded-lg border-slate-200 focus:border-indigo-500 text-sm py-2 px-3 border bg-white text-slate-900"
-                        >
-                          <option value="低">低 (小白)</option>
-                          <option value="中">中 (普通)</option>
-                          <option value="高">高 (极客)</option>
-                        </select>
-                   </div>
-                   <div>
-                      <label className="block text-xs font-medium text-slate-600 mb-1">领域知识</label>
-                      <input 
-                        type="text" 
-                        value={newPersonaData.attributes.domainKnowledge}
-                        onChange={(e) => updateNewPersonaAttr('domainKnowledge', e.target.value)}
-                        placeholder="例如：新手 / 专家"
-                        className="w-full rounded-lg border-slate-200 focus:border-indigo-500 text-sm py-2 px-3 border bg-white text-slate-900"
-                      />
-                   </div>
-                   <div>
-                      <label className="block text-xs font-medium text-slate-600 mb-1">设备习惯</label>
-                      <input 
-                        type="text" 
-                        value={newPersonaData.attributes.deviceHabits}
-                        onChange={(e) => updateNewPersonaAttr('deviceHabits', e.target.value)}
-                        placeholder="例如：单手操作手机"
-                        className="w-full rounded-lg border-slate-200 focus:border-indigo-500 text-sm py-2 px-3 border bg-white text-slate-900"
-                      />
-                   </div>
-                </div>
-
-                {/* Attributes - Right Column */}
-                <div className="space-y-4">
-                   <div>
-                      <label className="block text-xs font-medium text-slate-600 mb-1">核心目标</label>
-                      <input 
-                        type="text" 
-                        value={newPersonaData.attributes.goals}
-                        onChange={(e) => updateNewPersonaAttr('goals', e.target.value)}
-                        placeholder="例如：快速完成支付"
-                        className="w-full rounded-lg border-slate-200 focus:border-indigo-500 text-sm py-2 px-3 border bg-white text-slate-900"
-                      />
-                   </div>
-                   <div>
-                      <label className="block text-xs font-medium text-slate-600 mb-1">使用环境</label>
-                      <input 
-                        type="text" 
-                        value={newPersonaData.attributes.environment}
-                        onChange={(e) => updateNewPersonaAttr('environment', e.target.value)}
-                        placeholder="例如：嘈杂的地铁"
-                        className="w-full rounded-lg border-slate-200 focus:border-indigo-500 text-sm py-2 px-3 border bg-white text-slate-900"
-                      />
-                   </div>
-                   <div>
-                      <label className="block text-xs font-medium text-slate-600 mb-1">挫折容忍度</label>
-                       <select 
-                          value={newPersonaData.attributes.frustrationTolerance}
-                          onChange={(e) => updateNewPersonaAttr('frustrationTolerance', e.target.value)}
-                          className="w-full rounded-lg border-slate-200 focus:border-indigo-500 text-sm py-2 px-3 border bg-white text-slate-900"
-                        >
-                          <option value="低">低 (容易放弃)</option>
-                          <option value="中">中 (愿意尝试)</option>
-                          <option value="高">高 (极有耐心)</option>
-                        </select>
-                   </div>
-                </div>
-              </div>
+               {/* Attributes Grid */}
+               <div>
+                  <h4 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3">详细属性设定</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {Object.keys(EMPTY_PERSONA.attributes).map((key) => (
+                        <div key={key}>
+                            <label className="block text-xs font-medium text-slate-500 mb-1 capitalize">
+                                {key.replace(/([A-Z])/g, ' $1').trim()}
+                            </label>
+                            <input 
+                                type="text" 
+                                value={(newPersonaData.attributes as any)[key]}
+                                onChange={(e) => updateNewPersonaAttr(key as any, e.target.value)}
+                                className="w-full p-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                            />
+                        </div>
+                    ))}
+                  </div>
+               </div>
             </div>
-
-            {/* Modal Footer */}
+            
             <div className="p-6 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
               <button 
                 onClick={() => setIsModalOpen(false)}
-                className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
+                className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-200 rounded-lg transition-colors"
               >
                 取消
               </button>
               <button 
                 onClick={handleCreatePersona}
                 disabled={!newPersonaData.name}
-                className={`px-4 py-2 text-sm font-bold text-white rounded-lg shadow-sm transition-all ${!newPersonaData.name ? 'bg-indigo-300 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'}`}
+                className={`px-6 py-2 bg-indigo-600 text-white font-medium rounded-lg shadow-lg shadow-indigo-200 transition-all ${!newPersonaData.name ? 'opacity-50 cursor-not-allowed' : 'hover:bg-indigo-700 hover:scale-105'}`}
               >
-                保存角色
+                创建角色
               </button>
             </div>
           </div>

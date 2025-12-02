@@ -56,6 +56,7 @@ export interface ApiConfig {
   provider: ApiProvider;
   openRouterKey?: string;
   openRouterModel?: string;
+  imageModel?: string; // New field for image generation model
 }
 
 declare global {

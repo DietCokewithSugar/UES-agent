@@ -2,7 +2,7 @@
 import React from 'react';
 import { UESReport } from '../types';
 import { UESRadarChart } from './RadarChart';
-import { AlertTriangle, CheckCircle, Target, User, FileText, Zap, Wand2, ArrowRight, Image as ImageIcon } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Target, User, FileText, Zap, Wand2, ArrowRight, Image as ImageIcon, ListChecks } from 'lucide-react';
 
 interface ReportViewProps {
   report: UESReport;
@@ -78,7 +78,7 @@ export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, o
         <div className="md:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
           <h3 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
             <Target className="w-5 h-5 text-indigo-500" />
-            维度分析
+            维度分布
           </h3>
           <div className="flex flex-col md:flex-row h-full gap-4">
             <div className="flex-1 h-64 md:h-auto">
@@ -122,6 +122,34 @@ export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, o
         </div>
       </div>
 
+       {/* Detailed Dimension Analysis (New Section) */}
+       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        <div className="p-6 border-b border-slate-100">
+          <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+            <ListChecks className="w-5 h-5 text-teal-500" />
+            维度详细解读
+          </h3>
+        </div>
+        <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+          {report.dimensionScores.map((dim, idx) => (
+            <div key={idx} className="p-4 rounded-xl bg-slate-50 border border-slate-100 flex flex-col gap-2">
+              <div className="flex justify-between items-center">
+                <span className="font-bold text-slate-700">{dim.dimension}</span>
+                <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                  dim.score >= 80 ? 'bg-emerald-100 text-emerald-700' : 
+                  dim.score >= 60 ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'
+                }`}>
+                  {dim.score}分
+                </span>
+              </div>
+              <p className="text-sm text-slate-600 leading-relaxed">
+                {dim.comment || "暂无详细评价"}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* Visual Optimization Comparison */}
       {(optimizedImage || isGeneratingImage) && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
@@ -130,7 +158,7 @@ export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, o
               <Wand2 className="w-5 h-5 text-indigo-500" />
               视觉优化方案 (AI 自动生成)
             </h3>
-            <p className="text-sm text-slate-500 mt-1">基于 Google Nano Banana 2 (Gemini 3 Pro Image) 模型生成的优化建议效果图。</p>
+            <p className="text-sm text-slate-500 mt-1">基于 AI 视觉模型生成的优化建议效果图。</p>
           </div>
           <div className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
@@ -241,4 +269,3 @@ export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, o
     </div>
   );
 };
-    
