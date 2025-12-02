@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { Persona, UESReport, EvaluationModel, ApiConfig } from "../types";
 
@@ -102,7 +101,7 @@ const callOpenRouter = async (
         "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
         "HTTP-Referer": window.location.origin, // Required by OpenRouter
-        "X-Title": "UES Agent"
+        "X-Title": "ETS Agent"
       },
       body: JSON.stringify({
         model: model,
@@ -343,7 +342,7 @@ export const generateOptimizedDesign = async (
           "Authorization": `Bearer ${apiConfig.openRouterKey}`,
           "Content-Type": "application/json",
           "HTTP-Referer": window.location.origin,
-          "X-Title": "UES Agent"
+          "X-Title": "ETS Agent"
         },
         body: JSON.stringify({
           model: 'google/gemini-3-pro-image-preview',

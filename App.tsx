@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { Upload, Sparkles, Settings, ChevronRight, Check, Loader2, Plus, X, Layers, Square, CheckSquare, Users, Download, Archive, Package, Globe, FileUp, FileJson } from 'lucide-react';
 import { toPng } from 'html-to-image';
@@ -262,14 +261,14 @@ export default function App() {
     e.stopPropagation();
     const { id, ...dataToSave } = persona; // Exclude ID
     const blob = new Blob([JSON.stringify(dataToSave, null, 2)], { type: 'application/json' });
-    FileSaver.saveAs(blob, `UES_Persona_${persona.name.replace(/\s+/g, '_')}.json`);
+    FileSaver.saveAs(blob, `ETS_Persona_${persona.name.replace(/\s+/g, '_')}.json`);
   };
 
   // Download a template for creating new personas
   const handleDownloadTemplate = () => {
     const template = { ...EMPTY_PERSONA, name: "示例角色模版", description: "请在此处填写描述..." };
     const blob = new Blob([JSON.stringify(template, null, 2)], { type: 'application/json' });
-    FileSaver.saveAs(blob, 'UES_Persona_Template.json');
+    FileSaver.saveAs(blob, 'ETS_Persona_Template.json');
   };
 
   // Import JSON to fill the modal
@@ -338,7 +337,7 @@ export default function App() {
       const blob = await generatePngBlob(reportRef.current);
       if (blob) {
         const currentPersonaName = personas.find(p => p.id === viewingPersonaId)?.name || 'Report';
-        FileSaver.saveAs(blob, `UES_Report_${currentPersonaName}.png`);
+        FileSaver.saveAs(blob, `ETS_Report_${currentPersonaName}.png`);
       }
     } catch (err) {
       console.error('Failed to export image:', err);
@@ -368,14 +367,14 @@ export default function App() {
         if (element) {
           const blob = await generatePngBlob(element);
           if (blob) {
-            zip.file(`UES_Report_${name}.png`, blob);
+            zip.file(`ETS_Report_${name}.png`, blob);
           }
         }
       }
 
       // Generate Zip and save
       const content = await zip.generateAsync({ type: 'blob' });
-      FileSaver.saveAs(content, 'UES_Analysis_Reports.zip');
+      FileSaver.saveAs(content, 'ETS_Analysis_Reports.zip');
 
     } catch (err) {
       console.error('Batch export failed:', err);
@@ -406,7 +405,7 @@ export default function App() {
             >
               <div className="bg-white rounded-xl shadow-none p-8">
                  <div className="mb-8 border-b border-slate-200 pb-4">
-                    <h1 className="text-3xl font-bold text-slate-800 mb-2">UES 体验评估报告</h1>
+                    <h1 className="text-3xl font-bold text-slate-800 mb-2">ETS 体验评估报告</h1>
                     <div className="flex items-center gap-4 text-slate-500">
                       <span className="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full text-sm font-semibold">
                          {personas.find(p => p.id === id)?.name}
@@ -815,13 +814,21 @@ export default function App() {
                    </div>
                    <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1">Model ID</label>
-                      <input 
-                        type="text" 
-                        value={apiConfig.openRouterModel}
-                        onChange={(e) => setApiConfig(prev => ({ ...prev, openRouterModel: e.target.value }))}
-                        placeholder="例如: google/gemini-3-pro-preview"
-                        className="w-full rounded-lg border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm py-2 px-3 border bg-white text-slate-900 font-mono"
-                      />
+                      <div className="relative">
+                        <input 
+                          list="openrouter-models"
+                          type="text" 
+                          value={apiConfig.openRouterModel}
+                          onChange={(e) => setApiConfig(prev => ({ ...prev, openRouterModel: e.target.value }))}
+                          placeholder="选择或输入模型 ID"
+                          className="w-full rounded-lg border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm py-2 px-3 border bg-white text-slate-900 font-mono"
+                        />
+                        <datalist id="openrouter-models">
+                          <option value="google/gemini-3-pro-preview" />
+                          <option value="qwen/qwen3-vl-235b-a22b-instruct" />
+                          <option value="x-ai/grok-4.1-fast:free" />
+                        </datalist>
+                      </div>
                       <p className="text-xs text-slate-500 mt-1">默认使用 google/gemini-3-pro-preview (支持推理)</p>
                    </div>
                 </div>
