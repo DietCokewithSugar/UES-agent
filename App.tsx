@@ -1,10 +1,10 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, Sparkles, Settings, ChevronRight, Check, Loader2, Plus, X, Layers, Square, CheckSquare, Users, Download, Archive, Package, Globe, FileUp, FileJson } from 'lucide-react';
+import { Upload, Sparkles, Settings, ChevronRight, Check, Loader2, Plus, X, Layers, Square, CheckSquare, Users, Download, Archive, Package, Globe, FileUp, FileJson, Trash2, GripVertical, ImagePlus } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import JSZip from 'jszip';
 import FileSaver from 'file-saver';
-import { Persona, UESReport, UserRole, EvaluationModel, ApiConfig } from './types';
+import { Persona, UESReport, UserRole, EvaluationModel, ApiConfig, ProcessStep } from './types';
 import { analyzeDesign, generateOptimizedDesign } from './services/geminiService';
 import { ReportView } from './components/ReportView';
 
@@ -95,7 +95,11 @@ export default function App() {
   const [viewingPersonaId, setViewingPersonaId] = useState<string>(DEFAULT_PERSONAS[0].id);
 
   const [evaluationModel, setEvaluationModel] = useState<EvaluationModel>(EvaluationModel.ETS); // Default to ETS as requested implicitly
-  const [image, setImage] = useState<string | null>(null);
+  
+  // Input State
+  const [uploadMode, setUploadMode] = useState<'single' | 'flow'>('single');
+  const [image, setImage] = useState<string | null>(null); // For single mode
+  const [processSteps, setProcessSteps] = useState<ProcessStep[]>([]); // For flow mode
   
   // Analysis State (Map by Persona ID)
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -125,24 +129,70 @@ export default function App() {
   const [isBatchExporting, setIsBatchExporting] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const flowStepInputRef = useRef<HTMLInputElement>(null);
   const jsonImportRef = useRef<HTMLInputElement>(null);
 
   // Helper to get actual persona objects from selected IDs
   const getSelectedPersonas = () => personas.filter(p => selectedPersonaIds.includes(p.id));
 
-  // Reset report if image changes
+  // Single File Handler
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
         setImage(reader.result as string);
+        // Clear previous results
         setReports({}); 
         setOptimizedImages({});
         setError(null);
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  // Flow Handlers
+  const handleAddFlowStep = () => {
+    if (flowStepInputRef.current) {
+        flowStepInputRef.current.click();
+    }
+  };
+
+  const handleFlowImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    // Read all selected files
+    files.forEach(file => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            const newStep: ProcessStep = {
+                id: Date.now().toString() + Math.random().toString(),
+                image: reader.result as string,
+                description: ''
+            };
+            setProcessSteps(prev => [...prev, newStep]);
+        };
+        reader.readAsDataURL(file);
+    });
+    
+    // Clear results on new input
+    setReports({});
+    setOptimizedImages({});
+    setError(null);
+    
+    // Reset input
+    e.target.value = '';
+  };
+
+  const updateStepDescription = (id: string, text: string) => {
+    setProcessSteps(prev => prev.map(step => 
+        step.id === id ? { ...step, description: text } : step
+    ));
+  };
+
+  const removeStep = (id: string) => {
+    setProcessSteps(prev => prev.filter(step => step.id !== id));
   };
 
   const togglePersonaSelection = (id: string) => {
@@ -158,8 +208,13 @@ export default function App() {
   };
 
   const handleAnalyze = async () => {
-    if (!image) return;
+    // Validate inputs
+    const inputData = uploadMode === 'single' ? image : processSteps;
+    if (uploadMode === 'single' && !image) return;
+    if (uploadMode === 'flow' && processSteps.length === 0) return;
     
+    if (!inputData) return;
+
     // Check for API Key if using Google
     if (apiConfig.provider === 'google') {
         try {
@@ -189,7 +244,7 @@ export default function App() {
       // 1. Parallel Text Analysis
       const analysisPromises = targets.map(async (p) => {
         try {
-          const result = await analyzeDesign(image, p, evaluationModel, apiConfig);
+          const result = await analyzeDesign(inputData, p, evaluationModel, apiConfig);
           return { id: p.id, report: result };
         } catch (e: any) {
           console.error(`Analysis failed for ${p.name}`, e);
@@ -209,29 +264,35 @@ export default function App() {
 
       // 2. Parallel Image Generation (Optional)
       // Enable for both Google and OpenRouter ONLY IF CHECKED
+      // IMPORTANT: For flows, we just use the first image or skip optimization logic if too complex, 
+      // but here we just take the first image of the flow as the "representative" image to optimize if in flow mode.
       if (shouldGenerateImages) {
           setIsGeneratingImage(true);
           
-          const imagePromises = targets.map(async (p) => {
-            const report = newReports[p.id];
-            if (!report) return null;
-            try {
-              const img = await generateOptimizedDesign(image, p, report, apiConfig);
-              return { id: p.id, img };
-            } catch (e) {
-               console.error(`Image gen failed for ${p.name}`, e);
-               return null;
-            }
-          });
+          const sourceImage = uploadMode === 'single' ? (image as string) : processSteps[0]?.image;
 
-          const imgResults = await Promise.all(imagePromises);
-          
-          const newImages: Record<string, string> = {};
-          imgResults.forEach(res => {
-            if (res) newImages[res.id] = res.img;
-          });
+          if (sourceImage) {
+            const imagePromises = targets.map(async (p) => {
+                const report = newReports[p.id];
+                if (!report) return null;
+                try {
+                const img = await generateOptimizedDesign(sourceImage, p, report, apiConfig);
+                return { id: p.id, img };
+                } catch (e) {
+                console.error(`Image gen failed for ${p.name}`, e);
+                return null;
+                }
+            });
 
-          setOptimizedImages(newImages);
+            const imgResults = await Promise.all(imagePromises);
+            
+            const newImages: Record<string, string> = {};
+            imgResults.forEach(res => {
+                if (res) newImages[res.id] = res.img;
+            });
+
+            setOptimizedImages(newImages);
+          }
       }
 
     } catch (err: any) {
@@ -407,6 +468,9 @@ export default function App() {
   // Check if we have multiple reports for batch export logic
   const hasMultipleReports = Object.keys(reports).length > 1;
 
+  // Determine button enabled state
+  const isReadyToAnalyze = uploadMode === 'single' ? !!image : processSteps.length > 0;
+
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-slate-50 font-sans text-slate-900">
       
@@ -432,6 +496,7 @@ export default function App() {
                  <ReportView 
                     report={report} 
                     originalImage={image}
+                    processSteps={uploadMode === 'flow' ? processSteps : undefined}
                     optimizedImage={optimizedImages[id]}
                     isGeneratingImage={false} // For export, we assume generation is done or we capture what we have
                   />
@@ -463,37 +528,106 @@ export default function App() {
         </div>
 
         {/* Step 1: Upload */}
-        <div className="p-6 border-b border-slate-100">
-          <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">1. 上传界面截图</h2>
-          <div 
-            onClick={() => fileInputRef.current?.click()}
-            className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all ${image ? 'border-indigo-200 bg-indigo-50' : 'border-slate-200 hover:border-indigo-400 hover:bg-slate-50'}`}
-          >
-            <input 
-              ref={fileInputRef}
-              type="file" 
-              accept="image/*" 
-              onChange={handleFileChange} 
-              className="hidden" 
-            />
-            {image ? (
-               <div className="relative">
-                 <img src={image} alt="Preview" className="max-h-32 mx-auto rounded-lg shadow-sm" />
-                 <div className="absolute inset-0 flex items-center justify-center bg-black/10 rounded-lg opacity-0 hover:opacity-100 transition-opacity">
-                    <span className="bg-white text-slate-800 text-xs py-1 px-3 rounded shadow-sm font-medium">更换图片</span>
-                 </div>
-               </div>
-            ) : (
-              <div className="flex flex-col items-center gap-2 text-slate-400">
-                <Upload size={24} />
-                <span className="text-sm font-medium">点击上传或拖入图片</span>
-              </div>
-            )}
+        <div className="p-6 border-b border-slate-100 flex-1 overflow-y-auto">
+          <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">1. 上传需测内容</h2>
+          
+          {/* Toggle Mode */}
+          <div className="flex bg-slate-100 p-1 rounded-lg mb-4">
+            <button 
+                onClick={() => setUploadMode('single')}
+                className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${uploadMode === 'single' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+                单页模式
+            </button>
+            <button 
+                onClick={() => setUploadMode('flow')}
+                className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${uploadMode === 'flow' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+                业务流程
+            </button>
           </div>
+
+          {uploadMode === 'single' ? (
+            // Single Image Upload
+            <div 
+                onClick={() => fileInputRef.current?.click()}
+                className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all ${image ? 'border-indigo-200 bg-indigo-50' : 'border-slate-200 hover:border-indigo-400 hover:bg-slate-50'}`}
+            >
+                <input 
+                ref={fileInputRef}
+                type="file" 
+                accept="image/*" 
+                onChange={handleFileChange} 
+                className="hidden" 
+                />
+                {image ? (
+                <div className="relative">
+                    <img src={image} alt="Preview" className="max-h-32 mx-auto rounded-lg shadow-sm" />
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/10 rounded-lg opacity-0 hover:opacity-100 transition-opacity">
+                        <span className="bg-white text-slate-800 text-xs py-1 px-3 rounded shadow-sm font-medium">更换图片</span>
+                    </div>
+                </div>
+                ) : (
+                <div className="flex flex-col items-center gap-2 text-slate-400">
+                    <Upload size={24} />
+                    <span className="text-sm font-medium">点击上传或拖入图片</span>
+                </div>
+                )}
+            </div>
+          ) : (
+            // Flow Upload
+            <div className="space-y-4">
+                <div className="space-y-3">
+                    {processSteps.map((step, idx) => (
+                        <div key={step.id} className="bg-slate-50 p-3 rounded-lg border border-slate-200 group relative">
+                             <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button onClick={() => removeStep(step.id)} className="p-1 bg-white rounded-full text-slate-400 hover:text-red-500 shadow-sm border border-slate-200">
+                                    <Trash2 size={12} />
+                                </button>
+                             </div>
+                             
+                             <div className="flex gap-3 items-start">
+                                 <div className="w-16 h-16 shrink-0 bg-white border border-slate-200 rounded-md flex items-center justify-center overflow-hidden">
+                                     <img src={step.image} alt={`Step ${idx+1}`} className="w-full h-full object-cover" />
+                                 </div>
+                                 <div className="flex-1">
+                                     <div className="flex justify-between items-center mb-1">
+                                         <span className="text-xs font-bold text-slate-500 uppercase">步骤 {idx + 1}</span>
+                                     </div>
+                                     <textarea 
+                                        value={step.description}
+                                        onChange={(e) => updateStepDescription(step.id, e.target.value)}
+                                        placeholder="输入用户操作说明 (如: 点击下一步)"
+                                        className="w-full text-xs p-2 rounded border border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none resize-none bg-white"
+                                        rows={2}
+                                     />
+                                 </div>
+                             </div>
+                        </div>
+                    ))}
+                </div>
+
+                <div 
+                    onClick={handleAddFlowStep}
+                    className="border-2 border-dashed border-slate-200 rounded-xl p-4 text-center cursor-pointer hover:border-indigo-400 hover:bg-slate-50 transition-all flex flex-col items-center justify-center gap-2 text-slate-400"
+                >
+                    <input 
+                        ref={flowStepInputRef}
+                        type="file" 
+                        accept="image/*" 
+                        multiple
+                        onChange={handleFlowImageSelect}
+                        className="hidden" 
+                    />
+                    <ImagePlus size={20} />
+                    <span className="text-xs font-medium">添加流程截图 (支持多选)</span>
+                </div>
+            </div>
+          )}
         </div>
 
         {/* Step 2: Personas */}
-        <div className="p-6 flex-1 overflow-y-auto">
+        <div className="p-6 border-b border-slate-100 bg-white">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider">2. 选择模拟角色</h2>
             <div className="flex gap-2">
@@ -514,7 +648,7 @@ export default function App() {
             </div>
           </div>
           
-          <div className="space-y-3">
+          <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
             {personas.map(persona => {
                 const isSelected = selectedPersonaIds.includes(persona.id);
                 return (
@@ -590,9 +724,9 @@ export default function App() {
         <div className="p-6 border-t border-slate-200 bg-white sticky bottom-0 z-30">
           <button 
             onClick={handleAnalyze}
-            disabled={!image || isAnalyzing || selectedPersonaIds.length === 0}
+            disabled={!isReadyToAnalyze || isAnalyzing || selectedPersonaIds.length === 0}
             className={`w-full py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 font-bold text-white shadow-lg transition-all transform active:scale-95 ${
-              !image || isAnalyzing || selectedPersonaIds.length === 0
+                !isReadyToAnalyze || isAnalyzing || selectedPersonaIds.length === 0
                 ? 'bg-slate-300 cursor-not-allowed shadow-none' 
                 : 'bg-gradient-to-r from-indigo-600 to-violet-600 hover:shadow-indigo-200 hover:brightness-105'
             }`}
@@ -700,6 +834,7 @@ export default function App() {
                      <ReportView 
                         report={currentReport} 
                         originalImage={image}
+                        processSteps={uploadMode === 'flow' ? processSteps : undefined}
                         optimizedImage={currentOptimizedImage}
                         isGeneratingImage={isGeneratingImage}
                      />
@@ -711,7 +846,7 @@ export default function App() {
                     </div>
                     <div className="max-w-md">
                         <h3 className="text-xl font-bold text-slate-800">准备就绪</h3>
-                        <p className="text-slate-500 mt-2">请上传界面截图并选择模拟用户画像，ETS Agent 将为您生成专业的体验审计报告。</p>
+                        <p className="text-slate-500 mt-2">请上传界面截图或业务流程，并选择模拟用户画像，ETS Agent 将为您生成专业的体验审计报告。</p>
                     </div>
                 </div>
             )}

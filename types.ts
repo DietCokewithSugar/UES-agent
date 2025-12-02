@@ -59,6 +59,12 @@ export interface ApiConfig {
   imageModel?: string; // New field for image generation model
 }
 
+export interface ProcessStep {
+  id: string;
+  image: string; // Base64
+  description: string; // User action description
+}
+
 declare global {
   interface AIStudio {
     hasSelectedApiKey: () => Promise<boolean>;

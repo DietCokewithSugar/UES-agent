@@ -1,12 +1,13 @@
 
 import React from 'react';
-import { UESReport } from '../types';
+import { UESReport, ProcessStep } from '../types';
 import { UESRadarChart } from './RadarChart';
-import { AlertTriangle, CheckCircle, Target, User, FileText, Zap, Wand2, ArrowRight, Image as ImageIcon, ListChecks } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Target, User, FileText, Zap, Wand2, ArrowRight, Image as ImageIcon, ListChecks, ArrowDown } from 'lucide-react';
 
 interface ReportViewProps {
   report: UESReport;
   originalImage?: string | null;
+  processSteps?: ProcessStep[]; // Added for flow support
   optimizedImage?: string | null;
   isGeneratingImage?: boolean;
 }
@@ -30,27 +31,74 @@ const SeverityBadge: React.FC<{ severity: string }> = ({ severity }) => {
   );
 };
 
-export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, optimizedImage, isGeneratingImage }) => {
+export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, processSteps, optimizedImage, isGeneratingImage }) => {
   return (
     <div className="space-y-8 animate-fade-in pb-12">
       
-      {/* Uploaded Image Section (Top) */}
-      {originalImage && (
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center">
-            <div className="w-full flex items-center justify-start mb-4 border-b border-slate-100 pb-2">
+      {/* Visual Content Section: Either Single Image or Business Flow */}
+      
+      {/* Case 1: Business Flow */}
+      {processSteps && processSteps.length > 0 ? (
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+             <div className="w-full flex items-center justify-start mb-6 border-b border-slate-100 pb-2">
                 <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-                    <ImageIcon className="w-5 h-5 text-indigo-500" />
-                    测评界面截图
+                    <ListChecks className="w-5 h-5 text-indigo-500" />
+                    测评业务流程 (User Flow)
                 </h3>
             </div>
-            <div className="max-w-2xl w-full rounded-xl overflow-hidden border border-slate-200 bg-slate-50 p-2">
-                 <img 
-                  src={originalImage} 
-                  alt="Analyzed UI" 
-                  className="w-full h-auto max-h-[400px] object-contain mx-auto rounded-lg shadow-sm"
-                />
+            <div className="relative border-l-2 border-indigo-100 ml-4 space-y-8 pb-4">
+                {processSteps.map((step, idx) => (
+                    <div key={step.id} className="relative pl-8">
+                         {/* Timeline Dot */}
+                        <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-indigo-500 border-4 border-white shadow-sm ring-1 ring-indigo-100"></div>
+                        
+                        <div className="bg-slate-50 border border-slate-200 rounded-xl overflow-hidden">
+                             {/* Header / Action Description */}
+                             <div className="bg-white border-b border-slate-100 p-3 flex gap-3 items-center">
+                                <span className="bg-slate-800 text-white text-xs font-bold px-2 py-1 rounded">步骤 {idx + 1}</span>
+                                <p className="text-sm font-medium text-slate-700">
+                                    {step.description || "用户浏览此界面"}
+                                </p>
+                             </div>
+                             {/* Image */}
+                             <div className="p-2">
+                                <img 
+                                    src={step.image} 
+                                    alt={`Step ${idx + 1}`} 
+                                    className="w-full h-auto max-h-[300px] object-contain rounded-lg"
+                                />
+                             </div>
+                        </div>
+
+                        {/* Visual Connector for next step */}
+                        {idx < processSteps.length - 1 && (
+                            <div className="absolute left-8 bottom-[-24px] flex justify-center w-full opacity-30">
+                                <ArrowDown size={20} className="text-indigo-300" />
+                            </div>
+                        )}
+                    </div>
+                ))}
             </div>
         </div>
+      ) : (
+        /* Case 2: Single Image */
+        originalImage && (
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center">
+                <div className="w-full flex items-center justify-start mb-4 border-b border-slate-100 pb-2">
+                    <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                        <ImageIcon className="w-5 h-5 text-indigo-500" />
+                        测评界面截图
+                    </h3>
+                </div>
+                <div className="max-w-2xl w-full rounded-xl overflow-hidden border border-slate-200 bg-slate-50 p-2">
+                    <img 
+                    src={originalImage} 
+                    alt="Analyzed UI" 
+                    className="w-full h-auto max-h-[400px] object-contain mx-auto rounded-lg shadow-sm"
+                    />
+                </div>
+            </div>
+        )
       )}
 
       {/* Header Section */}
@@ -167,7 +215,14 @@ export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, o
               <div className="space-y-3">
                 <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block text-center">当前版本 (Before)</span>
                 <div className="relative group rounded-xl overflow-hidden border border-slate-200 bg-slate-50 aspect-square flex items-center justify-center">
-                  {originalImage && (
+                  {/* If flow, show first step, else show original image */}
+                  {(processSteps && processSteps.length > 0) ? (
+                    <img 
+                      src={processSteps[0].image} 
+                      alt="Original Design" 
+                      className="max-w-full max-h-full object-contain"
+                    />
+                  ) : originalImage && (
                     <img 
                       src={originalImage} 
                       alt="Original Design" 

@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { Persona, UESReport, EvaluationModel, ApiConfig } from "../types";
+import { Persona, UESReport, EvaluationModel, ApiConfig, ProcessStep } from "../types";
 
 // Note: API Key must be obtained from process.env.API_KEY or via window.aistudio for high-end models
 const getAIClient = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -70,28 +70,48 @@ const MODEL_DEFINITIONS = {
 
 const callOpenRouter = async (
   prompt: string,
-  base64Image: string,
+  input: string | ProcessStep[],
   apiKey: string,
   model: string
 ): Promise<UESReport> => {
-  const cleanBase64 = base64Image.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
   
-  // Construct messages for OpenRouter (OpenAI compatible)
+  const messagesContent: any[] = [
+    {
+      type: "text",
+      text: prompt + "\n\nIMPORTANT: Return ONLY valid JSON."
+    }
+  ];
+
+  if (Array.isArray(input)) {
+    // Handle Business Flow
+    input.forEach((step, index) => {
+      const cleanBase64 = step.image.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
+      messagesContent.push({
+        type: "text",
+        text: `Step ${index + 1}: ${step.description || "User views this screen"}`
+      });
+      messagesContent.push({
+        type: "image_url",
+        image_url: {
+          url: `data:image/png;base64,${cleanBase64}`
+        }
+      });
+    });
+  } else {
+    // Handle Single Image
+    const cleanBase64 = input.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
+    messagesContent.push({
+      type: "image_url",
+      image_url: {
+        url: `data:image/png;base64,${cleanBase64}`
+      }
+    });
+  }
+
   const messages = [
     {
       role: "user",
-      content: [
-        {
-          type: "text",
-          text: prompt + "\n\nIMPORTANT: Return ONLY valid JSON."
-        },
-        {
-          type: "image_url",
-          image_url: {
-            url: `data:image/png;base64,${cleanBase64}`
-          }
-        }
-      ]
+      content: messagesContent
     }
   ];
 
@@ -137,7 +157,7 @@ const callOpenRouter = async (
 };
 
 export const analyzeDesign = async (
-  base64Image: string,
+  input: string | ProcessStep[],
   persona: Persona,
   model: EvaluationModel = EvaluationModel.UES,
   apiConfig: ApiConfig = { provider: 'google' }
@@ -158,10 +178,23 @@ export const analyzeDesign = async (
     设备习惯: ${persona.attributes.deviceHabits}
   `;
 
+  const isFlow = Array.isArray(input);
+
+  const contextPrompt = isFlow 
+    ? `这是一次针对【完整业务流程】的评估。你将看到一系列按顺序排列的截图，每张截图都附带了用户的操作说明（例如“点击转账按钮”）。
+       请重点关注：
+       1. 流程连贯性：步骤之间的跳转是否符合逻辑？
+       2. 反馈及时性：用户操作后系统是否有明确反馈？
+       3. 闭环体验：流程是否完整，是否有中断或死胡同？
+    ` 
+    : `这是一次针对【单个界面】的评估。`;
+
   const prompt = `
     你是一个世界级的体验评估专家智能体。
-    你的任务是基于 **${model} 评估模型** 对上传的 UI 设计图进行严格审计。
+    你的任务是基于 **${model} 评估模型** 对上传的 UI 设计进行严格审计。
     
+    ${contextPrompt}
+
     审计必须严格基于以下【用户画像】的视角进行：
     ${personaDescription}
 
@@ -192,7 +225,7 @@ export const analyzeDesign = async (
     }
     const report = await callOpenRouter(
       prompt, 
-      base64Image, 
+      input, 
       apiConfig.openRouterKey, 
       apiConfig.openRouterModel || "google/gemini-3-pro-preview"
     );
@@ -252,22 +285,42 @@ export const analyzeDesign = async (
   };
 
   try {
-    const cleanBase64 = base64Image.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
+    let contentParts: any[] = [];
+
+    // Push Prompt First or mixed? Gemini typically likes System Prompt -> User Content.
+    // We will put the instruction in text, then the images/texts.
+    
+    contentParts.push({ text: prompt });
+
+    if (Array.isArray(input)) {
+        // Interleave steps
+        input.forEach((step, idx) => {
+            const cleanBase64 = step.image.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
+            
+            contentParts.push({
+                text: `\n--- 步骤 ${idx + 1} ---\n用户操作说明: ${step.description || "无说明"}\n界面截图:`
+            });
+            contentParts.push({
+                inlineData: {
+                    mimeType: "image/png",
+                    data: cleanBase64
+                }
+            });
+        });
+    } else {
+        const cleanBase64 = input.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
+        contentParts.push({
+            inlineData: {
+                mimeType: "image/png",
+                data: cleanBase64
+            }
+        });
+    }
 
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: {
-        parts: [
-          {
-            inlineData: {
-              mimeType: "image/png",
-              data: cleanBase64,
-            },
-          },
-          {
-            text: prompt,
-          },
-        ],
+        parts: contentParts
       },
       config: {
         responseMimeType: "application/json",
