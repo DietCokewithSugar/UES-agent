@@ -201,6 +201,15 @@ export const analyzeDesign = async (
     **评估标准：**
     ${MODEL_DEFINITIONS[model]}
 
+    **问题分级标准 (必须严格执行):**
+    请基于「功能常用程度」+「影响程度」判定问题的严重等级：
+    1. **一级问题**：[常用功能] 且 [影响大]。
+       * 影响大 (有效性)：导致操作失败、损害用户利益。
+    2. **二级问题**：([常用功能] 且 [影响中/小]) 或 ([不常用功能] 且 [影响大])。
+       * 影响中 (效率)：操作延迟/受挫，但不导致失败。
+       * 影响小 (满意度)：对操作影响小，仅影响使用感受。
+    3. **三级问题**：[不常用功能] 且 [影响中/小]。
+
     请提供严格的 JSON 输出，不要包含任何 Markdown 格式（如 \`\`\`json），直接返回 JSON 对象。**所有内容必须使用简体中文**：
     
     期望的 JSON 结构:
@@ -212,7 +221,7 @@ export const analyzeDesign = async (
       "executiveSummary": "string",
       "personaPerspective": "string",
       "issues": [
-        { "severity": "严重" | "高" | "中" | "低", "location": "string", "description": "string", "recommendation": "string" }
+        { "severity": "一级问题" | "二级问题" | "三级问题", "location": "string", "description": "string", "recommendation": "string" }
       ],
       "optimizationSuggestions": ["string"]
     }
@@ -260,7 +269,7 @@ export const analyzeDesign = async (
         items: {
           type: Type.OBJECT,
           properties: {
-            severity: { type: Type.STRING, enum: ["严重", "高", "中", "低"] },
+            severity: { type: Type.STRING, enum: ["一级问题", "二级问题", "三级问题"] },
             location: { type: Type.STRING },
             description: { type: Type.STRING },
             recommendation: { type: Type.STRING },
@@ -353,9 +362,10 @@ export const generateOptimizedDesign = async (
   const imageModel = apiConfig.imageModel || 'gemini-3-pro-image-preview';
 
   // Construct a focused prompt based on the specific issues found in the report
+  // Updated filter for new severity levels (Level 1 and Level 2 are considered critical/high enough)
   const criticalIssues = report.issues
-    .filter(i => ['严重', '高'].includes(i.severity))
-    .map(i => `- 位置: ${i.location}, 问题: ${i.description}, 建议: ${i.recommendation}`)
+    .filter(i => ['一级问题', '二级问题', '严重', '高'].includes(i.severity))
+    .map(i => `- [${i.severity}] 位置: ${i.location}, 问题: ${i.description}, 建议: ${i.recommendation}`)
     .join('\n');
 
   const strategicSuggestions = report.optimizationSuggestions
@@ -372,7 +382,7 @@ export const generateOptimizedDesign = async (
     - 视觉/科技能力: ${persona.attributes.techSavviness}
     - 核心目标: ${persona.attributes.goals}
 
-    请重点解决以下【严重/高优先级问题】：
+    请重点解决以下【高优先问题 (一级/二级)】：
     ${criticalIssues || "暂无严重问题，请关注整体体验提升。"}
 
     请参考以下【优化建议】：

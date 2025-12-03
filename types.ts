@@ -34,7 +34,7 @@ export interface DimensionScore {
 }
 
 export interface Issue {
-  severity: string; // '严重' | '高' | '中' | '低'
+  severity: string; // '一级问题' | '二级问题' | '三级问题'
   location: string;
   description: string;
   recommendation: string;

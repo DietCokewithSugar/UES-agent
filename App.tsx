@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, Sparkles, Settings, ChevronRight, Check, Loader2, Plus, X, Layers, Square, CheckSquare, Users, Download, Archive, Package, Globe, FileUp, FileJson, Trash2, GripVertical, ImagePlus } from 'lucide-react';
+import { Upload, Sparkles, Settings, ChevronRight, Check, Loader2, Plus, X, Layers, Square, CheckSquare, Users, Download, Archive, Package, Globe, FileUp, FileJson, Trash2, GripVertical, ImagePlus, Pencil } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import JSZip from 'jszip';
 import FileSaver from 'file-saver';
@@ -113,6 +113,7 @@ export default function App() {
   
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingPersonaId, setEditingPersonaId] = useState<string | null>(null); // Track which persona is being edited
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [newPersonaData, setNewPersonaData] = useState<Omit<Persona, 'id'>>(EMPTY_PERSONA);
 
@@ -304,20 +305,47 @@ export default function App() {
     }
   };
 
-  const handleCreatePersona = () => {
+  const handleSavePersona = () => {
     if (!newPersonaData.name) return;
     
-    const newId = Date.now().toString();
-    const newPersona: Persona = {
-      ...newPersonaData,
-      id: newId,
-    };
+    if (editingPersonaId) {
+      // Edit Mode
+      setPersonas(prev => prev.map(p => 
+        p.id === editingPersonaId 
+          ? { ...p, ...newPersonaData } as Persona
+          : p
+      ));
+    } else {
+      // Create Mode
+      const newId = Date.now().toString();
+      const newPersona: Persona = {
+        ...newPersonaData,
+        id: newId,
+      };
+      setPersonas(prev => [...prev, newPersona]);
+      // Automatically select the new persona
+      setSelectedPersonaIds(prev => [...prev, newId]);
+    }
     
-    setPersonas(prev => [...prev, newPersona]);
-    // Automatically select the new persona
-    setSelectedPersonaIds(prev => [...prev, newId]);
+    handleCloseModal();
+  };
+
+  const handleEditPersona = (e: React.MouseEvent, persona: Persona) => {
+    e.stopPropagation();
+    setNewPersonaData({
+      name: persona.name,
+      role: persona.role,
+      description: persona.description,
+      attributes: { ...persona.attributes }
+    });
+    setEditingPersonaId(persona.id);
+    setIsModalOpen(true);
+  };
+
+  const handleCloseModal = () => {
     setIsModalOpen(false);
     setNewPersonaData(EMPTY_PERSONA);
+    setEditingPersonaId(null);
   };
 
   const updateNewPersonaAttr = (field: keyof typeof EMPTY_PERSONA.attributes, value: string) => {
@@ -639,7 +667,11 @@ export default function App() {
                 <FileJson size={16} />
                 </button>
                 <button 
-                onClick={() => setIsModalOpen(true)}
+                onClick={() => {
+                  setNewPersonaData(EMPTY_PERSONA);
+                  setEditingPersonaId(null);
+                  setIsModalOpen(true);
+                }}
                 className="text-indigo-600 hover:text-indigo-700 transition-colors"
                 title="新建角色"
                 >
@@ -651,6 +683,7 @@ export default function App() {
           <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
             {personas.map(persona => {
                 const isSelected = selectedPersonaIds.includes(persona.id);
+                const isCustom = !['1', '2', '3'].includes(persona.id);
                 return (
                     <div 
                         key={persona.id}
@@ -673,14 +706,25 @@ export default function App() {
                         </div>
                         <p className="text-xs text-slate-500 line-clamp-2">{persona.description}</p>
                         
-                        {/* Export Button (only visible on hover) */}
-                        <button 
-                            onClick={(e) => handleExportPersona(e, persona)}
-                            className="absolute bottom-2 right-2 p-1 text-slate-300 hover:text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                            title="导出角色配置"
-                        >
-                            <Download size={14} />
-                        </button>
+                        {/* Actions (Export & Edit) */}
+                        <div className="absolute bottom-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {isCustom && (
+                                <button 
+                                    onClick={(e) => handleEditPersona(e, persona)}
+                                    className="p-1 text-slate-300 hover:text-indigo-600 transition-colors"
+                                    title="编辑角色"
+                                >
+                                    <Pencil size={14} />
+                                </button>
+                            )}
+                            <button 
+                                onClick={(e) => handleExportPersona(e, persona)}
+                                className="p-1 text-slate-300 hover:text-indigo-600 transition-colors"
+                                title="导出角色配置"
+                            >
+                                <Download size={14} />
+                            </button>
+                        </div>
                     </div>
                 );
             })}
@@ -949,13 +993,15 @@ export default function App() {
         </div>
       )}
 
-      {/* Create Persona Modal */}
+      {/* Create/Edit Persona Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden max-h-[90vh] flex flex-col">
             <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-              <h3 className="text-xl font-bold text-slate-800">新建用户画像</h3>
-              <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
+              <h3 className="text-xl font-bold text-slate-800">
+                  {editingPersonaId ? '编辑用户画像' : '新建用户画像'}
+              </h3>
+              <button onClick={handleCloseModal} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
                 <X size={20} className="text-slate-500" />
               </button>
             </div>
@@ -1037,17 +1083,17 @@ export default function App() {
             
             <div className="p-6 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
               <button 
-                onClick={() => setIsModalOpen(false)}
+                onClick={handleCloseModal}
                 className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-200 rounded-lg transition-colors"
               >
                 取消
               </button>
               <button 
-                onClick={handleCreatePersona}
+                onClick={handleSavePersona}
                 disabled={!newPersonaData.name}
                 className={`px-6 py-2 bg-indigo-600 text-white font-medium rounded-lg shadow-lg shadow-indigo-200 transition-all ${!newPersonaData.name ? 'opacity-50 cursor-not-allowed' : 'hover:bg-indigo-700 hover:scale-105'}`}
               >
-                创建角色
+                {editingPersonaId ? '保存修改' : '创建角色'}
               </button>
             </div>
           </div>

@@ -2,7 +2,7 @@
 import React from 'react';
 import { UESReport, ProcessStep } from '../types';
 import { UESRadarChart } from './RadarChart';
-import { AlertTriangle, CheckCircle, Target, User, FileText, Zap, Wand2, ArrowRight, Image as ImageIcon, ListChecks, ArrowDown } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Target, User, FileText, Zap, Wand2, ArrowRight, Image as ImageIcon, ListChecks, ArrowDown, HelpCircle } from 'lucide-react';
 
 interface ReportViewProps {
   report: UESReport;
@@ -14,6 +14,12 @@ interface ReportViewProps {
 
 const SeverityBadge: React.FC<{ severity: string }> = ({ severity }) => {
   const colors: Record<string, string> = {
+    // New Levels
+    '一级问题': 'bg-red-100 text-red-800 border-red-200',
+    '二级问题': 'bg-orange-100 text-orange-800 border-orange-200',
+    '三级问题': 'bg-blue-100 text-blue-800 border-blue-200',
+    
+    // Legacy Fallbacks
     '严重': 'bg-red-100 text-red-800 border-red-200',
     'Critical': 'bg-red-100 text-red-800 border-red-200',
     '高': 'bg-orange-100 text-orange-800 border-orange-200',
@@ -25,7 +31,7 @@ const SeverityBadge: React.FC<{ severity: string }> = ({ severity }) => {
   };
 
   return (
-    <span className={`px-2 py-1 rounded-full text-xs font-semibold border ${colors[severity] || colors['低']}`}>
+    <span className={`px-2 py-1 rounded-full text-xs font-semibold border ${colors[severity] || 'bg-slate-100 text-slate-700 border-slate-200'}`}>
       {severity}
     </span>
   );
@@ -272,26 +278,84 @@ export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, p
           </h3>
           <span className="text-xs font-medium text-slate-400">{report.issues.length} 个问题</span>
         </div>
+        
+        <div className="p-6 pb-0">
+          {/* Legend Section */}
+          <div className="bg-slate-50/50 p-5 rounded-xl border border-slate-200/60">
+            <div className="flex items-center gap-2 mb-4">
+              <HelpCircle size={15} className="text-slate-400" />
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">严重等级判定标准</span>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Level 1 */}
+              <div className="relative bg-white p-4 rounded-lg border border-slate-100 shadow-sm overflow-hidden group hover:border-red-100 transition-colors">
+                <div className="absolute left-0 top-0 bottom-0 w-1 bg-red-500 rounded-l-lg"></div>
+                <div className="pl-2">
+                    <div className="flex justify-between items-start mb-1">
+                        <span className="text-sm font-bold text-slate-800">一级问题</span>
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 bg-red-50 text-red-600 rounded uppercase tracking-wide">Critical</span>
+                    </div>
+                    <div className="text-xs font-semibold text-slate-700 mb-1">常用功能 + 影响大</div>
+                    <p className="text-[10px] text-slate-500 leading-relaxed">
+                        导致操作失败、损害用户利益 <br/> (有效性问题)
+                    </p>
+                </div>
+              </div>
+
+              {/* Level 2 */}
+              <div className="relative bg-white p-4 rounded-lg border border-slate-100 shadow-sm overflow-hidden group hover:border-orange-100 transition-colors">
+                <div className="absolute left-0 top-0 bottom-0 w-1 bg-orange-500 rounded-l-lg"></div>
+                <div className="pl-2">
+                    <div className="flex justify-between items-start mb-1">
+                        <span className="text-sm font-bold text-slate-800">二级问题</span>
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 bg-orange-50 text-orange-600 rounded uppercase tracking-wide">Major</span>
+                    </div>
+                    <div className="text-xs font-semibold text-slate-700 mb-1">常用(中/小) / 不常用(大)</div>
+                    <p className="text-[10px] text-slate-500 leading-relaxed">
+                        操作延迟、受挫但不导致失败 <br/> (效率问题)
+                    </p>
+                </div>
+              </div>
+
+              {/* Level 3 */}
+              <div className="relative bg-white p-4 rounded-lg border border-slate-100 shadow-sm overflow-hidden group hover:border-blue-100 transition-colors">
+                 <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-500 rounded-l-lg"></div>
+                 <div className="pl-2">
+                    <div className="flex justify-between items-start mb-1">
+                        <span className="text-sm font-bold text-slate-800">三级问题</span>
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded uppercase tracking-wide">Minor</span>
+                    </div>
+                    <div className="text-xs font-semibold text-slate-700 mb-1">不常用功能 + 影响中/小</div>
+                    <p className="text-[10px] text-slate-500 leading-relaxed">
+                        仅影响使用感受，无明显阻碍 <br/> (满意度问题)
+                    </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
-                <th className="p-4 font-medium w-24">严重程度</th>
-                <th className="p-4 font-medium w-48">位置</th>
-                <th className="p-4 font-medium">问题描述</th>
-                <th className="p-4 font-medium w-1/3">优化建议</th>
+              <tr className="bg-white text-slate-500 text-xs uppercase tracking-wider border-b border-slate-100">
+                <th className="p-6 font-medium w-32">严重程度</th>
+                <th className="p-6 font-medium w-48">位置</th>
+                <th className="p-6 font-medium">问题描述</th>
+                <th className="p-6 font-medium w-1/3">优化建议</th>
               </tr>
             </thead>
             <tbody className="text-sm divide-y divide-slate-100">
               {report.issues.map((issue, index) => (
                 <tr key={index} className="hover:bg-slate-50 transition-colors">
-                  <td className="p-4">
+                  <td className="p-6">
                     <SeverityBadge severity={issue.severity} />
                   </td>
-                  <td className="p-4 text-slate-700 font-medium">{issue.location}</td>
-                  <td className="p-4 text-slate-600">{issue.description}</td>
-                  <td className="p-4 text-slate-600 italic bg-slate-50/50">
-                    <div className="flex items-start gap-2">
+                  <td className="p-6 text-slate-700 font-medium">{issue.location}</td>
+                  <td className="p-6 text-slate-600">{issue.description}</td>
+                  <td className="p-6 text-slate-600 italic">
+                    <div className="flex items-start gap-2 bg-slate-50 p-2 rounded-lg border border-slate-100">
                       <Zap className="w-3 h-3 text-indigo-500 mt-1 shrink-0" />
                       {issue.recommendation}
                     </div>
