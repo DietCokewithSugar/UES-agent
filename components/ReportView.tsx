@@ -1,8 +1,7 @@
-
 import React from 'react';
 import { UESReport, ProcessStep } from '../types';
 import { UESRadarChart } from './RadarChart';
-import { AlertTriangle, CheckCircle, Target, User, FileText, Zap, Wand2, ArrowRight, Image as ImageIcon, ListChecks, ArrowDown, HelpCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Target, User, FileText, Zap, Wand2, ArrowRight, Image as ImageIcon, ListChecks, ArrowDown, HelpCircle, Info } from 'lucide-react';
 
 interface ReportViewProps {
   report: UESReport;
@@ -199,6 +198,16 @@ export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, p
               <p className="text-sm text-slate-600 leading-relaxed">
                 {dim.comment || "暂无详细评价"}
               </p>
+              
+              {/* Context Limitation Disclaimer for System Performance */}
+              {dim.dimension.includes("系统性能") && (
+                <div className="flex items-start gap-1.5 mt-2 pt-2 border-t border-slate-200/60">
+                   <Info className="w-3 h-3 text-slate-400 mt-0.5 flex-shrink-0" />
+                   <p className="text-xs text-slate-400 italic">
+                     说明：根据截图无法测算真实的系统响应性能。此评分仅针对“页面布局稳定性、无明显的文字溢出或元素错乱”等视觉基础元素进行审查。
+                   </p>
+                </div>
+              )}
             </div>
           ))}
         </div>
