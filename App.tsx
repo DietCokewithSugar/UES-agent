@@ -3,13 +3,27 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Upload, Sparkles, Settings, ChevronRight, Check, Loader2, Plus, X, Layers, Square, CheckSquare, Users, Download, Archive, Package, Globe, FileUp, FileJson, Trash2, GripVertical, ImagePlus, Pencil } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import JSZip from 'jszip';
-import FileSaver from 'file-saver';
+import * as FileSaver from 'file-saver';
 import { Persona, UESReport, UserRole, EvaluationModel, ApiConfig, ProcessStep } from './types';
 import { analyzeDesign, generateOptimizedDesign } from './services/geminiService';
 import { ReportView } from './components/ReportView';
 
+// --- Helper for FileSaver ---
+// Handles different ESM/UMD export structures for file-saver across environments
+const saveFile = (data: Blob | string, filename: string) => {
+  // Try named export 'saveAs', then 'default', then the module itself if it's a function
+  const save = (FileSaver as any).saveAs || (FileSaver as any).default || FileSaver;
+  if (typeof save === 'function') {
+    save(data, filename);
+  } else {
+    console.error("FileSaver saveAs function not found", FileSaver);
+    alert("Unable to save file due to a library loading error.");
+  }
+};
+
 // --- Constants ---
 const DEFAULT_PERSONAS: Persona[] = [
+  // --- 用户视角 (End Users) ---
   {
     id: '1',
     name: '银发新手用户',
@@ -40,6 +54,7 @@ const DEFAULT_PERSONAS: Persona[] = [
       deviceHabits: '重度键盘使用者，多屏操作'
     }
   },
+  // --- 专家/职能视角 (Professional Roles) ---
   {
     id: '3',
     name: 'UX 专家审计',
@@ -53,6 +68,96 @@ const DEFAULT_PERSONAS: Persona[] = [
       environment: '设计工作室',
       frustrationTolerance: '高',
       deviceHabits: '像素级审查'
+    }
+  },
+  {
+    id: 'pm-1',
+    name: '产品经理 (PM) 视角',
+    role: UserRole.EXPERT,
+    description: '【需求阶段】关注业务逻辑闭环、功能完整性及边缘情况处理。',
+    attributes: {
+      age: '30-40岁',
+      techSavviness: '高',
+      domainKnowledge: '业务专家',
+      goals: '验证MVP功能完整性，确保业务价值传达，检查异常流程',
+      environment: '会议室/办公桌',
+      frustrationTolerance: '中',
+      deviceHabits: '关注流程逻辑而非像素细节'
+    }
+  },
+  {
+    id: 'compliance-1',
+    name: '合规风控官',
+    role: UserRole.EXPERT,
+    description: '【需求/风控】严格审查数据隐私保护、法律免责声明及业务合规性。',
+    attributes: {
+      age: '40-50岁',
+      techSavviness: '中',
+      domainKnowledge: '法律/风控专家',
+      goals: '确保零合规风险，隐私条款清晰，无误导性宣传',
+      environment: '严谨的办公环境',
+      frustrationTolerance: '极低 (对违规零容忍)',
+      deviceHabits: '仔细阅读所有小字条款'
+    }
+  },
+  {
+    id: 'design-1',
+    name: '视觉设计总监',
+    role: UserRole.EXPERT,
+    description: '【设计阶段】基于栅格系统、色彩心理学及 WCAG 标准进行审美审计。',
+    attributes: {
+      age: '28-38岁',
+      techSavviness: '高',
+      domainKnowledge: '设计专家',
+      goals: '确保品牌一致性，视觉层级清晰，符合美学标准',
+      environment: '配备 4K 显示器的设计工作室',
+      frustrationTolerance: '低 (对对齐敏感)',
+      deviceHabits: '像素眼，关注间距、字体和留白'
+    }
+  },
+  {
+    id: 'a11y-1',
+    name: '无障碍体验专家',
+    role: UserRole.EXPERT,
+    description: '【设计/研发】模拟视障/色弱视角，检查 WCAG 标准、对比度及读屏兼容性。',
+    attributes: {
+      age: '30-45岁',
+      techSavviness: '极高 (辅助技术专家)',
+      domainKnowledge: '无障碍标准 (WCAG)',
+      goals: '确保残障人士可独立完成核心任务',
+      environment: '使用读屏软件/键盘导航的测试室',
+      frustrationTolerance: '低',
+      deviceHabits: '仅键盘操作，高对比度模式'
+    }
+  },
+  {
+    id: 'ops-1',
+    name: '增长运营专家',
+    role: UserRole.EXPERT,
+    description: '【运营阶段】关注转化率(CRO)、文案诱惑力及用户留存钩子。',
+    attributes: {
+      age: '25-35岁',
+      techSavviness: '高',
+      domainKnowledge: '营销专家',
+      goals: '最大化点击率和转化率，降低流失，增强情感连接',
+      environment: '数据监控中心',
+      frustrationTolerance: '中',
+      deviceHabits: '关注 CTA 按钮、文案及引导路径'
+    }
+  },
+  {
+    id: 'cs-1',
+    name: '客户成功经理 (CSM)',
+    role: UserRole.EXPERT,
+    description: '【运营/服务】关注新手引导流畅度、报错文案友好性及降低客诉率。',
+    attributes: {
+      age: '25-35岁',
+      techSavviness: '中',
+      domainKnowledge: '客户服务',
+      goals: '让用户“不求人”解决问题，降低客诉',
+      environment: '客服中心',
+      frustrationTolerance: '中',
+      deviceHabits: '模拟用户遇到困难时的求助路径'
     }
   }
 ];
@@ -365,14 +470,14 @@ export default function App() {
     e.stopPropagation();
     const { id, ...dataToSave } = persona; // Exclude ID
     const blob = new Blob([JSON.stringify(dataToSave, null, 2)], { type: 'application/json' });
-    FileSaver.saveAs(blob, `ETS_Persona_${persona.name.replace(/\s+/g, '_')}.json`);
+    saveFile(blob as any, `ETS_Persona_${persona.name.replace(/\s+/g, '_')}.json`);
   };
 
   // Download a template for creating new personas
   const handleDownloadTemplate = () => {
     const template = { ...EMPTY_PERSONA, name: "示例角色模版", description: "请在此处填写描述..." };
     const blob = new Blob([JSON.stringify(template, null, 2)], { type: 'application/json' });
-    FileSaver.saveAs(blob, 'ETS_Persona_Template.json');
+    saveFile(blob as any, 'ETS_Persona_Template.json');
   };
 
   // Import JSON to fill the modal
@@ -442,7 +547,7 @@ export default function App() {
       const blob = await generatePngBlob(reportRef.current);
       if (blob) {
         const currentPersonaName = personas.find(p => p.id === viewingPersonaId)?.name || 'Report';
-        FileSaver.saveAs(blob, `ETS_Report_${currentPersonaName}.png`);
+        saveFile(blob as any, `ETS_Report_${currentPersonaName}.png`);
       }
     } catch (err) {
       console.error('Failed to export image:', err);
@@ -479,7 +584,7 @@ export default function App() {
 
       // Generate Zip and save
       const content = await zip.generateAsync({ type: 'blob' });
-      FileSaver.saveAs(content, 'ETS_Analysis_Reports.zip');
+      saveFile(content as any, 'ETS_Analysis_Reports.zip');
 
     } catch (err) {
       console.error('Batch export failed:', err);
@@ -683,7 +788,8 @@ export default function App() {
           <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
             {personas.map(persona => {
                 const isSelected = selectedPersonaIds.includes(persona.id);
-                const isCustom = !['1', '2', '3'].includes(persona.id);
+                // Updated check to include new hardcoded personas
+                const isCustom = !['1', '2', '3', 'pm-1', 'design-1', 'ops-1', 'compliance-1', 'a11y-1', 'cs-1'].includes(persona.id);
                 return (
                     <div 
                         key={persona.id}
