@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { Upload, Sparkles, Settings, ChevronRight, Check, Loader2, Plus, X, Layers, Square, CheckSquare, Users, Download, Archive, Package, Globe, FileUp, FileJson, Trash2, GripVertical, ImagePlus, Pencil } from 'lucide-react';
 import { toPng } from 'html-to-image';
@@ -470,14 +469,14 @@ export default function App() {
     e.stopPropagation();
     const { id, ...dataToSave } = persona; // Exclude ID
     const blob = new Blob([JSON.stringify(dataToSave, null, 2)], { type: 'application/json' });
-    saveFile(blob as any, `ETS_Persona_${persona.name.replace(/\s+/g, '_')}.json`);
+    saveFile(blob, `ETS_Persona_${persona.name.replace(/\s+/g, '_')}.json`);
   };
 
   // Download a template for creating new personas
   const handleDownloadTemplate = () => {
     const template = { ...EMPTY_PERSONA, name: "示例角色模版", description: "请在此处填写描述..." };
     const blob = new Blob([JSON.stringify(template, null, 2)], { type: 'application/json' });
-    saveFile(blob as any, 'ETS_Persona_Template.json');
+    saveFile(blob, 'ETS_Persona_Template.json');
   };
 
   // Import JSON to fill the modal
@@ -547,7 +546,7 @@ export default function App() {
       const blob = await generatePngBlob(reportRef.current);
       if (blob) {
         const currentPersonaName = personas.find(p => p.id === viewingPersonaId)?.name || 'Report';
-        saveFile(blob as any, `ETS_Report_${currentPersonaName}.png`);
+        saveFile(blob, `ETS_Report_${currentPersonaName}.png`);
       }
     } catch (err) {
       console.error('Failed to export image:', err);
@@ -584,7 +583,7 @@ export default function App() {
 
       // Generate Zip and save
       const content = await zip.generateAsync({ type: 'blob' });
-      saveFile(content as any, 'ETS_Analysis_Reports.zip');
+      saveFile(content, 'ETS_Analysis_Reports.zip');
 
     } catch (err) {
       console.error('Batch export failed:', err);
@@ -794,41 +793,49 @@ export default function App() {
                     <div 
                         key={persona.id}
                         onClick={() => togglePersonaSelection(persona.id)}
-                        className={`p-3 rounded-xl border cursor-pointer transition-all relative group ${
+                        className={`p-3 rounded-lg border cursor-pointer transition-all duration-200 relative group flex items-start gap-3 ${
                         isSelected
-                            ? 'bg-white border-indigo-500 shadow-md ring-1 ring-indigo-500' 
-                            : 'bg-white border-slate-200 hover:border-indigo-300'
+                            ? 'bg-indigo-50/50 border-indigo-600' 
+                            : 'bg-white border-slate-200 hover:border-indigo-300 hover:bg-slate-50'
                         }`}
                     >
-                        <div className="flex justify-between items-start mb-1">
-                            <span className={`font-semibold text-sm ${isSelected ? 'text-indigo-700' : 'text-slate-700'}`}>
-                                {persona.name}
-                            </span>
-                            {isSelected ? (
-                                <CheckSquare size={16} className="text-indigo-500" />
-                            ) : (
-                                <Square size={16} className="text-slate-300 group-hover:text-indigo-300" />
-                            )}
+                         {/* Checkbox Indicator */}
+                        <div className={`mt-0.5 w-4 h-4 rounded flex items-center justify-center border transition-colors ${
+                            isSelected 
+                            ? 'bg-indigo-600 border-indigo-600' 
+                            : 'bg-white border-slate-300 group-hover:border-indigo-400'
+                        }`}>
+                            {isSelected && <Check size={10} className="text-white" strokeWidth={3} />}
                         </div>
-                        <p className="text-xs text-slate-500 line-clamp-2">{persona.description}</p>
+
+                        <div className="flex-1 min-w-0">
+                            <div className="flex justify-between items-start">
+                                <span className={`font-semibold text-sm truncate pr-6 ${isSelected ? 'text-indigo-900' : 'text-slate-700'}`}>
+                                    {persona.name}
+                                </span>
+                            </div>
+                            <p className={`text-xs line-clamp-2 mt-0.5 ${isSelected ? 'text-indigo-700/70' : 'text-slate-500'}`}>
+                                {persona.description}
+                            </p>
+                        </div>
                         
                         {/* Actions (Export & Edit) */}
-                        <div className="absolute bottom-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-white/50 backdrop-blur-[2px] rounded-md p-0.5">
                             {isCustom && (
                                 <button 
                                     onClick={(e) => handleEditPersona(e, persona)}
-                                    className="p-1 text-slate-300 hover:text-indigo-600 transition-colors"
+                                    className="p-1 text-slate-400 hover:text-indigo-600 transition-colors"
                                     title="编辑角色"
                                 >
-                                    <Pencil size={14} />
+                                    <Pencil size={12} />
                                 </button>
                             )}
                             <button 
                                 onClick={(e) => handleExportPersona(e, persona)}
-                                className="p-1 text-slate-300 hover:text-indigo-600 transition-colors"
+                                className="p-1 text-slate-400 hover:text-indigo-600 transition-colors"
                                 title="导出角色配置"
                             >
-                                <Download size={14} />
+                                <Download size={12} />
                             </button>
                         </div>
                     </div>
