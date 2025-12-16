@@ -79,7 +79,7 @@ const callOpenRouter = async (
   ];
 
   if (Array.isArray(input)) {
-    // Handle Business Flow
+    // Handle Business Flow (Images)
     input.forEach((step, index) => {
       const cleanBase64 = step.image.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
       messagesContent.push({
@@ -93,15 +93,25 @@ const callOpenRouter = async (
         }
       });
     });
-  } else {
-    // Handle Single Image
-    const cleanBase64 = input.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
-    messagesContent.push({
-      type: "image_url",
-      image_url: {
-        url: `data:image/png;base64,${cleanBase64}`
-      }
-    });
+  } else if (typeof input === 'string') {
+    // Check if it is a video
+    if (input.startsWith('data:video')) {
+       messagesContent.push({
+          type: "video_url",
+          videoUrl: {
+            url: input // Pass the full Data URL
+          }
+       });
+    } else {
+       // Assume Image
+       const cleanBase64 = input.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
+       messagesContent.push({
+        type: "image_url",
+        image_url: {
+            url: `data:image/png;base64,${cleanBase64}`
+        }
+       });
+    }
   }
 
   const messages = [
@@ -175,15 +185,27 @@ export const analyzeDesign = async (
   `;
 
   const isFlow = Array.isArray(input);
+  const isVideo = typeof input === 'string' && input.startsWith('data:video');
 
-  const contextPrompt = isFlow 
-    ? `这是一次针对【完整业务流程】的评估。你将看到一系列按顺序排列的截图，每张截图都附带了用户的操作说明（例如“点击转账按钮”）。
+  // Adjust context prompt for Video vs Flow vs Image
+  let contextPrompt = "";
+  if (isVideo) {
+      contextPrompt = `这是一次针对【用户操作录屏 (Video)】的评估。你将看到一段用户与产品进行交互的动态视频。
+       请重点关注动态体验指标：
+       1. 交互流畅度：动画是否卡顿？响应是否迅速？
+       2. 反馈及时性：用户点击操作后，系统是否有即时的视觉反馈？
+       3. 页面跳转与过渡：转场是否自然？是否存在突兀的刷新？
+       4. 流程完整性：用户在视频中演示的任务是否顺利完成？
+      `;
+  } else if (isFlow) {
+      contextPrompt = `这是一次针对【完整业务流程 (User Flow)】的评估。你将看到一系列按顺序排列的截图，每张截图都附带了用户的操作说明。
        请重点关注：
        1. 流程连贯性：步骤之间的跳转是否符合逻辑？
-       2. 反馈及时性：用户操作后系统是否有明确反馈？
-       3. 闭环体验：流程是否完整，是否有中断或死胡同？
-    ` 
-    : `这是一次针对【单个界面】的评估。`;
+       2. 闭环体验：流程是否完整，是否有中断或死胡同？
+      `;
+  } else {
+      contextPrompt = `这是一次针对【单个界面 (Single Screen)】的评估。`;
+  }
 
   const prompt = `
     你是一个世界级的体验评估专家智能体。
@@ -292,16 +314,13 @@ export const analyzeDesign = async (
   try {
     let contentParts: any[] = [];
 
-    // Push Prompt First or mixed? Gemini typically likes System Prompt -> User Content.
-    // We will put the instruction in text, then the images/texts.
-    
+    // Prompt Text
     contentParts.push({ text: prompt });
 
     if (Array.isArray(input)) {
-        // Interleave steps
+        // Flow: Multiple Images
         input.forEach((step, idx) => {
             const cleanBase64 = step.image.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
-            
             contentParts.push({
                 text: `\n--- 步骤 ${idx + 1} ---\n用户操作说明: ${step.description || "无说明"}\n界面截图:`
             });
@@ -312,18 +331,33 @@ export const analyzeDesign = async (
                 }
             });
         });
-    } else {
-        const cleanBase64 = input.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
-        contentParts.push({
-            inlineData: {
-                mimeType: "image/png",
-                data: cleanBase64
-            }
-        });
+    } else if (typeof input === 'string') {
+        if (input.startsWith('data:video')) {
+            // Video Input
+            const mimeType = input.substring(5, input.indexOf(';'));
+            // Remove prefix (e.g., "data:video/mp4;base64,")
+            const cleanBase64 = input.substring(input.indexOf(',') + 1);
+            
+            contentParts.push({
+                inlineData: {
+                    mimeType: mimeType,
+                    data: cleanBase64
+                }
+            });
+        } else {
+            // Single Image Input
+            const cleanBase64 = input.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
+            contentParts.push({
+                inlineData: {
+                    mimeType: "image/png",
+                    data: cleanBase64
+                }
+            });
+        }
     }
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-flash", // Flash supports video analysis
       contents: {
         parts: contentParts
       },

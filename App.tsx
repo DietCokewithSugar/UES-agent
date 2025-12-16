@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, Sparkles, Settings, ChevronRight, Check, Loader2, Plus, X, Layers, Square, CheckSquare, Users, Download, Archive, Package, Globe, FileUp, FileJson, Trash2, GripVertical, ImagePlus, Pencil } from 'lucide-react';
+import { Upload, Sparkles, Settings, ChevronRight, Check, Loader2, Plus, X, Layers, Square, CheckSquare, Users, Download, Archive, Package, Globe, FileUp, FileJson, Trash2, GripVertical, ImagePlus, Pencil, Video } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import JSZip from 'jszip';
 import * as FileSaver from 'file-saver';
@@ -201,8 +201,9 @@ export default function App() {
   const [evaluationModel, setEvaluationModel] = useState<EvaluationModel>(EvaluationModel.ETS); // Default to ETS as requested implicitly
   
   // Input State
-  const [uploadMode, setUploadMode] = useState<'single' | 'flow'>('single');
+  const [uploadMode, setUploadMode] = useState<'single' | 'flow' | 'video'>('single');
   const [image, setImage] = useState<string | null>(null); // For single mode
+  const [video, setVideo] = useState<string | null>(null); // For video mode
   const [processSteps, setProcessSteps] = useState<ProcessStep[]>([]); // For flow mode
   
   // Analysis State (Map by Persona ID)
@@ -234,6 +235,7 @@ export default function App() {
   const [isBatchExporting, setIsBatchExporting] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
   const flowStepInputRef = useRef<HTMLInputElement>(null);
   const jsonImportRef = useRef<HTMLInputElement>(null);
 
@@ -247,8 +249,39 @@ export default function App() {
       const reader = new FileReader();
       reader.onloadend = () => {
         setImage(reader.result as string);
+        setVideo(null); // Clear video
         // Clear previous results
         setReports({}); 
+        setOptimizedImages({});
+        setError(null);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Video File Handler
+  const handleVideoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Validate format
+      const validTypes = ['video/mp4', 'video/webm', 'video/quicktime', 'video/mpeg'];
+      if (!validTypes.includes(file.type)) {
+         alert("格式不支持。请上传 mp4, webm 或 mov 格式的视频。");
+         return;
+      }
+      
+      // Basic size check (browser memory safety)
+      if (file.size > 50 * 1024 * 1024) {
+          if (!window.confirm("视频文件较大 (>50MB)，可能会导致浏览器卡顿或上传失败。是否继续？")) {
+              return;
+          }
+      }
+
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setVideo(reader.result as string);
+        setImage(null); // Clear image
+        setReports({});
         setOptimizedImages({});
         setError(null);
       };
@@ -313,11 +346,13 @@ export default function App() {
   };
 
   const handleAnalyze = async () => {
-    // Validate inputs
-    const inputData = uploadMode === 'single' ? image : processSteps;
-    if (uploadMode === 'single' && !image) return;
-    if (uploadMode === 'flow' && processSteps.length === 0) return;
+    // Validate inputs based on mode
+    let inputData: string | ProcessStep[] | null = null;
     
+    if (uploadMode === 'single') inputData = image;
+    else if (uploadMode === 'flow') inputData = processSteps.length > 0 ? processSteps : null;
+    else if (uploadMode === 'video') inputData = video;
+
     if (!inputData) return;
 
     // Check for API Key if using Google
@@ -346,10 +381,10 @@ export default function App() {
     setViewingPersonaId(targets[0].id);
 
     try {
-      // 1. Parallel Text Analysis
+      // 1. Parallel Text/Video Analysis
       const analysisPromises = targets.map(async (p) => {
         try {
-          const result = await analyzeDesign(inputData, p, evaluationModel, apiConfig);
+          const result = await analyzeDesign(inputData!, p, evaluationModel, apiConfig);
           return { id: p.id, report: result };
         } catch (e: any) {
           console.error(`Analysis failed for ${p.name}`, e);
@@ -367,11 +402,9 @@ export default function App() {
       setReports(newReports);
       setIsAnalyzing(false); 
 
-      // 2. Parallel Image Generation (Optional)
-      // Enable for both Google and OpenRouter ONLY IF CHECKED
-      // IMPORTANT: For flows, we just use the first image or skip optimization logic if too complex, 
-      // but here we just take the first image of the flow as the "representative" image to optimize if in flow mode.
-      if (shouldGenerateImages) {
+      // 2. Parallel Image Generation (Optional) - Only for image inputs
+      // We skip optimization generation for video as it is not supported by standard image gen models
+      if (shouldGenerateImages && uploadMode !== 'video') {
           setIsGeneratingImage(true);
           
           const sourceImage = uploadMode === 'single' ? (image as string) : processSteps[0]?.image;
@@ -583,7 +616,7 @@ export default function App() {
 
       // Generate Zip and save
       const content = await zip.generateAsync({ type: 'blob' });
-      saveFile(content, 'ETS_Analysis_Reports.zip');
+      saveFile(content as Blob, 'ETS_Analysis_Reports.zip');
 
     } catch (err) {
       console.error('Batch export failed:', err);
@@ -601,7 +634,10 @@ export default function App() {
   const hasMultipleReports = Object.keys(reports).length > 1;
 
   // Determine button enabled state
-  const isReadyToAnalyze = uploadMode === 'single' ? !!image : processSteps.length > 0;
+  const isReadyToAnalyze = 
+    (uploadMode === 'single' && !!image) || 
+    (uploadMode === 'flow' && processSteps.length > 0) ||
+    (uploadMode === 'video' && !!video);
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-slate-50 font-sans text-slate-900">
@@ -627,7 +663,7 @@ export default function App() {
                  </div>
                  <ReportView 
                     report={report} 
-                    originalImage={image}
+                    originalImage={uploadMode === 'video' ? video : image}
                     processSteps={uploadMode === 'flow' ? processSteps : undefined}
                     optimizedImage={optimizedImages[id]}
                     isGeneratingImage={false} // For export, we assume generation is done or we capture what we have
@@ -669,17 +705,24 @@ export default function App() {
                 onClick={() => setUploadMode('single')}
                 className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${uploadMode === 'single' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
             >
-                单页模式
+                单页
             </button>
             <button 
                 onClick={() => setUploadMode('flow')}
                 className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${uploadMode === 'flow' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
             >
-                业务流程
+                流程
+            </button>
+            <button 
+                onClick={() => setUploadMode('video')}
+                className={`flex-1 py-2 text-xs font-bold rounded-md transition-all flex items-center justify-center gap-1 ${uploadMode === 'video' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+                <Video size={12} />
+                视频
             </button>
           </div>
 
-          {uploadMode === 'single' ? (
+          {uploadMode === 'single' && (
             // Single Image Upload
             <div 
                 onClick={() => fileInputRef.current?.click()}
@@ -702,11 +745,43 @@ export default function App() {
                 ) : (
                 <div className="flex flex-col items-center gap-2 text-slate-400">
                     <Upload size={24} />
-                    <span className="text-sm font-medium">点击上传或拖入图片</span>
+                    <span className="text-sm font-medium">点击上传图片</span>
                 </div>
                 )}
             </div>
-          ) : (
+          )}
+
+          {uploadMode === 'video' && (
+            // Video Upload
+            <div 
+                onClick={() => videoInputRef.current?.click()}
+                className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all ${video ? 'border-indigo-200 bg-indigo-50' : 'border-slate-200 hover:border-indigo-400 hover:bg-slate-50'}`}
+            >
+                <input 
+                    ref={videoInputRef}
+                    type="file" 
+                    accept="video/mp4,video/webm,video/quicktime" 
+                    onChange={handleVideoChange} 
+                    className="hidden" 
+                />
+                {video ? (
+                <div className="relative">
+                     <video src={video} className="max-h-32 mx-auto rounded-lg shadow-sm bg-black" />
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/10 rounded-lg opacity-0 hover:opacity-100 transition-opacity">
+                        <span className="bg-white text-slate-800 text-xs py-1 px-3 rounded shadow-sm font-medium">更换视频</span>
+                    </div>
+                </div>
+                ) : (
+                <div className="flex flex-col items-center gap-2 text-slate-400">
+                    <Video size={24} />
+                    <span className="text-sm font-medium">点击上传视频</span>
+                    <span className="text-xs text-slate-300">(支持 MP4, WebM, MOV)</span>
+                </div>
+                )}
+            </div>
+          )}
+
+          {uploadMode === 'flow' && (
             // Flow Upload
             <div className="space-y-4">
                 <div className="space-y-3">
@@ -864,14 +939,16 @@ export default function App() {
             {/* Image Generation Toggle */}
             <div 
                 onClick={() => setShouldGenerateImages(!shouldGenerateImages)}
-                className="flex items-center gap-3 cursor-pointer group"
+                className={`flex items-center gap-3 cursor-pointer group ${uploadMode === 'video' ? 'opacity-50 pointer-events-none' : ''}`}
             >
                 <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${shouldGenerateImages ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300 bg-white'}`}>
                     {shouldGenerateImages && <Check size={14} className="text-white" />}
                 </div>
                 <div>
                    <span className={`text-sm font-medium transition-colors ${shouldGenerateImages ? 'text-indigo-700' : 'text-slate-600'}`}>生成优化效果图</span>
-                   <p className="text-xs text-slate-400">AI 将尝试绘制优化后的界面</p>
+                   <p className="text-xs text-slate-400">
+                       {uploadMode === 'video' ? '视频模式不支持生成效果图' : 'AI 将尝试绘制优化后的界面'}
+                   </p>
                 </div>
             </div>
           </div>
@@ -990,7 +1067,7 @@ export default function App() {
                      </div>
                      <ReportView 
                         report={currentReport} 
-                        originalImage={image}
+                        originalImage={uploadMode === 'video' ? video : image}
                         processSteps={uploadMode === 'flow' ? processSteps : undefined}
                         optimizedImage={currentOptimizedImage}
                         isGeneratingImage={isGeneratingImage}
@@ -1003,7 +1080,7 @@ export default function App() {
                     </div>
                     <div className="max-w-md">
                         <h3 className="text-xl font-bold text-slate-800">准备就绪</h3>
-                        <p className="text-slate-500 mt-2">请上传界面截图或业务流程，并选择模拟用户画像，ETS Agent 将为您生成专业的体验审计报告。</p>
+                        <p className="text-slate-500 mt-2">请上传界面截图、视频或业务流程，并选择模拟用户画像，ETS Agent 将为您生成专业的体验审计报告。</p>
                     </div>
                 </div>
             )}

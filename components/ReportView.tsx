@@ -1,7 +1,7 @@
 import React from 'react';
 import { UESReport, ProcessStep } from '../types';
 import { UESRadarChart } from './RadarChart';
-import { AlertTriangle, CheckCircle, Target, User, FileText, Zap, Wand2, ArrowRight, Image as ImageIcon, ListChecks, ArrowDown, HelpCircle, Info } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Target, User, FileText, Zap, Wand2, ArrowRight, Image as ImageIcon, ListChecks, ArrowDown, HelpCircle, Info, Video as VideoIcon } from 'lucide-react';
 
 interface ReportViewProps {
   report: UESReport;
@@ -37,10 +37,14 @@ const SeverityBadge: React.FC<{ severity: string }> = ({ severity }) => {
 };
 
 export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, processSteps, optimizedImage, isGeneratingImage }) => {
+  
+  // Determine if input is a video based on data URL prefix
+  const isVideo = originalImage && originalImage.startsWith('data:video');
+
   return (
     <div className="space-y-8 animate-fade-in pb-12">
       
-      {/* Visual Content Section: Either Single Image or Business Flow */}
+      {/* Visual Content Section: Either Single Image/Video or Business Flow */}
       
       {/* Case 1: Business Flow */}
       {processSteps && processSteps.length > 0 ? (
@@ -86,21 +90,31 @@ export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, p
             </div>
         </div>
       ) : (
-        /* Case 2: Single Image */
+        /* Case 2: Single Image or Video */
         originalImage && (
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center">
                 <div className="w-full flex items-center justify-start mb-4 border-b border-slate-100 pb-2">
                     <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-                        <ImageIcon className="w-5 h-5 text-indigo-500" />
-                        测评界面截图
+                        {isVideo ? <VideoIcon className="w-5 h-5 text-indigo-500" /> : <ImageIcon className="w-5 h-5 text-indigo-500" />}
+                        {isVideo ? "测评视频" : "测评界面截图"}
                     </h3>
                 </div>
                 <div className="max-w-2xl w-full rounded-xl overflow-hidden border border-slate-200 bg-slate-50 p-2">
-                    <img 
-                    src={originalImage} 
-                    alt="Analyzed UI" 
-                    className="w-full h-auto max-h-[400px] object-contain mx-auto rounded-lg shadow-sm"
-                    />
+                    {isVideo ? (
+                        <video 
+                            src={originalImage} 
+                            controls 
+                            className="w-full h-auto max-h-[400px] object-contain mx-auto rounded-lg shadow-sm"
+                        >
+                            您的浏览器不支持视频播放。
+                        </video>
+                    ) : (
+                        <img 
+                        src={originalImage} 
+                        alt="Analyzed UI" 
+                        className="w-full h-auto max-h-[400px] object-contain mx-auto rounded-lg shadow-sm"
+                        />
+                    )}
                 </div>
             </div>
         )
@@ -204,7 +218,7 @@ export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, p
                 <div className="flex items-start gap-1.5 mt-2 pt-2 border-t border-slate-200/60">
                    <Info className="w-3 h-3 text-slate-400 mt-0.5 flex-shrink-0" />
                    <p className="text-xs text-slate-400 italic">
-                     说明：根据截图无法测算真实的系统响应性能。此评分仅针对“页面布局稳定性、无明显的文字溢出或元素错乱”等视觉基础元素进行审查。
+                     说明：{isVideo ? "基于视频录屏分析交互性能与反馈速度。" : "根据截图无法测算真实的系统响应性能。此评分仅针对“页面布局稳定性、无明显的文字溢出或元素错乱”等视觉基础元素进行审查。"}
                    </p>
                 </div>
               )}
@@ -213,8 +227,8 @@ export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, p
         </div>
       </div>
 
-      {/* Visual Optimization Comparison */}
-      {(optimizedImage || isGeneratingImage) && (
+      {/* Visual Optimization Comparison - HIDDEN FOR VIDEO */}
+      {!isVideo && (optimizedImage || isGeneratingImage) && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
           <div className="p-6 border-b border-slate-100">
             <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">

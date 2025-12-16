@@ -1,4 +1,3 @@
-
 export enum UserRole {
   USER = 'USER', // Evaluates Usability
   EXPERT = 'EXPERT' // Evaluates Consistency
@@ -66,8 +65,10 @@ export interface ProcessStep {
 }
 
 declare global {
-  interface AIStudio {
-    hasSelectedApiKey: () => Promise<boolean>;
-    openSelectKey: () => Promise<void>;
+  interface Window {
+    aistudio?: {
+      hasSelectedApiKey: () => Promise<boolean>;
+      openSelectKey: () => Promise<void>;
+    };
   }
 }
