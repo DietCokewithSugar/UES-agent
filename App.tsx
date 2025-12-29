@@ -3,8 +3,6 @@ import { Upload, Sparkles, Settings, ChevronRight, Check, Loader2, Plus, X, Laye
 import { toPng } from 'html-to-image';
 import JSZip from 'jszip';
 import * as FileSaver from 'file-saver';
-import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { fetchFile, toBlobURL } from '@ffmpeg/util';
 import { Persona, UESReport, UserRole, EvaluationModel, ApiConfig, ProcessStep } from './types';
 import { analyzeDesign, generateOptimizedDesign } from './services/geminiService';
 import { ReportView } from './components/ReportView';
@@ -208,12 +206,6 @@ export default function App() {
   const [video, setVideo] = useState<string | null>(null); // For video mode
   const [processSteps, setProcessSteps] = useState<ProcessStep[]>([]); // For flow mode
   
-  // Video Processing State
-  const [isCompressing, setIsCompressing] = useState(false);
-  const [compressProgress, setCompressProgress] = useState(0);
-  const [compressionStatus, setCompressionStatus] = useState<string>('');
-  const ffmpegRef = useRef<FFmpeg | null>(null);
-
   // Analysis State (Map by Persona ID)
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [reports, setReports] = useState<Record<string, UESReport>>({});
@@ -250,100 +242,6 @@ export default function App() {
   // Helper to get actual persona objects from selected IDs
   const getSelectedPersonas = () => personas.filter(p => selectedPersonaIds.includes(p.id));
 
-  // --- FFmpeg Logic ---
-  const loadFfmpeg = async () => {
-    if (ffmpegRef.current) return ffmpegRef.current;
-
-    const ffmpeg = new FFmpeg();
-    const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
-    
-    try {
-        await ffmpeg.load({
-            coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-            wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-        });
-        ffmpegRef.current = ffmpeg;
-        return ffmpeg;
-    } catch (e) {
-        console.error("Failed to load FFmpeg:", e);
-        return null;
-    }
-  };
-
-  const compressVideo = async (file: File): Promise<string> => {
-    setIsCompressing(true);
-    setCompressProgress(0);
-    setCompressionStatus('正在加载视频引擎...');
-
-    try {
-        const ffmpeg = await loadFfmpeg();
-        
-        // Fallback if FFmpeg fails to load (e.g. SharedArrayBuffer issues)
-        if (!ffmpeg) {
-            console.warn("FFmpeg not available, falling back to raw file.");
-            return new Promise((resolve) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result as string);
-                reader.readAsDataURL(file);
-            });
-        }
-
-        setCompressionStatus('正在写入文件...');
-        const inputName = 'input.mp4';
-        const outputName = 'output.mp4';
-
-        await ffmpeg.writeFile(inputName, await fetchFile(file));
-
-        setCompressionStatus('正在智能压缩及转码 (Wasm)...');
-        
-        ffmpeg.on('progress', ({ progress, time }) => {
-             // Progress is 0 to 1
-             setCompressProgress(Math.round(progress * 100));
-        });
-
-        // Command: Scale to 720p width (height auto), 10fps, CRF 28 (high compression), ultrafast preset
-        // Using -an to remove audio (optional, but saves space if only UI analysis needed. Keeping audio for now in case of voice interaction)
-        await ffmpeg.exec([
-            '-i', inputName,
-            '-vf', 'scale=720:-2', 
-            '-r', '10', 
-            '-c:v', 'libx264', 
-            '-crf', '28', 
-            '-preset', 'ultrafast',
-            outputName
-        ]);
-
-        setCompressionStatus('正在生成最终结果...');
-        const data = await ffmpeg.readFile(outputName);
-        
-        // Clean up
-        await ffmpeg.deleteFile(inputName);
-        await ffmpeg.deleteFile(outputName);
-
-        // Convert Uint8Array to Base64
-        const blob = new Blob([data], { type: 'video/mp4' });
-        return new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result as string);
-            reader.readAsDataURL(blob);
-        });
-
-    } catch (e) {
-        console.error("Compression failed:", e);
-        setCompressionStatus('压缩失败，使用原文件...');
-        // Fallback
-        return new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result as string);
-            reader.readAsDataURL(file);
-        });
-    } finally {
-        setIsCompressing(false);
-        setCompressProgress(0);
-        setCompressionStatus('');
-    }
-  };
-
 
   // Single File Handler
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -374,8 +272,10 @@ export default function App() {
       }
       
       // Basic size check for safety
-      if (file.size > 200 * 1024 * 1024) {
-          alert("视频文件过大 (>200MB)，请上传较小的文件。");
+      // Inline base64 limit is usually strict. 
+      // Without compression, allow up to 50MB. Larger files should use File API which is not implemented in this purely client-side demo.
+      if (file.size > 50 * 1024 * 1024) {
+          alert("视频文件过大 (>50MB)。当前环境不支持前端压缩，请上传较小的文件以避免浏览器内存溢出。");
           return;
       }
       
@@ -385,9 +285,12 @@ export default function App() {
       setOptimizedImages({});
       setError(null);
 
-      // Compress
-      const compressedVideo = await compressVideo(file);
-      setVideo(compressedVideo);
+      // Read directly
+      const reader = new FileReader();
+      reader.onloadend = () => {
+          setVideo(reader.result as string);
+      };
+      reader.readAsDataURL(file);
     }
   };
 
@@ -718,7 +621,7 @@ export default function App() {
 
       // Generate Zip and save
       const content = await zip.generateAsync({ type: 'blob' });
-      saveFile(content as any, 'ETS_Analysis_Reports.zip');
+      saveFile(content as unknown as Blob, 'ETS_Analysis_Reports.zip');
 
     } catch (err) {
       console.error('Batch export failed:', err);
@@ -857,9 +760,9 @@ export default function App() {
             // Video Upload
             <div 
                 onClick={() => {
-                   if (!isCompressing) videoInputRef.current?.click()
+                   videoInputRef.current?.click()
                 }}
-                className={`border-2 border-dashed rounded-xl p-6 text-center transition-all ${video ? 'border-indigo-200 bg-indigo-50' : 'border-slate-200 hover:border-indigo-400 hover:bg-slate-50'} ${isCompressing ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
+                className={`border-2 border-dashed rounded-xl p-6 text-center transition-all ${video ? 'border-indigo-200 bg-indigo-50' : 'border-slate-200 hover:border-indigo-400 hover:bg-slate-50'} cursor-pointer`}
             >
                 <input 
                     ref={videoInputRef}
@@ -867,24 +770,9 @@ export default function App() {
                     accept="video/mp4,video/webm,video/quicktime" 
                     onChange={handleVideoChange} 
                     className="hidden" 
-                    disabled={isCompressing}
                 />
                 
-                {isCompressing ? (
-                    <div className="flex flex-col items-center gap-3 py-2">
-                        <Loader2 size={32} className="animate-spin text-indigo-600" />
-                        <div className="space-y-1 w-full max-w-[200px]">
-                            <div className="text-sm font-bold text-slate-800">{compressionStatus}</div>
-                            <div className="h-1.5 w-full bg-slate-200 rounded-full overflow-hidden">
-                                <div 
-                                    className="h-full bg-indigo-500 transition-all duration-300" 
-                                    style={{ width: `${compressProgress}%` }}
-                                ></div>
-                            </div>
-                            <div className="text-xs text-slate-500 text-right">{compressProgress}%</div>
-                        </div>
-                    </div>
-                ) : video ? (
+                {video ? (
                 <div className="relative">
                      <video src={video} className="max-h-32 mx-auto rounded-lg shadow-sm bg-black" />
                     <div className="absolute inset-0 flex items-center justify-center bg-black/10 rounded-lg opacity-0 hover:opacity-100 transition-opacity">
@@ -895,7 +783,7 @@ export default function App() {
                 <div className="flex flex-col items-center gap-2 text-slate-400">
                     <Film size={24} />
                     <span className="text-sm font-medium">点击上传视频</span>
-                    <span className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full">自动压缩</span>
+                    <span className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full">限制 50MB</span>
                 </div>
                 )}
             </div>
@@ -1078,9 +966,9 @@ export default function App() {
         <div className="p-6 border-t border-slate-200 bg-white sticky bottom-0 z-30">
           <button 
             onClick={handleAnalyze}
-            disabled={!isReadyToAnalyze || isAnalyzing || selectedPersonaIds.length === 0 || isCompressing}
+            disabled={!isReadyToAnalyze || isAnalyzing || selectedPersonaIds.length === 0}
             className={`w-full py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 font-bold text-white shadow-lg transition-all transform active:scale-95 ${
-                !isReadyToAnalyze || isAnalyzing || selectedPersonaIds.length === 0 || isCompressing
+                !isReadyToAnalyze || isAnalyzing || selectedPersonaIds.length === 0
                 ? 'bg-slate-300 cursor-not-allowed shadow-none' 
                 : 'bg-gradient-to-r from-indigo-600 to-violet-600 hover:shadow-indigo-200 hover:brightness-105'
             }`}

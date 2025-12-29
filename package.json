@@ -16,9 +16,7 @@
     "recharts": "^3.5.0",
     "html-to-image": "^1.11.0",
     "jszip": "^3.10.1",
-    "file-saver": "^2.0.5",
-    "@ffmpeg/ffmpeg": "0.12.10",
-    "@ffmpeg/util": "0.12.1"
+    "file-saver": "^2.0.5"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
