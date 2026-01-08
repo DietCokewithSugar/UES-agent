@@ -3,7 +3,7 @@ import { Upload, Sparkles, Settings, ChevronRight, Check, Loader2, Plus, X, Laye
 import { toPng } from 'html-to-image';
 import JSZip from 'jszip';
 import * as FileSaver from 'file-saver';
-import { Persona, UESReport, UserRole, EvaluationModel, ApiConfig, ProcessStep } from './types';
+import { Persona, ETSReport, UserRole, EvaluationModel, ApiConfig, ProcessStep } from './types';
 import { analyzeDesign, generateOptimizedDesign } from './services/geminiService';
 import { ReportView } from './components/ReportView';
 
@@ -204,7 +204,8 @@ export default function App() {
   // Result Viewer State (Which persona tab is active)
   const [viewingPersonaId, setViewingPersonaId] = useState<string>(DEFAULT_PERSONAS[0].id);
 
-  const [evaluationModel, setEvaluationModel] = useState<EvaluationModel>(EvaluationModel.ETS); // Default to ETS as requested implicitly
+  // ETS is now the only evaluation model
+  const evaluationModel = EvaluationModel.ETS;
   
   // Input State
   const [uploadMode, setUploadMode] = useState<'single' | 'flow' | 'video'>('single');
@@ -214,7 +215,7 @@ export default function App() {
   
   // Analysis State (Map by Persona ID)
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [reports, setReports] = useState<Record<string, UESReport>>({});
+  const [reports, setReports] = useState<Record<string, ETSReport>>({});
   const [error, setError] = useState<string | null>(null);
   
   // Image Generation State (Map by Persona ID)
@@ -404,7 +405,7 @@ export default function App() {
 
       const results = await Promise.all(analysisPromises);
       
-      const newReports: Record<string, UESReport> = {};
+      const newReports: Record<string, ETSReport> = {};
       results.forEach(res => {
         if (res) newReports[res.id] = res.report;
       });
@@ -936,19 +937,6 @@ export default function App() {
                 <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider">附加选项</h2>
              </div>
              
-             {/* Model Selector */}
-            <div className="flex items-center justify-between">
-               <label className="text-sm font-medium text-slate-600">评估模型</label>
-               <select 
-                 value={evaluationModel}
-                 onChange={(e) => setEvaluationModel(e.target.value as EvaluationModel)}
-                 className="text-xs bg-slate-100 border-none rounded-lg py-1 px-2 text-slate-700 focus:ring-2 focus:ring-indigo-500"
-               >
-                 <option value={EvaluationModel.ETS}>ETS (8 维度)</option>
-                 <option value={EvaluationModel.UES}>UES (5 维度)</option>
-               </select>
-            </div>
-
             {/* Image Generation Toggle */}
             <div 
                 onClick={() => setShouldGenerateImages(!shouldGenerateImages)}

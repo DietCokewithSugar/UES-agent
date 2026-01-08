@@ -6,7 +6,7 @@ interface RadarChartProps {
   data: DimensionScore[];
 }
 
-export const UESRadarChart: React.FC<RadarChartProps> = ({ data }) => {
+export const ETSRadarChart: React.FC<RadarChartProps> = ({ data }) => {
   return (
     <div className="h-64 w-full">
       <ResponsiveContainer width="100%" height="100%">
@@ -18,7 +18,7 @@ export const UESRadarChart: React.FC<RadarChartProps> = ({ data }) => {
           />
           <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
           <Radar
-            name="UES 评分"
+            name="ETS 评分"
             dataKey="score"
             stroke="#4f46e5"
             strokeWidth={2}

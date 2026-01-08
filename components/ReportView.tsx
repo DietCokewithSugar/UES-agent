@@ -1,10 +1,10 @@
 import React from 'react';
-import { UESReport, ProcessStep } from '../types';
-import { UESRadarChart } from './RadarChart';
+import { ETSReport, ProcessStep } from '../types';
+import { ETSRadarChart } from './RadarChart';
 import { AlertTriangle, CheckCircle, Target, User, FileText, Zap, Wand2, ArrowRight, Image as ImageIcon, ListChecks, ArrowDown, HelpCircle, Info, Video as VideoIcon } from 'lucide-react';
 
 interface ReportViewProps {
-  report: UESReport;
+  report: ETSReport;
   originalImage?: string | null;
   processSteps?: ProcessStep[]; // Added for flow support
   optimizedImage?: string | null;
@@ -126,7 +126,7 @@ export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, p
         <div className="md:col-span-1">
           <div className="bg-gradient-to-br from-indigo-600 to-indigo-800 text-white p-6 rounded-2xl shadow-lg h-full flex flex-col justify-between relative overflow-hidden">
             <div className="relative z-10">
-              <h2 className="text-indigo-100 text-sm font-medium uppercase tracking-widest mb-1">{report.modelType || 'UES'} 总体评分</h2>
+              <h2 className="text-indigo-100 text-sm font-medium uppercase tracking-widest mb-1">{report.modelType || 'ETS'} 总体评分</h2>
               <div className="flex items-baseline gap-2">
                 <span className="text-6xl font-bold">{report.overallScore}</span>
                 <span className="text-xl text-indigo-300">/ 100</span>
@@ -149,7 +149,7 @@ export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, p
           </h3>
           <div className="flex flex-col md:flex-row h-full gap-4">
             <div className="flex-1 h-64 md:h-auto">
-               <UESRadarChart data={report.dimensionScores} />
+               <ETSRadarChart data={report.dimensionScores} />
             </div>
             <div className="md:w-48 overflow-y-auto max-h-64 pr-2 border-l border-slate-100 pl-4">
               <div className="space-y-3">

@@ -1,19 +1,11 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { Persona, UESReport, EvaluationModel, ApiConfig, ProcessStep } from "../types";
+import { Persona, ETSReport, EvaluationModel, ApiConfig, ProcessStep } from "../types";
 
 // Note: API Key must be obtained from process.env.API_KEY or via window.aistudio for high-end models
 const getAIClient = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // Definitions for the evaluation models
 const MODEL_DEFINITIONS = {
-  [EvaluationModel.UES]: `
-    请从以下 5 个 UES 维度评估设计：
-    1. 易用性 (Usability) - 易学性、易记性、效率。
-    2. 一致性 (Consistency) - 视觉、交互、文案的一致性。
-    3. 清晰度 (Clarity) - 信息层级、可读性。
-    4. 美观度 (Aesthetics) - 视觉吸引力、极简主义。
-    5. 效率 (Efficiency) - 任务完成速度、快捷操作。
-  `,
   [EvaluationModel.ETS]: `
     请严格基于 ETS 模型的以下 8 个核心维度及其细分指标进行评估。
     对于每个维度，请在打分的同时，在 comment 字段中提供简要的定性描述，指出符合或不符合以下细则的地方。
@@ -77,7 +69,7 @@ const callOpenRouter = async (
   prompt: string,
   input: string | ProcessStep[],
   model: string
-): Promise<UESReport> => {
+): Promise<ETSReport> => {
   const apiKey = getOpenRouterApiKey();
   
   const messagesContent: any[] = [
@@ -163,7 +155,7 @@ const callOpenRouter = async (
 
     // Clean up potential markdown code blocks
     const jsonStr = messageContent.replace(/```json\n?|\n?```/g, "").trim();
-    return JSON.parse(jsonStr) as UESReport;
+    return JSON.parse(jsonStr) as ETSReport;
 
   } catch (error) {
     console.error("OpenRouter Call Failed:", error);
@@ -174,12 +166,10 @@ const callOpenRouter = async (
 export const analyzeDesign = async (
   input: string | ProcessStep[],
   persona: Persona,
-  model: EvaluationModel = EvaluationModel.UES,
+  model: EvaluationModel = EvaluationModel.ETS,
   apiConfig: ApiConfig = { provider: 'google' }
-): Promise<UESReport> => {
-  const dimensionDescription = model === EvaluationModel.UES 
-    ? "五个维度的评分：易用性, 一致性, 清晰度, 美观度, 效率"
-    : "八个维度的评分。注意：对于 ETS 模型，必须在 comment 字段中详细描述该维度下符合或违反细则的具体情况（如是否支持断点续连、是否有脱敏处理等）。维度包含：功能流程, 信息认知, 交互设计, 系统性能, 信息安全, 视觉设计, 智能化, 运营服务";
+): Promise<ETSReport> => {
+  const dimensionDescription = "八个维度的评分。注意：对于 ETS 模型，必须在 comment 字段中详细描述该维度下符合或违反细则的具体情况（如是否支持断点续连、是否有脱敏处理等）。维度包含：功能流程, 信息认知, 交互设计, 系统性能, 信息安全, 视觉设计, 智能化, 运营服务";
 
   const personaDescription = `
     角色类型: ${persona.role}
@@ -376,7 +366,7 @@ export const analyzeDesign = async (
       throw new Error("No response from Gemini.");
     }
 
-    const report = JSON.parse(response.text) as UESReport;
+    const report = JSON.parse(response.text) as ETSReport;
     report.modelType = model;
     return report;
   } catch (error) {
@@ -388,7 +378,7 @@ export const analyzeDesign = async (
 export const generateOptimizedDesign = async (
   originalImageBase64: string,
   persona: Persona,
-  report: UESReport,
+  report: ETSReport,
   apiConfig: ApiConfig = { provider: 'google' }
 ): Promise<string> => {
   const cleanBase64 = originalImageBase64.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");

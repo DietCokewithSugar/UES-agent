@@ -4,7 +4,6 @@ export enum UserRole {
 }
 
 export enum EvaluationModel {
-  UES = 'UES', // 5 Dimensions
   ETS = 'ETS'  // 8 Dimensions
 }
 
@@ -39,7 +38,7 @@ export interface Issue {
   recommendation: string;
 }
 
-export interface UESReport {
+export interface ETSReport {
   modelType: EvaluationModel; // Track which model was used
   overallScore: number;
   dimensionScores: DimensionScore[];
