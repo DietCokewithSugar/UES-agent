@@ -246,15 +246,15 @@ export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, p
             </div>
             维度分布
           </h3>
-          <div className="flex flex-col md:flex-row h-full gap-5">
-            <div className="flex-1 h-64 md:h-auto">
+          <div className="flex flex-col md:flex-row gap-5">
+            <div className="flex-1 h-64 md:h-72">
               <ETSRadarChart data={report.dimensionScores} />
             </div>
-            <div className="md:w-40 overflow-y-auto max-h-64 pr-2 pl-5" style={{ borderLeft: '1px solid rgba(0,0,0,0.05)' }}>
-              <div className="space-y-3">
+            <div className="md:w-44 pr-2 pl-5 flex flex-col justify-center" style={{ borderLeft: '1px solid rgba(0,0,0,0.05)' }}>
+              <div className="space-y-2.5">
                 {report.dimensionScores.map((d) => (
                   <div key={d.dimension} className="flex justify-between items-center text-sm gap-3">
-                    <span className="text-clay-500 whitespace-nowrap">{d.dimension}</span>
+                    <span className="text-clay-500 whitespace-nowrap text-xs">{d.dimension}</span>
                     <ScoreIndicator score={d.score} />
                   </div>
                 ))}
