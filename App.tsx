@@ -683,7 +683,7 @@ export default function App() {
       )}
 
       {/* ========== Sidebar / Configuration Panel ========== */}
-      <div className="w-full md:w-[400px] h-auto md:h-screen flex flex-col sticky top-0 z-20 overflow-hidden print:hidden p-4 md:p-5">
+      <div className="w-full md:w-[400px] h-auto md:h-screen flex flex-col md:sticky md:top-0 z-20 overflow-hidden print:hidden p-4 md:p-5">
         <div className="clay-card-raised flex-1 flex flex-col overflow-hidden rounded-[28px]">
           
           {/* Brand Header */}
