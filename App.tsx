@@ -177,12 +177,18 @@ const EMPTY_PERSONA: Omit<Persona, 'id'> = {
 };
 
 const OPENROUTER_TEXT_MODELS = [
-  { value: "google/gemini-3-pro-preview", label: "Gemini 3 Pro Preview (Google)" },
-  { value: "qwen/qwen3-vl-235b-a22b-instruct", label: "Qwen 3 VL Instruct (Qwen)" },
-  { value: "x-ai/grok-4.1-fast:free", label: "Grok 4.1 Fast (xAI)" }
+  { value: "nvidia/nemotron-nano-12b-v2-vl:free", label: "Nemotron Nano 12B VL (NVIDIA)", hint: "英伟达小模型，限时免费，用于测试，速度慢" },
+  { value: "z-ai/glm-4.6v", label: "GLM-4.6V (智谱)", hint: "智谱混合专家，速度一般，价格低廉" },
+  { value: "bytedance-seed/seed-1.6-flash", label: "Seed 1.6 Flash (字节)", hint: "字节最新模型，价格低廉，速度极快" },
+  { value: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash (Google)", hint: "Google 先进模型，质量较好" }
 ];
 
-const IMAGE_MODELS = [
+const GOOGLE_IMAGE_MODELS = [
+  { value: "google/gemini-3-pro-image-preview", label: "Gemini 3 Pro Image (Google)" },
+  { value: "google/gemini-2.5-flash-image", label: "Gemini 2.5 Flash Image (Google)" }
+];
+
+const OPENROUTER_IMAGE_MODELS = [
   { value: "google/gemini-3-pro-image-preview", label: "Gemini 3 Pro Image (Google)" },
   { value: "google/gemini-2.5-flash-image", label: "Gemini 2.5 Flash Image (Google)" },
   { value: "openai/gpt-5-image", label: "GPT-5 Image (OpenAI)" }
@@ -225,8 +231,7 @@ export default function App() {
   // Settings State
   const [apiConfig, setApiConfig] = useState<ApiConfig>({
     provider: 'google',
-    openRouterKey: '',
-    openRouterModel: 'google/gemini-3-pro-preview',
+    openRouterModel: 'google/gemini-2.5-flash',
     imageModel: 'google/gemini-3-pro-image-preview'
   });
 
@@ -1130,24 +1135,32 @@ export default function App() {
                  </div>
               </div>
 
-              {/* API Key Input */}
+              {/* Provider Info */}
+              {apiConfig.provider === 'google' && (
+                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl">
+                    <p className="text-sm text-blue-700">
+                      <strong>分析模型：</strong>读取/分析照片视频采用 <code className="bg-blue-100 px-1 rounded font-semibold">gemini-2.5-flash</code> 模型。
+                    </p>
+                    <p className="text-xs text-blue-600 mt-1">
+                      视觉生成模型仅用于生成优化效果图。
+                    </p>
+                  </div>
+              )}
               {apiConfig.provider === 'openrouter' && (
-                  <div className="space-y-3">
-                    <label className="text-sm font-medium text-slate-700 block">OpenRouter API Key</label>
-                    <input 
-                        type="password" 
-                        value={apiConfig.openRouterKey}
-                        onChange={(e) => setApiConfig({...apiConfig, openRouterKey: e.target.value})}
-                        placeholder="sk-or-..."
-                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all font-mono text-sm"
-                    />
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                    <p className="text-sm text-amber-700">
+                      <strong>提示：</strong>OpenRouter API Key 需在本地 <code className="bg-amber-100 px-1 rounded">.env.local</code> 文件中配置：
+                    </p>
+                    <code className="block mt-2 text-xs text-amber-600 bg-amber-100 p-2 rounded font-mono">
+                      OPENROUTER_API_KEY=sk-or-...
+                    </code>
                   </div>
               )}
 
               {/* Text Model Selection (OpenRouter Only) */}
               {apiConfig.provider === 'openrouter' && (
                 <div className="space-y-3">
-                  <label className="text-sm font-medium text-slate-700 block">文本分析模型 (Text Model)</label>
+                  <label className="text-sm font-medium text-slate-700 block">分析模型 (Vision Model)</label>
                   <select
                     value={apiConfig.openRouterModel}
                     onChange={(e) => setApiConfig({...apiConfig, openRouterModel: e.target.value})}
@@ -1157,6 +1170,14 @@ export default function App() {
                       <option key={model.value} value={model.value}>{model.label}</option>
                     ))}
                   </select>
+                  {(() => {
+                    const selectedModel = OPENROUTER_TEXT_MODELS.find(m => m.value === apiConfig.openRouterModel);
+                    return selectedModel?.hint && (
+                      <p className="text-xs text-slate-500 bg-slate-100 px-3 py-2 rounded-lg">
+                        💡 {selectedModel.hint}
+                      </p>
+                    );
+                  })()}
                 </div>
               )}
 
@@ -1168,13 +1189,15 @@ export default function App() {
                   onChange={(e) => setApiConfig({...apiConfig, imageModel: e.target.value})}
                   className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
                 >
-                  {IMAGE_MODELS.map(model => (
+                  {(apiConfig.provider === 'google' ? GOOGLE_IMAGE_MODELS : OPENROUTER_IMAGE_MODELS).map(model => (
                     <option key={model.value} value={model.value}>{model.label}</option>
                   ))}
                 </select>
-                <p className="text-xs text-slate-400 mt-1">
-                  注意: GPT-5 Image 等模型仅在配置了 OpenRouter 时可用。Google GenAI 模式下请使用 Gemini 系列。
-                </p>
+                {apiConfig.provider === 'openrouter' && (
+                  <p className="text-xs text-slate-400 mt-1">
+                    OpenRouter 模式下可使用 GPT-5 Image 等第三方模型。
+                  </p>
+                )}
               </div>
 
             </div>

@@ -64,12 +64,21 @@ const MODEL_DEFINITIONS = {
   `
 };
 
+// Get OpenRouter API Key from environment variable
+const getOpenRouterApiKey = (): string => {
+  const key = process.env.OPENROUTER_API_KEY;
+  if (!key) {
+    throw new Error("OpenRouter API Key 未配置。请在 .env.local 文件中添加 OPENROUTER_API_KEY。");
+  }
+  return key;
+};
+
 const callOpenRouter = async (
   prompt: string,
   input: string | ProcessStep[],
-  apiKey: string,
   model: string
 ): Promise<UESReport> => {
+  const apiKey = getOpenRouterApiKey();
   
   const messagesContent: any[] = [
     {
@@ -247,14 +256,10 @@ export const analyzeDesign = async (
 
   // --- BRANCH: OpenRouter ---
   if (apiConfig.provider === 'openrouter') {
-    if (!apiConfig.openRouterKey) {
-      throw new Error("OpenRouter API Key is missing. Please configure it in Settings.");
-    }
     const report = await callOpenRouter(
       prompt, 
       input, 
-      apiConfig.openRouterKey, 
-      apiConfig.openRouterModel || "google/gemini-3-pro-preview"
+      apiConfig.openRouterModel || "google/gemini-2.5-flash"
     );
     report.modelType = model;
     return report;
@@ -389,7 +394,7 @@ export const generateOptimizedDesign = async (
   const cleanBase64 = originalImageBase64.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
 
   // Use selected image model or default
-  const imageModel = apiConfig.imageModel || 'gemini-3-pro-image-preview';
+  const imageModel = apiConfig.imageModel || 'gemini-2.5-flash';
 
   // Construct a focused prompt based on the specific issues found in the report
   // Updated filter for new severity levels (Level 1 and Level 2 are considered critical/high enough)
@@ -428,15 +433,13 @@ export const generateOptimizedDesign = async (
 
   // --- BRANCH: OpenRouter Image Generation ---
   if (apiConfig.provider === 'openrouter') {
-    if (!apiConfig.openRouterKey) {
-      throw new Error("OpenRouter API Key is missing for image generation.");
-    }
+    const openRouterKey = getOpenRouterApiKey();
 
     try {
       const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${apiConfig.openRouterKey}`,
+          "Authorization": `Bearer ${openRouterKey}`,
           "Content-Type": "application/json",
           "HTTP-Referer": window.location.origin,
           "X-Title": "ETS Agent"

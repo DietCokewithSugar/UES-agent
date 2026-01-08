@@ -53,7 +53,6 @@ export type ApiProvider = 'google' | 'openrouter';
 
 export interface ApiConfig {
   provider: ApiProvider;
-  openRouterKey?: string;
   openRouterModel?: string;
   imageModel?: string; // New field for image generation model
 }
