@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, Sparkles, Settings, ChevronRight, Check, Loader2, Plus, X, Layers, Square, CheckSquare, Users, Download, Archive, Package, Globe, FileUp, FileJson, Trash2, GripVertical, ImagePlus, Pencil, Video, Film } from 'lucide-react';
+import { Upload, Sparkles, Settings, ChevronRight, Check, Loader2, Plus, X, Layers, Square, CheckSquare, Users, Download, Archive, Package, Globe, FileUp, FileJson, Trash2, GripVertical, ImagePlus, Pencil, Video, Film, Zap, Star, Moon, Sun, ArrowRight } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import JSZip from 'jszip';
 import * as FileSaver from 'file-saver';
@@ -8,9 +8,7 @@ import { analyzeDesign, generateOptimizedDesign } from './services/geminiService
 import { ReportView } from './components/ReportView';
 
 // --- Helper for FileSaver ---
-// Handles different ESM/UMD export structures for file-saver across environments
 const saveFile = (data: Blob | string, filename: string) => {
-  // Try named export 'saveAs', then 'default', then the module itself if it's a function
   const save = (FileSaver as any).saveAs || (FileSaver as any).default || FileSaver;
   if (typeof save === 'function') {
     save(data, filename);
@@ -22,7 +20,6 @@ const saveFile = (data: Blob | string, filename: string) => {
 
 // --- Constants ---
 const DEFAULT_PERSONAS: Persona[] = [
-  // --- 用户视角 (End Users) ---
   {
     id: '1',
     name: '银发新手用户',
@@ -53,7 +50,6 @@ const DEFAULT_PERSONAS: Persona[] = [
       deviceHabits: '重度手机使用者，快速操作'
     }
   },
-  // --- 专家/职能视角 (Professional Roles) ---
   {
     id: '3',
     name: 'UX 专家审计',
@@ -153,7 +149,7 @@ const DEFAULT_PERSONAS: Persona[] = [
       age: '25-35岁',
       techSavviness: '中',
       domainKnowledge: '客户服务',
-      goals: '让用户“不求人”解决问题，降低客诉',
+      goals: '让用户"不求人"解决问题，降低客诉',
       environment: '客服中心',
       frustrationTolerance: '中',
       deviceHabits: '模拟用户遇到困难时的求助路径'
@@ -197,35 +193,29 @@ const OPENROUTER_IMAGE_MODELS = [
 // --- Main App Component ---
 export default function App() {
   const [personas, setPersonas] = useState<Persona[]>(DEFAULT_PERSONAS);
-  
-  // Multi-select state
   const [selectedPersonaIds, setSelectedPersonaIds] = useState<string[]>([DEFAULT_PERSONAS[0].id]);
-  
-  // Result Viewer State (Which persona tab is active)
   const [viewingPersonaId, setViewingPersonaId] = useState<string>(DEFAULT_PERSONAS[0].id);
-
-  // ETS is now the only evaluation model
   const evaluationModel = EvaluationModel.ETS;
   
   // Input State
   const [uploadMode, setUploadMode] = useState<'single' | 'flow' | 'video'>('single');
-  const [image, setImage] = useState<string | null>(null); // For single mode
-  const [video, setVideo] = useState<string | null>(null); // For video mode
-  const [processSteps, setProcessSteps] = useState<ProcessStep[]>([]); // For flow mode
+  const [image, setImage] = useState<string | null>(null);
+  const [video, setVideo] = useState<string | null>(null);
+  const [processSteps, setProcessSteps] = useState<ProcessStep[]>([]);
   
-  // Analysis State (Map by Persona ID)
+  // Analysis State
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [reports, setReports] = useState<Record<string, ETSReport>>({});
   const [error, setError] = useState<string | null>(null);
   
-  // Image Generation State (Map by Persona ID)
-  const [shouldGenerateImages, setShouldGenerateImages] = useState(false); // Default to false (optional)
+  // Image Generation State
+  const [shouldGenerateImages, setShouldGenerateImages] = useState(false);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [optimizedImages, setOptimizedImages] = useState<Record<string, string>>({});
   
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingPersonaId, setEditingPersonaId] = useState<string | null>(null); // Track which persona is being edited
+  const [editingPersonaId, setEditingPersonaId] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [newPersonaData, setNewPersonaData] = useState<Omit<Persona, 'id'>>(EMPTY_PERSONA);
 
@@ -245,9 +235,7 @@ export default function App() {
   const flowStepInputRef = useRef<HTMLInputElement>(null);
   const jsonImportRef = useRef<HTMLInputElement>(null);
 
-  // Helper to get actual persona objects from selected IDs
   const getSelectedPersonas = () => personas.filter(p => selectedPersonaIds.includes(p.id));
-
 
   // Single File Handler
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -256,8 +244,7 @@ export default function App() {
       const reader = new FileReader();
       reader.onloadend = () => {
         setImage(reader.result as string);
-        setVideo(null); // Clear video
-        // Clear previous results
+        setVideo(null);
         setReports({}); 
         setOptimizedImages({});
         setError(null);
@@ -270,28 +257,22 @@ export default function App() {
   const handleVideoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      // Validate format
       const validTypes = ['video/mp4', 'video/webm', 'video/quicktime', 'video/mpeg'];
       if (!validTypes.includes(file.type)) {
          alert("格式不支持。请上传 mp4, webm 或 mov 格式的视频。");
          return;
       }
       
-      // Basic size check for safety
-      // Inline base64 limit is usually strict. 
-      // Without compression, allow up to 50MB. Larger files should use File API which is not implemented in this purely client-side demo.
       if (file.size > 50 * 1024 * 1024) {
           alert("视频文件过大 (>50MB)。当前环境不支持前端压缩，请上传较小的文件以避免浏览器内存溢出。");
           return;
       }
       
-      // Reset State
       setImage(null);
       setReports({});
       setOptimizedImages({});
       setError(null);
 
-      // Read directly
       const reader = new FileReader();
       reader.onloadend = () => {
           setVideo(reader.result as string);
@@ -311,7 +292,6 @@ export default function App() {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
 
-    // Read all selected files
     files.forEach(file => {
         const reader = new FileReader();
         reader.onloadend = () => {
@@ -325,12 +305,9 @@ export default function App() {
         reader.readAsDataURL(file);
     });
     
-    // Clear results on new input
     setReports({});
     setOptimizedImages({});
     setError(null);
-    
-    // Reset input
     e.target.value = '';
   };
 
@@ -347,7 +324,6 @@ export default function App() {
   const togglePersonaSelection = (id: string) => {
     setSelectedPersonaIds(prev => {
       if (prev.includes(id)) {
-        // Prevent deselecting the last one if you want to enforce at least one
         if (prev.length === 1) return prev; 
         return prev.filter(pId => pId !== id);
       } else {
@@ -357,7 +333,6 @@ export default function App() {
   };
 
   const handleAnalyze = async () => {
-    // Validate inputs based on mode
     let inputData: string | ProcessStep[] | null = null;
     
     if (uploadMode === 'single') inputData = image;
@@ -366,7 +341,6 @@ export default function App() {
 
     if (!inputData) return;
 
-    // Check for API Key if using Google
     if (apiConfig.provider === 'google') {
         try {
         if (window.aistudio) {
@@ -387,12 +361,9 @@ export default function App() {
     setError(null);
     setReports({});
     setOptimizedImages({});
-    
-    // Reset viewing persona to the first selected one
     setViewingPersonaId(targets[0].id);
 
     try {
-      // 1. Parallel Text/Video Analysis
       const analysisPromises = targets.map(async (p) => {
         try {
           const result = await analyzeDesign(inputData!, p, evaluationModel, apiConfig);
@@ -413,8 +384,6 @@ export default function App() {
       setReports(newReports);
       setIsAnalyzing(false); 
 
-      // 2. Parallel Image Generation (Optional) - Only for image inputs
-      // We skip optimization generation for video as it is not supported by standard image gen models
       if (shouldGenerateImages && uploadMode !== 'video') {
           setIsGeneratingImage(true);
           
@@ -449,7 +418,7 @@ export default function App() {
       setIsAnalyzing(false);
     } finally {
       setIsGeneratingImage(false);
-      setIsAnalyzing(false); // Ensure this is off in case of catch
+      setIsAnalyzing(false);
     }
   };
 
@@ -457,21 +426,18 @@ export default function App() {
     if (!newPersonaData.name) return;
     
     if (editingPersonaId) {
-      // Edit Mode
       setPersonas(prev => prev.map(p => 
         p.id === editingPersonaId 
           ? { ...p, ...newPersonaData } as Persona
           : p
       ));
     } else {
-      // Create Mode
       const newId = Date.now().toString();
       const newPersona: Persona = {
         ...newPersonaData,
         id: newId,
       };
       setPersonas(prev => [...prev, newPersona]);
-      // Automatically select the new persona
       setSelectedPersonaIds(prev => [...prev, newId]);
     }
     
@@ -506,24 +472,20 @@ export default function App() {
     }));
   };
 
-  // --- Import/Export Logic ---
-
-  // Export a single persona configuration to JSON
+  // Export Logic
   const handleExportPersona = (e: React.MouseEvent, persona: Persona) => {
     e.stopPropagation();
-    const { id, ...dataToSave } = persona; // Exclude ID
+    const { id, ...dataToSave } = persona;
     const blob = new Blob([JSON.stringify(dataToSave, null, 2)], { type: 'application/json' });
     saveFile(blob, `ETS_Persona_${persona.name.replace(/\s+/g, '_')}.json`);
   };
 
-  // Download a template for creating new personas
   const handleDownloadTemplate = () => {
     const template = { ...EMPTY_PERSONA, name: "示例角色模版", description: "请在此处填写描述..." };
     const blob = new Blob([JSON.stringify(template, null, 2)], { type: 'application/json' });
     saveFile(blob, 'ETS_Persona_Template.json');
   };
 
-  // Import JSON to fill the modal
   const handleImportJson = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -533,7 +495,6 @@ export default function App() {
           const content = ev.target?.result as string;
           const data = JSON.parse(content);
           
-          // Basic validation
           if (data.name && data.role && data.attributes) {
             setNewPersonaData({
               name: data.name,
@@ -551,12 +512,9 @@ export default function App() {
       };
       reader.readAsText(file);
     }
-    // Reset input
     if (jsonImportRef.current) jsonImportRef.current.value = '';
   };
 
-
-  // Helper to generate PNG blob from a node
   const generatePngBlob = async (node: HTMLElement): Promise<Blob | null> => {
     if (!node) return null;
     const width = node.scrollWidth;
@@ -565,7 +523,7 @@ export default function App() {
 
     const dataUrl = await toPng(node, { 
       cacheBust: true, 
-      backgroundColor: '#f8fafc',
+      backgroundColor: '#F2F4F8',
       width: width + (padding * 2),
       height: height + (padding * 2),
       pixelRatio: 2,
@@ -577,7 +535,6 @@ export default function App() {
       }
     });
     
-    // Convert dataURL to Blob
     const res = await fetch(dataUrl);
     return res.blob();
   };
@@ -608,12 +565,10 @@ export default function App() {
     try {
       const zip = new JSZip();
       
-      // Iterate over all generated reports
       for (const id of reportIds) {
         const persona = personas.find(p => p.id === id);
         const name = persona?.name || `Persona_${id}`;
         
-        // Find the hidden element for this report
         const elementId = `report-capture-${id}`;
         const element = document.getElementById(elementId);
         
@@ -625,7 +580,6 @@ export default function App() {
         }
       }
 
-      // Generate Zip and save
       const content = await zip.generateAsync({ type: 'blob' });
       saveFile(content as unknown as Blob, 'ETS_Analysis_Reports.zip');
 
@@ -637,36 +591,33 @@ export default function App() {
     }
   };
 
-  // Get current report to display
   const currentReport = reports[viewingPersonaId];
   const currentOptimizedImage = optimizedImages[viewingPersonaId];
-  
-  // Check if we have multiple reports for batch export logic
   const hasMultipleReports = Object.keys(reports).length > 1;
 
-  // Determine button enabled state
   const isReadyToAnalyze = 
     (uploadMode === 'single' && !!image) || 
     (uploadMode === 'flow' && processSteps.length > 0) ||
     (uploadMode === 'video' && !!video);
 
   return (
-    <div className="min-h-screen flex flex-col md:flex-row bg-slate-50 font-sans text-slate-900">
+    <div className="min-h-screen flex flex-col md:flex-row font-body" style={{ background: 'linear-gradient(145deg, #F2F4F8 0%, #E8ECF4 100%)' }}>
       
-      {/* Hidden Container for Batch Capture - Renders ALL reports off-screen */}
+      {/* Hidden Container for Batch Capture */}
       {Object.keys(reports).length > 0 && (
         <div style={{ position: 'fixed', left: '-10000px', top: 0, opacity: 0, pointerEvents: 'none' }}>
           {Object.entries(reports).map(([id, report]) => (
             <div 
               key={id} 
               id={`report-capture-${id}`} 
-              className="w-[1024px] bg-slate-50 p-8" // Fixed width for consistent export layout
+              className="w-[1024px] p-8"
+              style={{ background: 'linear-gradient(145deg, #F2F4F8 0%, #E8ECF4 100%)' }}
             >
-              <div className="bg-white rounded-xl shadow-none p-8">
-                 <div className="mb-8 border-b border-slate-200 pb-4">
-                    <h1 className="text-3xl font-bold text-slate-800 mb-2">ETS 体验评估报告</h1>
-                    <div className="flex items-center gap-4 text-slate-500">
-                      <span className="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full text-sm font-semibold">
+              <div className="clay-card p-8">
+                 <div className="mb-8 border-b border-clay-200/50 pb-4">
+                    <h1 className="text-3xl font-bold text-clay-800 mb-2 font-display">ETS 体验评估报告</h1>
+                    <div className="flex items-center gap-4 text-clay-500">
+                      <span className="clay-badge px-4 py-1.5 text-sm font-semibold" style={{ background: 'linear-gradient(145deg, #F5F3FF 0%, #EDE9FE 100%)', color: '#7C3AED' }}>
                          {personas.find(p => p.id === id)?.name}
                       </span>
                       <span>{new Date().toLocaleDateString()}</span>
@@ -677,7 +628,7 @@ export default function App() {
                     originalImage={uploadMode === 'video' ? video : image}
                     processSteps={uploadMode === 'flow' ? processSteps : undefined}
                     optimizedImage={optimizedImages[id]}
-                    isGeneratingImage={false} // For export, we assume generation is done or we capture what we have
+                    isGeneratingImage={false}
                   />
               </div>
             </div>
@@ -685,420 +636,515 @@ export default function App() {
         </div>
       )}
 
-      {/* Sidebar / Configuration Panel */}
-      <div className="w-full md:w-96 bg-white border-r border-slate-200 h-auto md:h-screen flex flex-col sticky top-0 z-20 overflow-y-auto print:hidden">
-        
-        {/* Brand */}
-        <div className="p-6 border-b border-slate-100 bg-white flex justify-between items-center sticky top-0 z-30">
-          <div>
-            <div className="flex items-center gap-2 text-indigo-600 mb-1">
-              <Sparkles size={24} fill="currentColor" className="text-indigo-500" />
-              <h1 className="text-xl font-bold tracking-tight text-slate-900">ETS Agent</h1>
-            </div>
-            <p className="text-xs text-slate-500 font-medium">产品体验自动化分析工具</p>
-          </div>
-          <button 
-            onClick={() => setIsSettingsOpen(true)}
-            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-            title="API 设置"
-          >
-            <Settings size={20} />
-          </button>
-        </div>
-
-        {/* Step 1: Upload */}
-        <div className="p-6 border-b border-slate-100 flex-1 overflow-y-auto">
-          <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">1. 上传需测内容</h2>
+      {/* ========== Sidebar / Configuration Panel ========== */}
+      <div className="w-full md:w-[420px] h-auto md:h-screen flex flex-col sticky top-0 z-20 overflow-y-auto print:hidden p-4 md:p-5">
+        <div className="clay-card-raised flex-1 flex flex-col overflow-hidden">
           
-          {/* Toggle Mode */}
-          <div className="flex bg-slate-100 p-1 rounded-lg mb-4">
+          {/* Brand Header */}
+          <div className="p-6 flex justify-between items-center" style={{ borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-2xl flex items-center justify-center" style={{
+                background: 'linear-gradient(145deg, #A78BFA 0%, #8B5CF6 50%, #7C3AED 100%)',
+                boxShadow: '0 6px 20px -4px rgba(139, 92, 246, 0.4), inset 0 1px 0 rgba(255,255,255,0.3)'
+              }}>
+                <Sparkles size={22} className="text-white" />
+              </div>
+              <div>
+                <h1 className="text-lg font-bold tracking-tight text-clay-800 font-display">ETS Agent</h1>
+                <p className="text-xs text-clay-500 font-medium">产品体验自动化分析工具</p>
+              </div>
+            </div>
             <button 
-                onClick={() => setUploadMode('single')}
-                className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${uploadMode === 'single' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+              onClick={() => setIsSettingsOpen(true)}
+              className="clay-btn p-2.5 text-clay-400 hover:text-accent-violet transition-colors"
+              title="API 设置"
             >
-                单页
-            </button>
-            <button 
-                onClick={() => setUploadMode('flow')}
-                className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${uploadMode === 'flow' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-                流程
-            </button>
-            <button 
-                onClick={() => setUploadMode('video')}
-                className={`flex-1 py-2 text-xs font-bold rounded-md transition-all flex items-center justify-center gap-1 ${uploadMode === 'video' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-                <Video size={12} />
-                视频
+              <Settings size={18} />
             </button>
           </div>
 
-          {uploadMode === 'single' && (
-            // Single Image Upload
-            <div 
+          {/* Step 1: Upload */}
+          <div className="p-6 flex-1 overflow-y-auto" style={{ borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
+            <h2 className="text-xs font-bold text-clay-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold" style={{
+                background: 'linear-gradient(145deg, #A78BFA 0%, #8B5CF6 100%)',
+                color: 'white',
+                boxShadow: '0 2px 8px -2px rgba(139, 92, 246, 0.4)'
+              }}>1</span>
+              上传需测内容
+            </h2>
+            
+            {/* Toggle Mode */}
+            <div className="clay-inset p-1.5 rounded-2xl mb-5 flex gap-1">
+              {[
+                { key: 'single', label: '单页', icon: null },
+                { key: 'flow', label: '流程', icon: null },
+                { key: 'video', label: '视频', icon: Video }
+              ].map(mode => (
+                <button 
+                  key={mode.key}
+                  onClick={() => setUploadMode(mode.key as any)}
+                  className={`flex-1 py-2.5 text-xs font-semibold rounded-xl transition-all flex items-center justify-center gap-1.5 ${
+                    uploadMode === mode.key 
+                      ? 'clay-tab active text-accent-violet' 
+                      : 'text-clay-500 hover:text-clay-700'
+                  }`}
+                >
+                  {mode.icon && <mode.icon size={12} />}
+                  {mode.label}
+                </button>
+              ))}
+            </div>
+
+            {uploadMode === 'single' && (
+              <div 
                 onClick={() => fileInputRef.current?.click()}
-                className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all ${image ? 'border-indigo-200 bg-indigo-50' : 'border-slate-200 hover:border-indigo-400 hover:bg-slate-50'}`}
-            >
+                className={`rounded-3xl p-8 text-center cursor-pointer transition-all ${
+                  image 
+                    ? 'clay-selected' 
+                    : 'clay-inset hover:shadow-soft'
+                }`}
+                style={{ border: image ? undefined : '2px dashed rgba(139, 92, 246, 0.2)' }}
+              >
                 <input 
-                ref={fileInputRef}
-                type="file" 
-                accept="image/*" 
-                onChange={handleFileChange} 
-                className="hidden" 
+                  ref={fileInputRef}
+                  type="file" 
+                  accept="image/*" 
+                  onChange={handleFileChange} 
+                  className="hidden" 
                 />
                 {image ? (
-                <div className="relative">
-                    <img src={image} alt="Preview" className="max-h-32 mx-auto rounded-lg shadow-sm" />
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/10 rounded-lg opacity-0 hover:opacity-100 transition-opacity">
-                        <span className="bg-white text-slate-800 text-xs py-1 px-3 rounded shadow-sm font-medium">更换图片</span>
+                  <div className="relative">
+                    <img src={image} alt="Preview" className="max-h-36 mx-auto rounded-2xl" style={{ boxShadow: '0 8px 24px -6px rgba(0,0,0,0.15)' }} />
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/5 rounded-2xl opacity-0 hover:opacity-100 transition-opacity">
+                      <span className="clay-badge px-4 py-2 text-xs font-semibold text-clay-700">更换图片</span>
                     </div>
-                </div>
+                  </div>
                 ) : (
-                <div className="flex flex-col items-center gap-2 text-slate-400">
-                    <Upload size={24} />
+                  <div className="flex flex-col items-center gap-3 text-clay-400 py-4">
+                    <div className="w-14 h-14 rounded-2xl flex items-center justify-center" style={{
+                      background: 'linear-gradient(145deg, #E8ECF4 0%, #F0F3F9 100%)',
+                      boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.06)'
+                    }}>
+                      <Upload size={24} className="text-clay-400" />
+                    </div>
                     <span className="text-sm font-medium">点击上传图片</span>
-                </div>
+                  </div>
                 )}
-            </div>
-          )}
+              </div>
+            )}
 
-          {uploadMode === 'video' && (
-            // Video Upload
-            <div 
-                onClick={() => {
-                   videoInputRef.current?.click()
-                }}
-                className={`border-2 border-dashed rounded-xl p-6 text-center transition-all ${video ? 'border-indigo-200 bg-indigo-50' : 'border-slate-200 hover:border-indigo-400 hover:bg-slate-50'} cursor-pointer`}
-            >
+            {uploadMode === 'video' && (
+              <div 
+                onClick={() => videoInputRef.current?.click()}
+                className={`rounded-3xl p-8 text-center cursor-pointer transition-all ${
+                  video 
+                    ? 'clay-selected' 
+                    : 'clay-inset hover:shadow-soft'
+                }`}
+                style={{ border: video ? undefined : '2px dashed rgba(139, 92, 246, 0.2)' }}
+              >
                 <input 
-                    ref={videoInputRef}
-                    type="file" 
-                    accept="video/mp4,video/webm,video/quicktime" 
-                    onChange={handleVideoChange} 
-                    className="hidden" 
+                  ref={videoInputRef}
+                  type="file" 
+                  accept="video/mp4,video/webm,video/quicktime" 
+                  onChange={handleVideoChange} 
+                  className="hidden" 
                 />
-                
                 {video ? (
-                <div className="relative">
-                     <video src={video} className="max-h-32 mx-auto rounded-lg shadow-sm bg-black" />
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/10 rounded-lg opacity-0 hover:opacity-100 transition-opacity">
-                        <span className="bg-white text-slate-800 text-xs py-1 px-3 rounded shadow-sm font-medium">更换视频</span>
+                  <div className="relative">
+                    <video src={video} className="max-h-36 mx-auto rounded-2xl bg-black" style={{ boxShadow: '0 8px 24px -6px rgba(0,0,0,0.15)' }} />
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/5 rounded-2xl opacity-0 hover:opacity-100 transition-opacity">
+                      <span className="clay-badge px-4 py-2 text-xs font-semibold text-clay-700">更换视频</span>
                     </div>
-                </div>
+                  </div>
                 ) : (
-                <div className="flex flex-col items-center gap-2 text-slate-400">
-                    <Film size={24} />
+                  <div className="flex flex-col items-center gap-3 text-clay-400 py-4">
+                    <div className="w-14 h-14 rounded-2xl flex items-center justify-center" style={{
+                      background: 'linear-gradient(145deg, #E8ECF4 0%, #F0F3F9 100%)',
+                      boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.06)'
+                    }}>
+                      <Film size={24} className="text-clay-400" />
+                    </div>
                     <span className="text-sm font-medium">点击上传视频</span>
-                    <span className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full">限制 50MB</span>
-                </div>
+                    <span className="text-[10px] clay-badge px-3 py-1" style={{ background: 'linear-gradient(145deg, #F5F3FF 0%, #EDE9FE 100%)', color: '#7C3AED' }}>限制 50MB</span>
+                  </div>
                 )}
-            </div>
-          )}
+              </div>
+            )}
 
-          {uploadMode === 'flow' && (
-            // Flow Upload
-            <div className="space-y-4">
+            {uploadMode === 'flow' && (
+              <div className="space-y-4">
                 <div className="space-y-3">
-                    {processSteps.map((step, idx) => (
-                        <div key={step.id} className="bg-slate-50 p-3 rounded-lg border border-slate-200 group relative">
-                             <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button onClick={() => removeStep(step.id)} className="p-1 bg-white rounded-full text-slate-400 hover:text-red-500 shadow-sm border border-slate-200">
-                                    <Trash2 size={12} />
-                                </button>
-                             </div>
-                             
-                             <div className="flex gap-3 items-start">
-                                 <div className="w-16 h-16 shrink-0 bg-white border border-slate-200 rounded-md flex items-center justify-center overflow-hidden">
-                                     <img src={step.image} alt={`Step ${idx+1}`} className="w-full h-full object-cover" />
-                                 </div>
-                                 <div className="flex-1">
-                                     <div className="flex justify-between items-center mb-1">
-                                         <span className="text-xs font-bold text-slate-500 uppercase">步骤 {idx + 1}</span>
-                                     </div>
-                                     <textarea 
-                                        value={step.description}
-                                        onChange={(e) => updateStepDescription(step.id, e.target.value)}
-                                        placeholder="输入用户操作说明 (如: 点击下一步)"
-                                        className="w-full text-xs p-2 rounded border border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none resize-none bg-white"
-                                        rows={2}
-                                     />
-                                 </div>
-                             </div>
+                  {processSteps.map((step, idx) => (
+                    <div key={step.id} className="clay-card p-4 group relative rounded-2xl">
+                      <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                        <button onClick={() => removeStep(step.id)} className="clay-btn p-2 text-clay-400 hover:text-accent-rose">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                      
+                      <div className="flex gap-4 items-start">
+                        <div className="w-20 h-20 shrink-0 rounded-xl overflow-hidden" style={{ boxShadow: '0 4px 12px -4px rgba(0,0,0,0.1)' }}>
+                          <img src={step.image} alt={`Step ${idx+1}`} className="w-full h-full object-cover" />
                         </div>
-                    ))}
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="text-[10px] font-bold uppercase px-2 py-1 rounded-lg" style={{
+                              background: 'linear-gradient(145deg, #A78BFA 0%, #8B5CF6 100%)',
+                              color: 'white',
+                              boxShadow: '0 2px 6px -2px rgba(139, 92, 246, 0.4)'
+                            }}>步骤 {idx + 1}</span>
+                          </div>
+                          <textarea 
+                            value={step.description}
+                            onChange={(e) => updateStepDescription(step.id, e.target.value)}
+                            placeholder="输入用户操作说明..."
+                            className="clay-input w-full text-xs p-3 outline-none resize-none"
+                            rows={2}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
 
                 <div 
-                    onClick={handleAddFlowStep}
-                    className="border-2 border-dashed border-slate-200 rounded-xl p-4 text-center cursor-pointer hover:border-indigo-400 hover:bg-slate-50 transition-all flex flex-col items-center justify-center gap-2 text-slate-400"
+                  onClick={handleAddFlowStep}
+                  className="clay-inset rounded-2xl p-6 text-center cursor-pointer hover:shadow-soft transition-all flex flex-col items-center justify-center gap-2 text-clay-400"
+                  style={{ border: '2px dashed rgba(139, 92, 246, 0.2)' }}
                 >
-                    <input 
-                        ref={flowStepInputRef}
-                        type="file" 
-                        accept="image/*" 
-                        multiple
-                        onChange={handleFlowImageSelect}
-                        className="hidden" 
-                    />
-                    <ImagePlus size={20} />
-                    <span className="text-xs font-medium">添加流程截图 (支持多选)</span>
+                  <input 
+                    ref={flowStepInputRef}
+                    type="file" 
+                    accept="image/*" 
+                    multiple
+                    onChange={handleFlowImageSelect}
+                    className="hidden" 
+                  />
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{
+                    background: 'linear-gradient(145deg, #F5F3FF 0%, #EDE9FE 100%)',
+                    color: '#8B5CF6'
+                  }}>
+                    <ImagePlus size={18} />
+                  </div>
+                  <span className="text-xs font-medium">添加流程截图 (支持多选)</span>
                 </div>
-            </div>
-          )}
-        </div>
-
-        {/* Step 2: Personas */}
-        <div className="p-6 border-b border-slate-100 bg-white">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider">2. 选择模拟角色</h2>
-            <div className="flex gap-2">
-                <button 
-                onClick={handleDownloadTemplate}
-                className="text-slate-400 hover:text-indigo-600 transition-colors"
-                title="下载角色模版"
-                >
-                <FileJson size={16} />
-                </button>
-                <button 
-                onClick={() => {
-                  setNewPersonaData(EMPTY_PERSONA);
-                  setEditingPersonaId(null);
-                  setIsModalOpen(true);
-                }}
-                className="text-indigo-600 hover:text-indigo-700 transition-colors"
-                title="新建角色"
-                >
-                <Plus size={18} />
-                </button>
-            </div>
+              </div>
+            )}
           </div>
-          
-          <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
-            {personas.map(persona => {
+
+          {/* Step 2: Personas */}
+          <div className="p-6" style={{ borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xs font-bold text-clay-400 uppercase tracking-wider flex items-center gap-2">
+                <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold" style={{
+                  background: 'linear-gradient(145deg, #38BDF8 0%, #0EA5E9 100%)',
+                  color: 'white',
+                  boxShadow: '0 2px 8px -2px rgba(56, 189, 248, 0.4)'
+                }}>2</span>
+                选择模拟角色
+              </h2>
+              <div className="flex gap-2">
+                <button 
+                  onClick={handleDownloadTemplate}
+                  className="clay-btn p-2 text-clay-400 hover:text-accent-violet transition-colors"
+                  title="下载角色模版"
+                >
+                  <FileJson size={14} />
+                </button>
+                <button 
+                  onClick={() => {
+                    setNewPersonaData(EMPTY_PERSONA);
+                    setEditingPersonaId(null);
+                    setIsModalOpen(true);
+                  }}
+                  className="clay-btn p-2 transition-colors"
+                  style={{ 
+                    background: 'linear-gradient(145deg, #F5F3FF 0%, #EDE9FE 100%)',
+                    color: '#8B5CF6'
+                  }}
+                  title="新建角色"
+                >
+                  <Plus size={14} />
+                </button>
+              </div>
+            </div>
+            
+            <div className="space-y-2.5 max-h-52 overflow-y-auto pr-1">
+              {personas.map(persona => {
                 const isSelected = selectedPersonaIds.includes(persona.id);
-                // Updated check to include new hardcoded personas
                 const isCustom = !['1', '2', '3', 'pm-1', 'design-1', 'ops-1', 'compliance-1', 'a11y-1', 'cs-1'].includes(persona.id);
                 return (
-                    <div 
-                        key={persona.id}
-                        onClick={() => togglePersonaSelection(persona.id)}
-                        className={`p-3 rounded-lg border cursor-pointer transition-all duration-200 relative group flex items-start gap-3 ${
-                        isSelected
-                            ? 'bg-indigo-50/50 border-indigo-600' 
-                            : 'bg-white border-slate-200 hover:border-indigo-300 hover:bg-slate-50'
-                        }`}
-                    >
-                         {/* Checkbox Indicator */}
-                        <div className={`mt-0.5 w-4 h-4 rounded flex items-center justify-center border transition-colors ${
-                            isSelected 
-                            ? 'bg-indigo-600 border-indigo-600' 
-                            : 'bg-white border-slate-300 group-hover:border-indigo-400'
-                        }`}>
-                            {isSelected && <Check size={10} className="text-white" strokeWidth={3} />}
-                        </div>
-
-                        <div className="flex-1 min-w-0">
-                            <div className="flex justify-between items-start">
-                                <span className={`font-semibold text-sm truncate pr-6 ${isSelected ? 'text-indigo-900' : 'text-slate-700'}`}>
-                                    {persona.name}
-                                </span>
-                            </div>
-                            <p className={`text-xs line-clamp-2 mt-0.5 ${isSelected ? 'text-indigo-700/70' : 'text-slate-500'}`}>
-                                {persona.description}
-                            </p>
-                        </div>
-                        
-                        {/* Actions (Export & Edit) */}
-                        <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-white/50 backdrop-blur-[2px] rounded-md p-0.5">
-                            {isCustom && (
-                                <button 
-                                    onClick={(e) => handleEditPersona(e, persona)}
-                                    className="p-1 text-slate-400 hover:text-indigo-600 transition-colors"
-                                    title="编辑角色"
-                                >
-                                    <Pencil size={12} />
-                                </button>
-                            )}
-                            <button 
-                                onClick={(e) => handleExportPersona(e, persona)}
-                                className="p-1 text-slate-400 hover:text-indigo-600 transition-colors"
-                                title="导出角色配置"
-                            >
-                                <Download size={12} />
-                            </button>
-                        </div>
+                  <div 
+                    key={persona.id}
+                    onClick={() => togglePersonaSelection(persona.id)}
+                    className={`p-3.5 rounded-2xl cursor-pointer transition-all duration-200 relative group flex items-start gap-3 ${
+                      isSelected
+                        ? 'clay-selected' 
+                        : 'clay-card hover:shadow-soft'
+                    }`}
+                  >
+                    {/* Checkbox */}
+                    <div className={`mt-0.5 w-5 h-5 rounded-lg flex items-center justify-center transition-all ${
+                      isSelected 
+                        ? '' 
+                        : 'clay-inset'
+                    }`} style={isSelected ? {
+                      background: 'linear-gradient(145deg, #A78BFA 0%, #8B5CF6 100%)',
+                      boxShadow: '0 2px 8px -2px rgba(139, 92, 246, 0.4)'
+                    } : {}}>
+                      {isSelected && <Check size={12} className="text-white" strokeWidth={3} />}
                     </div>
-                );
-            })}
-          </div>
 
-          <div className="mt-6 space-y-4 border-t border-slate-100 pt-6">
-             <div className="flex items-center justify-between">
-                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider">附加选项</h2>
-             </div>
-             
-            {/* Image Generation Toggle */}
-            <div 
-                onClick={() => setShouldGenerateImages(!shouldGenerateImages)}
-                className={`flex items-center gap-3 cursor-pointer group ${uploadMode === 'video' ? 'opacity-50 pointer-events-none' : ''}`}
-            >
-                <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${shouldGenerateImages ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300 bg-white'}`}>
-                    {shouldGenerateImages && <Check size={14} className="text-white" />}
+                    <div className="flex-1 min-w-0">
+                      <span className={`font-semibold text-sm block truncate pr-6 ${isSelected ? 'text-accent-violet' : 'text-clay-700'}`}>
+                        {persona.name}
+                      </span>
+                      <p className={`text-xs line-clamp-2 mt-0.5 ${isSelected ? 'text-accent-violet/70' : 'text-clay-500'}`}>
+                        {persona.description}
+                      </p>
+                    </div>
+                    
+                    {/* Actions */}
+                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {isCustom && (
+                        <button 
+                          onClick={(e) => handleEditPersona(e, persona)}
+                          className="clay-btn p-1.5 text-clay-400 hover:text-accent-violet"
+                          title="编辑角色"
+                        >
+                          <Pencil size={11} />
+                        </button>
+                      )}
+                      <button 
+                        onClick={(e) => handleExportPersona(e, persona)}
+                        className="clay-btn p-1.5 text-clay-400 hover:text-accent-violet"
+                        title="导出角色配置"
+                      >
+                        <Download size={11} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Options */}
+            <div className="mt-5 pt-5" style={{ borderTop: '1px solid rgba(0,0,0,0.04)' }}>
+              <h2 className="text-xs font-bold text-clay-400 uppercase tracking-wider mb-3">附加选项</h2>
+              
+              <div 
+                onClick={() => uploadMode !== 'video' && setShouldGenerateImages(!shouldGenerateImages)}
+                className={`clay-card p-4 rounded-2xl flex items-center gap-4 cursor-pointer transition-all ${uploadMode === 'video' ? 'opacity-50 cursor-not-allowed' : 'hover:shadow-soft'}`}
+              >
+                <div className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all ${
+                  shouldGenerateImages 
+                    ? '' 
+                    : 'clay-inset'
+                }`} style={shouldGenerateImages ? {
+                  background: 'linear-gradient(145deg, #34D399 0%, #10B981 100%)',
+                  boxShadow: '0 2px 8px -2px rgba(52, 211, 153, 0.4)'
+                } : {}}>
+                  {shouldGenerateImages && <Check size={14} className="text-white" />}
                 </div>
                 <div>
-                   <span className={`text-sm font-medium transition-colors ${shouldGenerateImages ? 'text-indigo-700' : 'text-slate-600'}`}>生成优化效果图</span>
-                   <p className="text-xs text-slate-400">
-                       {uploadMode === 'video' ? '视频模式不支持生成效果图' : 'AI 将尝试绘制优化后的界面'}
-                   </p>
+                  <span className={`text-sm font-medium ${shouldGenerateImages ? 'text-accent-emerald' : 'text-clay-600'}`}>
+                    生成优化效果图
+                  </span>
+                  <p className="text-xs text-clay-400">
+                    {uploadMode === 'video' ? '视频模式不支持生成效果图' : 'AI 将尝试绘制优化后的界面'}
+                  </p>
                 </div>
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Step 3: Analyze Button */}
-        <div className="p-6 border-t border-slate-200 bg-white sticky bottom-0 z-30">
-          <button 
-            onClick={handleAnalyze}
-            disabled={!isReadyToAnalyze || isAnalyzing || selectedPersonaIds.length === 0}
-            className={`w-full py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 font-bold text-white shadow-lg transition-all transform active:scale-95 ${
+          {/* Step 3: Analyze Button */}
+          <div className="p-6">
+            <button 
+              onClick={handleAnalyze}
+              disabled={!isReadyToAnalyze || isAnalyzing || selectedPersonaIds.length === 0}
+              className={`w-full py-4 px-6 rounded-2xl flex items-center justify-center gap-3 font-bold text-white transition-all transform active:scale-[0.98] ${
                 !isReadyToAnalyze || isAnalyzing || selectedPersonaIds.length === 0
-                ? 'bg-slate-300 cursor-not-allowed shadow-none' 
-                : 'bg-gradient-to-r from-indigo-600 to-violet-600 hover:shadow-indigo-200 hover:brightness-105'
-            }`}
-          >
-            {isAnalyzing ? (
-              <>
-                <Loader2 size={20} className="animate-spin" />
-                <span>分析中...</span>
-              </>
-            ) : (
-              <>
-                <Sparkles size={20} />
-                <span>开始全维度审计</span>
-              </>
-            )}
-          </button>
-          <div className="text-center mt-2">
-             <span className="text-xs text-slate-400">预计消耗: {selectedPersonaIds.length} x Token</span>
+                  ? 'bg-clay-300 cursor-not-allowed' 
+                  : 'clay-btn-primary hover:scale-[1.01]'
+              }`}
+              style={isReadyToAnalyze && !isAnalyzing && selectedPersonaIds.length > 0 ? {
+                background: 'linear-gradient(145deg, #A78BFA 0%, #8B5CF6 50%, #7C3AED 100%)',
+                boxShadow: '0 8px 24px -4px rgba(139, 92, 246, 0.4), inset 0 1px 0 rgba(255,255,255,0.3)'
+              } : {}}
+            >
+              {isAnalyzing ? (
+                <>
+                  <Loader2 size={20} className="animate-spin" />
+                  <span>分析中...</span>
+                </>
+              ) : (
+                <>
+                  <Zap size={20} />
+                  <span>开始全维度审计</span>
+                </>
+              )}
+            </button>
+            <div className="text-center mt-3">
+              <span className="text-xs text-clay-400">预计消耗: {selectedPersonaIds.length} x Token</span>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Main Content Area */}
-      <div className="flex-1 overflow-y-auto bg-slate-50/50 relative h-screen">
+      {/* ========== Main Content Area ========== */}
+      <div className="flex-1 overflow-y-auto relative h-screen p-4 md:p-5 md:pl-0">
         
         {/* Top Navigation Bar (Tabs) */}
         {Object.keys(reports).length > 0 && (
-             <div className="sticky top-0 z-20 bg-white/80 backdrop-blur-md border-b border-slate-200 px-6 py-3 flex items-center justify-between">
-                <div className="flex gap-2 overflow-x-auto no-scrollbar">
-                    {Object.keys(reports).map(id => {
-                        const persona = personas.find(p => p.id === id);
-                        return (
-                            <button
-                                key={id}
-                                onClick={() => setViewingPersonaId(id)}
-                                className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all flex items-center gap-2 ${
-                                    viewingPersonaId === id 
-                                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200' 
-                                    : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-                                }`}
-                            >
-                                <Users size={14} />
-                                {persona?.name}
-                            </button>
-                        )
-                    })}
-                </div>
-                
-                <div className="flex gap-2 shrink-0">
-                    <button 
-                        onClick={handleBatchExport}
-                        disabled={isBatchExporting || !hasMultipleReports}
-                        className={`p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-colors ${!hasMultipleReports ? 'opacity-50 cursor-not-allowed' : ''}`}
-                        title="批量导出所有报告 (ZIP)"
-                    >
-                         {isBatchExporting ? <Loader2 size={20} className="animate-spin" /> : <Package size={20} />}
-                    </button>
-                    <button 
-                        onClick={handleExportImage}
-                        disabled={isExporting}
-                        className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-colors"
-                        title="导出当前报告 (PNG)"
-                    >
-                        {isExporting ? <Loader2 size={20} className="animate-spin" /> : <FileUp size={20} />}
-                    </button>
-                </div>
-             </div>
+          <div className="clay-card mb-5 p-3 flex items-center justify-between sticky top-0 z-20" style={{ background: 'rgba(255,255,255,0.9)', backdropFilter: 'blur(16px)' }}>
+            <div className="flex gap-2 overflow-x-auto no-scrollbar">
+              {Object.keys(reports).map(id => {
+                const persona = personas.find(p => p.id === id);
+                const isActive = viewingPersonaId === id;
+                return (
+                  <button
+                    key={id}
+                    onClick={() => setViewingPersonaId(id)}
+                    className={`px-4 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap transition-all flex items-center gap-2 ${
+                      isActive 
+                        ? '' 
+                        : 'clay-btn text-clay-600'
+                    }`}
+                    style={isActive ? {
+                      background: 'linear-gradient(145deg, #A78BFA 0%, #8B5CF6 50%, #7C3AED 100%)',
+                      color: 'white',
+                      boxShadow: '0 6px 20px -4px rgba(139, 92, 246, 0.4), inset 0 1px 0 rgba(255,255,255,0.3)'
+                    } : {}}
+                  >
+                    <Users size={14} />
+                    {persona?.name}
+                  </button>
+                )
+              })}
+            </div>
+            
+            <div className="flex gap-2 shrink-0">
+              <button 
+                onClick={handleBatchExport}
+                disabled={isBatchExporting || !hasMultipleReports}
+                className={`clay-btn p-2.5 text-clay-500 hover:text-accent-violet ${!hasMultipleReports ? 'opacity-50 cursor-not-allowed' : ''}`}
+                title="批量导出所有报告 (ZIP)"
+              >
+                {isBatchExporting ? <Loader2 size={18} className="animate-spin" /> : <Package size={18} />}
+              </button>
+              <button 
+                onClick={handleExportImage}
+                disabled={isExporting}
+                className="clay-btn p-2.5 text-clay-500 hover:text-accent-violet"
+                title="导出当前报告 (PNG)"
+              >
+                {isExporting ? <Loader2 size={18} className="animate-spin" /> : <FileUp size={18} />}
+              </button>
+            </div>
+          </div>
         )}
 
-        <div className="p-6 md:p-12 max-w-5xl mx-auto">
-            {isAnalyzing ? (
-                <div className="flex flex-col items-center justify-center h-[60vh] text-center space-y-6">
-                    <div className="relative">
-                        <div className="w-20 h-20 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
-                        <Sparkles className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-indigo-600" size={24} />
-                    </div>
-                    <div>
-                        <h3 className="text-xl font-bold text-slate-800">ETS 智能体正在深度思考...</h3>
-                        <p className="text-slate-500 mt-2">正在进行多维度拆解、模拟 {selectedPersonaIds.length} 个用户角色的交互行为...</p>
-                    </div>
+        <div className="max-w-5xl mx-auto">
+          {isAnalyzing ? (
+            <div className="clay-card-raised flex flex-col items-center justify-center h-[70vh] text-center space-y-8 p-12 rounded-[32px]">
+              <div className="relative animate-float">
+                <div className="w-24 h-24 rounded-3xl flex items-center justify-center" style={{
+                  background: 'linear-gradient(145deg, #F5F3FF 0%, #EDE9FE 100%)',
+                  boxShadow: '0 12px 32px -8px rgba(139, 92, 246, 0.3), inset 0 1px 0 rgba(255,255,255,0.9)'
+                }}>
+                  <div className="w-16 h-16 rounded-2xl flex items-center justify-center animate-spin" style={{ animationDuration: '2s' }}>
+                    <Sparkles className="text-accent-violet" size={32} />
+                  </div>
                 </div>
-            ) : error ? (
-                <div className="flex flex-col items-center justify-center h-[60vh] text-center">
-                    <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mb-4">
-                        <X size={32} />
-                    </div>
-                    <h3 className="text-lg font-bold text-slate-800">分析中断</h3>
-                    <p className="text-slate-500 max-w-md mt-2">{error}</p>
+              </div>
+              <div>
+                <h3 className="text-2xl font-bold text-clay-800 font-display">ETS 智能体正在深度思考...</h3>
+                <p className="text-clay-500 mt-3 max-w-md">正在进行多维度拆解、模拟 {selectedPersonaIds.length} 个用户角色的交互行为...</p>
+              </div>
+              <div className="clay-progress w-64 h-2">
+                <div className="clay-progress-bar h-full animate-pulse" style={{ width: '60%' }}></div>
+              </div>
+            </div>
+          ) : error ? (
+            <div className="clay-card-raised flex flex-col items-center justify-center h-[70vh] text-center p-12 rounded-[32px]">
+              <div className="w-20 h-20 rounded-3xl flex items-center justify-center mb-6" style={{
+                background: 'linear-gradient(145deg, #FEE2E2 0%, #FECACA 100%)',
+                boxShadow: '0 8px 24px -6px rgba(251, 113, 133, 0.3)'
+              }}>
+                <X size={36} className="text-accent-rose" />
+              </div>
+              <h3 className="text-xl font-bold text-clay-800 font-display">分析中断</h3>
+              <p className="text-clay-500 max-w-md mt-3">{error}</p>
+            </div>
+          ) : currentReport ? (
+            <div ref={reportRef} id={`report-view-${viewingPersonaId}`} className="clay-card-raised p-8 md:p-10 rounded-[32px] animate-fade-in-up">
+              <div className="mb-8 pb-6 flex justify-between items-end" style={{ borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
+                <div>
+                  <h2 className="text-3xl font-bold text-clay-800 mb-3 font-display">ETS 体验评估报告</h2>
+                  <div className="flex items-center gap-3 text-clay-500 text-sm">
+                    <span className="clay-badge px-4 py-1.5 font-semibold" style={{
+                      background: 'linear-gradient(145deg, #F5F3FF 0%, #EDE9FE 100%)',
+                      color: '#7C3AED'
+                    }}>
+                      {personas.find(p => p.id === viewingPersonaId)?.name}
+                    </span>
+                    <span>•</span>
+                    <span>{new Date().toLocaleDateString()}</span>
+                  </div>
                 </div>
-            ) : currentReport ? (
-                <div ref={reportRef} id={`report-view-${viewingPersonaId}`} className="bg-white rounded-2xl shadow-xl shadow-slate-200/50 p-8 border border-slate-100">
-                     <div className="mb-8 border-b border-slate-100 pb-6 flex justify-between items-end">
-                        <div>
-                            <h2 className="text-3xl font-bold text-slate-800 mb-2">ETS 体验评估报告</h2>
-                            <div className="flex items-center gap-2 text-slate-500 text-sm">
-                                <span className="bg-slate-100 px-2 py-1 rounded-md font-medium text-slate-700">
-                                    {personas.find(p => p.id === viewingPersonaId)?.name}
-                                </span>
-                                <span>•</span>
-                                <span>{new Date().toLocaleDateString()}</span>
-                            </div>
-                        </div>
-                        <Sparkles className="text-indigo-200" size={48} />
-                     </div>
-                     <ReportView 
-                        report={currentReport} 
-                        originalImage={uploadMode === 'video' ? video : image}
-                        processSteps={uploadMode === 'flow' ? processSteps : undefined}
-                        optimizedImage={currentOptimizedImage}
-                        isGeneratingImage={isGeneratingImage}
-                     />
+                <div className="w-14 h-14 rounded-2xl flex items-center justify-center" style={{
+                  background: 'linear-gradient(145deg, #F5F3FF 0%, #EDE9FE 100%)',
+                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.8)'
+                }}>
+                  <Sparkles className="text-accent-violet/50" size={28} />
                 </div>
-            ) : (
-                <div className="flex flex-col items-center justify-center h-[70vh] text-center space-y-6 opacity-50">
-                    <div className="w-32 h-32 bg-slate-200 rounded-full flex items-center justify-center">
-                        <Layers size={48} className="text-slate-400" />
-                    </div>
-                    <div className="max-w-md">
-                        <h3 className="text-xl font-bold text-slate-800">准备就绪</h3>
-                        <p className="text-slate-500 mt-2">请上传界面截图、视频或业务流程，并选择模拟用户画像，ETS Agent 将为您生成专业的体验审计报告。</p>
-                    </div>
-                </div>
-            )}
+              </div>
+              <ReportView 
+                report={currentReport} 
+                originalImage={uploadMode === 'video' ? video : image}
+                processSteps={uploadMode === 'flow' ? processSteps : undefined}
+                optimizedImage={currentOptimizedImage}
+                isGeneratingImage={isGeneratingImage}
+              />
+            </div>
+          ) : (
+            <div className="clay-card-raised flex flex-col items-center justify-center h-[70vh] text-center space-y-8 p-12 rounded-[32px]">
+              <div className="w-32 h-32 rounded-[40px] flex items-center justify-center animate-float" style={{
+                background: 'linear-gradient(145deg, #E8ECF4 0%, #F0F3F9 100%)',
+                boxShadow: 'inset 0 4px 12px rgba(0,0,0,0.08), inset 0 -2px 0 rgba(255,255,255,0.6)'
+              }}>
+                <Layers size={48} className="text-clay-400" />
+              </div>
+              <div className="max-w-lg">
+                <h3 className="text-2xl font-bold text-clay-800 font-display">准备就绪</h3>
+                <p className="text-clay-500 mt-3 leading-relaxed">请上传界面截图、视频或业务流程，并选择模拟用户画像，ETS Agent 将为您生成专业的体验审计报告。</p>
+              </div>
+              <div className="flex items-center gap-3 text-clay-400">
+                <ArrowRight size={16} />
+                <span className="text-sm">从左侧面板开始</span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Settings Modal */}
+      {/* ========== Settings Modal ========== */}
       {isSettingsOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
-            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-              <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                <Settings size={18} />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop animate-fade-in">
+          <div className="clay-card-raised w-full max-w-md overflow-hidden rounded-[28px]">
+            <div className="p-5 flex justify-between items-center" style={{ 
+              background: 'linear-gradient(145deg, #F8FAFC 0%, #F2F4F8 100%)',
+              borderBottom: '1px solid rgba(0,0,0,0.04)'
+            }}>
+              <h3 className="font-bold text-clay-800 flex items-center gap-2.5 font-display">
+                <Settings size={18} className="text-accent-violet" />
                 系统设置
               </h3>
-              <button onClick={() => setIsSettingsOpen(false)} className="p-1 hover:bg-slate-200 rounded-full transition-colors">
-                <X size={20} className="text-slate-500" />
+              <button onClick={() => setIsSettingsOpen(false)} className="clay-btn p-2 text-clay-400 hover:text-clay-600">
+                <X size={18} />
               </button>
             </div>
             
@@ -1106,53 +1152,52 @@ export default function App() {
               
               {/* Provider Selection */}
               <div className="space-y-3">
-                 <label className="text-sm font-medium text-slate-700 block">AI 模型提供商</label>
-                 <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-lg">
+                <label className="text-sm font-medium text-clay-700 block">AI 模型提供商</label>
+                <div className="clay-inset p-1.5 rounded-2xl flex gap-1">
+                  {['google', 'openrouter'].map(provider => (
                     <button 
-                       onClick={() => setApiConfig({...apiConfig, provider: 'google'})}
-                       className={`py-2 text-sm font-medium rounded-md transition-all ${apiConfig.provider === 'google' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+                      key={provider}
+                      onClick={() => setApiConfig({...apiConfig, provider: provider as any})}
+                      className={`flex-1 py-2.5 text-sm font-medium rounded-xl transition-all ${
+                        apiConfig.provider === provider 
+                          ? 'clay-tab active text-accent-violet' 
+                          : 'text-clay-500 hover:text-clay-700'
+                      }`}
                     >
-                       Google GenAI
+                      {provider === 'google' ? 'Google GenAI' : 'OpenRouter'}
                     </button>
-                    <button 
-                       onClick={() => setApiConfig({...apiConfig, provider: 'openrouter'})}
-                       className={`py-2 text-sm font-medium rounded-md transition-all ${apiConfig.provider === 'openrouter' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
-                    >
-                       OpenRouter
-                    </button>
-                 </div>
+                  ))}
+                </div>
               </div>
 
               {/* Provider Info */}
               {apiConfig.provider === 'google' && (
-                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl">
-                    <p className="text-sm text-blue-700">
-                      <strong>分析模型：</strong>读取/分析照片视频采用 <code className="bg-blue-100 px-1 rounded font-semibold">gemini-2.5-flash</code> 模型。
-                    </p>
-                    <p className="text-xs text-blue-600 mt-1">
-                      视觉生成模型仅用于生成优化效果图。
-                    </p>
-                  </div>
+                <div className="clay-card p-4 rounded-2xl" style={{ background: 'linear-gradient(145deg, #EFF6FF 0%, #DBEAFE 100%)' }}>
+                  <p className="text-sm text-blue-700">
+                    <strong>分析模型：</strong>读取/分析采用 <code className="bg-blue-100 px-1.5 py-0.5 rounded-lg font-semibold">gemini-2.5-flash</code>
+                  </p>
+                  <p className="text-xs text-blue-600 mt-1.5">视觉生成模型仅用于生成优化效果图。</p>
+                </div>
               )}
               {apiConfig.provider === 'openrouter' && (
-                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl">
-                    <p className="text-sm text-amber-700">
-                      <strong>提示：</strong>OpenRouter API Key 需在本地 <code className="bg-amber-100 px-1 rounded">.env.local</code> 文件中配置：
-                    </p>
-                    <code className="block mt-2 text-xs text-amber-600 bg-amber-100 p-2 rounded font-mono">
-                      OPENROUTER_API_KEY=sk-or-...
-                    </code>
-                  </div>
+                <div className="clay-card p-4 rounded-2xl" style={{ background: 'linear-gradient(145deg, #FFFBEB 0%, #FEF3C7 100%)' }}>
+                  <p className="text-sm text-amber-700">
+                    <strong>提示：</strong>API Key 需在 <code className="bg-amber-100 px-1.5 py-0.5 rounded-lg">.env.local</code> 中配置
+                  </p>
+                  <code className="block mt-2 text-xs text-amber-600 bg-amber-100 p-3 rounded-xl font-mono">
+                    OPENROUTER_API_KEY=sk-or-...
+                  </code>
+                </div>
               )}
 
               {/* Text Model Selection (OpenRouter Only) */}
               {apiConfig.provider === 'openrouter' && (
                 <div className="space-y-3">
-                  <label className="text-sm font-medium text-slate-700 block">分析模型 (Vision Model)</label>
+                  <label className="text-sm font-medium text-clay-700 block">分析模型</label>
                   <select
                     value={apiConfig.openRouterModel}
                     onChange={(e) => setApiConfig({...apiConfig, openRouterModel: e.target.value})}
-                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                    className="clay-input w-full p-3.5 outline-none text-sm"
                   >
                     {OPENROUTER_TEXT_MODELS.map(model => (
                       <option key={model.value} value={model.value}>{model.label}</option>
@@ -1161,7 +1206,7 @@ export default function App() {
                   {(() => {
                     const selectedModel = OPENROUTER_TEXT_MODELS.find(m => m.value === apiConfig.openRouterModel);
                     return selectedModel?.hint && (
-                      <p className="text-xs text-slate-500 bg-slate-100 px-3 py-2 rounded-lg">
+                      <p className="text-xs text-clay-500 clay-inset px-3 py-2.5 rounded-xl">
                         💡 {selectedModel.hint}
                       </p>
                     );
@@ -1171,29 +1216,30 @@ export default function App() {
 
               {/* Image Model Selection */}
               <div className="space-y-3">
-                <label className="text-sm font-medium text-slate-700 block">视觉生成模型 (Image Model)</label>
+                <label className="text-sm font-medium text-clay-700 block">视觉生成模型</label>
                 <select
                   value={apiConfig.imageModel}
                   onChange={(e) => setApiConfig({...apiConfig, imageModel: e.target.value})}
-                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                  className="clay-input w-full p-3.5 outline-none text-sm"
                 >
                   {(apiConfig.provider === 'google' ? GOOGLE_IMAGE_MODELS : OPENROUTER_IMAGE_MODELS).map(model => (
                     <option key={model.value} value={model.value}>{model.label}</option>
                   ))}
                 </select>
-                {apiConfig.provider === 'openrouter' && (
-                  <p className="text-xs text-slate-400 mt-1">
-                    OpenRouter 模式下可使用 GPT-5 Image 等第三方模型。
-                  </p>
-                )}
               </div>
-
             </div>
             
-            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end">
+            <div className="p-5 flex justify-end" style={{ 
+              background: 'linear-gradient(145deg, #F8FAFC 0%, #F2F4F8 100%)',
+              borderTop: '1px solid rgba(0,0,0,0.04)'
+            }}>
               <button 
                 onClick={() => setIsSettingsOpen(false)}
-                className="px-6 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors shadow-sm shadow-indigo-200"
+                className="px-6 py-2.5 rounded-xl font-medium text-white transition-all"
+                style={{
+                  background: 'linear-gradient(145deg, #A78BFA 0%, #8B5CF6 50%, #7C3AED 100%)',
+                  boxShadow: '0 6px 20px -4px rgba(139, 92, 246, 0.4), inset 0 1px 0 rgba(255,255,255,0.3)'
+                }}
               >
                 保存设置
               </button>
@@ -1202,105 +1248,119 @@ export default function App() {
         </div>
       )}
 
-      {/* Create/Edit Persona Modal */}
+      {/* ========== Create/Edit Persona Modal ========== */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden max-h-[90vh] flex flex-col">
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-              <h3 className="text-xl font-bold text-slate-800">
-                  {editingPersonaId ? '编辑用户画像' : '新建用户画像'}
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop animate-fade-in">
+          <div className="clay-card-raised w-full max-w-2xl overflow-hidden max-h-[90vh] flex flex-col rounded-[28px]">
+            <div className="p-6 flex justify-between items-center" style={{ 
+              background: 'linear-gradient(145deg, #F8FAFC 0%, #F2F4F8 100%)',
+              borderBottom: '1px solid rgba(0,0,0,0.04)'
+            }}>
+              <h3 className="text-xl font-bold text-clay-800 font-display">
+                {editingPersonaId ? '编辑用户画像' : '新建用户画像'}
               </h3>
-              <button onClick={handleCloseModal} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
-                <X size={20} className="text-slate-500" />
+              <button onClick={handleCloseModal} className="clay-btn p-2 text-clay-400 hover:text-clay-600">
+                <X size={20} />
               </button>
             </div>
             
             <div className="p-6 overflow-y-auto space-y-6 flex-1">
-               {/* Basic Info */}
-               <div className="grid grid-cols-2 gap-4">
-                  <div className="col-span-2 md:col-span-1">
-                    <label className="block text-sm font-medium text-slate-700 mb-1">角色名称</label>
-                    <input 
-                        type="text" 
-                        value={newPersonaData.name}
-                        onChange={(e) => setNewPersonaData({...newPersonaData, name: e.target.value})}
-                        className="w-full p-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-                        placeholder="例如：忙碌的家庭主妇"
-                    />
-                  </div>
-                  <div className="col-span-2 md:col-span-1">
-                    <label className="block text-sm font-medium text-slate-700 mb-1">评估角色类型</label>
-                    <select 
-                        value={newPersonaData.role}
-                        onChange={(e) => setNewPersonaData({...newPersonaData, role: e.target.value as UserRole})}
-                        className="w-full p-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
-                    >
-                        <option value={UserRole.USER}>普通用户 (User)</option>
-                        <option value={UserRole.EXPERT}>专家评审 (Expert)</option>
-                    </select>
-                  </div>
-                  <div className="col-span-2">
-                    <label className="block text-sm font-medium text-slate-700 mb-1">简短描述</label>
-                    <input 
-                        type="text" 
-                        value={newPersonaData.description}
-                        onChange={(e) => setNewPersonaData({...newPersonaData, description: e.target.value})}
-                        className="w-full p-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-                        placeholder="一句话描述该角色的核心特征"
-                    />
-                  </div>
-               </div>
-
-               {/* Import Button */}
-                <div className="flex items-center gap-2">
-                    <button 
-                        onClick={() => jsonImportRef.current?.click()}
-                        className="text-xs flex items-center gap-1 text-indigo-600 hover:text-indigo-800 font-medium px-3 py-1.5 bg-indigo-50 rounded-lg transition-colors"
-                    >
-                        <FileUp size={14} />
-                        导入 JSON 配置
-                    </button>
-                    <input 
-                        ref={jsonImportRef}
-                        type="file" 
-                        accept=".json" 
-                        onChange={handleImportJson} 
-                        className="hidden" 
-                    />
+              {/* Basic Info */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2 md:col-span-1">
+                  <label className="block text-sm font-medium text-clay-700 mb-2">角色名称</label>
+                  <input 
+                    type="text" 
+                    value={newPersonaData.name}
+                    onChange={(e) => setNewPersonaData({...newPersonaData, name: e.target.value})}
+                    className="clay-input w-full p-3.5 outline-none"
+                    placeholder="例如：忙碌的家庭主妇"
+                  />
                 </div>
+                <div className="col-span-2 md:col-span-1">
+                  <label className="block text-sm font-medium text-clay-700 mb-2">评估角色类型</label>
+                  <select 
+                    value={newPersonaData.role}
+                    onChange={(e) => setNewPersonaData({...newPersonaData, role: e.target.value as UserRole})}
+                    className="clay-input w-full p-3.5 outline-none bg-transparent"
+                  >
+                    <option value={UserRole.USER}>普通用户 (User)</option>
+                    <option value={UserRole.EXPERT}>专家评审 (Expert)</option>
+                  </select>
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-clay-700 mb-2">简短描述</label>
+                  <input 
+                    type="text" 
+                    value={newPersonaData.description}
+                    onChange={(e) => setNewPersonaData({...newPersonaData, description: e.target.value})}
+                    className="clay-input w-full p-3.5 outline-none"
+                    placeholder="一句话描述该角色的核心特征"
+                  />
+                </div>
+              </div>
 
-               {/* Attributes Grid */}
-               <div>
-                  <h4 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3">详细属性设定</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {Object.keys(EMPTY_PERSONA.attributes).map((key) => (
-                        <div key={key}>
-                            <label className="block text-xs font-medium text-slate-500 mb-1 capitalize">
-                                {key.replace(/([A-Z])/g, ' $1').trim()}
-                            </label>
-                            <input 
-                                type="text" 
-                                value={(newPersonaData.attributes as any)[key]}
-                                onChange={(e) => updateNewPersonaAttr(key as any, e.target.value)}
-                                className="w-full p-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-                            />
-                        </div>
-                    ))}
-                  </div>
-               </div>
+              {/* Import Button */}
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => jsonImportRef.current?.click()}
+                  className="text-xs flex items-center gap-1.5 font-medium px-4 py-2 rounded-xl transition-colors"
+                  style={{
+                    background: 'linear-gradient(145deg, #F5F3FF 0%, #EDE9FE 100%)',
+                    color: '#7C3AED'
+                  }}
+                >
+                  <FileUp size={14} />
+                  导入 JSON 配置
+                </button>
+                <input 
+                  ref={jsonImportRef}
+                  type="file" 
+                  accept=".json" 
+                  onChange={handleImportJson} 
+                  className="hidden" 
+                />
+              </div>
+
+              {/* Attributes Grid */}
+              <div>
+                <h4 className="text-sm font-bold text-clay-400 uppercase tracking-wider mb-4">详细属性设定</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {Object.keys(EMPTY_PERSONA.attributes).map((key) => (
+                    <div key={key}>
+                      <label className="block text-xs font-medium text-clay-500 mb-2 capitalize">
+                        {key.replace(/([A-Z])/g, ' $1').trim()}
+                      </label>
+                      <input 
+                        type="text" 
+                        value={(newPersonaData.attributes as any)[key]}
+                        onChange={(e) => updateNewPersonaAttr(key as any, e.target.value)}
+                        className="clay-input w-full p-3 text-sm outline-none"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
             
-            <div className="p-6 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
+            <div className="p-6 flex justify-end gap-3" style={{ 
+              background: 'linear-gradient(145deg, #F8FAFC 0%, #F2F4F8 100%)',
+              borderTop: '1px solid rgba(0,0,0,0.04)'
+            }}>
               <button 
                 onClick={handleCloseModal}
-                className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-200 rounded-lg transition-colors"
+                className="clay-btn px-5 py-2.5 text-clay-600 font-medium"
               >
                 取消
               </button>
               <button 
                 onClick={handleSavePersona}
                 disabled={!newPersonaData.name}
-                className={`px-6 py-2 bg-indigo-600 text-white font-medium rounded-lg shadow-lg shadow-indigo-200 transition-all ${!newPersonaData.name ? 'opacity-50 cursor-not-allowed' : 'hover:bg-indigo-700 hover:scale-105'}`}
+                className={`px-6 py-2.5 rounded-xl font-medium text-white transition-all ${!newPersonaData.name ? 'opacity-50 cursor-not-allowed bg-clay-300' : ''}`}
+                style={newPersonaData.name ? {
+                  background: 'linear-gradient(145deg, #A78BFA 0%, #8B5CF6 50%, #7C3AED 100%)',
+                  boxShadow: '0 6px 20px -4px rgba(139, 92, 246, 0.4), inset 0 1px 0 rgba(255,255,255,0.3)'
+                } : {}}
               >
                 {editingPersonaId ? '保存修改' : '创建角色'}
               </button>

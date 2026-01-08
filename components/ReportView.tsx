@@ -1,162 +1,281 @@
 import React from 'react';
 import { ETSReport, ProcessStep } from '../types';
 import { ETSRadarChart } from './RadarChart';
-import { AlertTriangle, CheckCircle, Target, User, FileText, Zap, Wand2, ArrowRight, Image as ImageIcon, ListChecks, ArrowDown, HelpCircle, Info, Video as VideoIcon } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Target, User, FileText, Zap, Wand2, ArrowRight, Image as ImageIcon, ListChecks, ArrowDown, HelpCircle, Info, Video as VideoIcon, TrendingUp, Award, Lightbulb, ChevronRight } from 'lucide-react';
 
 interface ReportViewProps {
   report: ETSReport;
   originalImage?: string | null;
-  processSteps?: ProcessStep[]; // Added for flow support
+  processSteps?: ProcessStep[];
   optimizedImage?: string | null;
   isGeneratingImage?: boolean;
 }
 
 const SeverityBadge: React.FC<{ severity: string }> = ({ severity }) => {
-  const colors: Record<string, string> = {
-    // New Levels
-    '一级问题': 'bg-red-100 text-red-800 border-red-200',
-    '二级问题': 'bg-orange-100 text-orange-800 border-orange-200',
-    '三级问题': 'bg-blue-100 text-blue-800 border-blue-200',
-    
-    // Legacy Fallbacks
-    '严重': 'bg-red-100 text-red-800 border-red-200',
-    'Critical': 'bg-red-100 text-red-800 border-red-200',
-    '高': 'bg-orange-100 text-orange-800 border-orange-200',
-    'High': 'bg-orange-100 text-orange-800 border-orange-200',
-    '中': 'bg-yellow-100 text-yellow-800 border-yellow-200',
-    'Medium': 'bg-yellow-100 text-yellow-800 border-yellow-200',
-    '低': 'bg-blue-100 text-blue-800 border-blue-200',
-    'Low': 'bg-blue-100 text-blue-800 border-blue-200',
+  const styles: Record<string, { bg: string; color: string; glow: string }> = {
+    '一级问题': { 
+      bg: 'linear-gradient(145deg, #FEE2E2 0%, #FECACA 100%)', 
+      color: '#DC2626',
+      glow: '0 4px 12px -2px rgba(220, 38, 38, 0.25)'
+    },
+    '二级问题': { 
+      bg: 'linear-gradient(145deg, #FFEDD5 0%, #FED7AA 100%)', 
+      color: '#EA580C',
+      glow: '0 4px 12px -2px rgba(234, 88, 12, 0.25)'
+    },
+    '三级问题': { 
+      bg: 'linear-gradient(145deg, #DBEAFE 0%, #BFDBFE 100%)', 
+      color: '#2563EB',
+      glow: '0 4px 12px -2px rgba(37, 99, 235, 0.25)'
+    },
+    '严重': { 
+      bg: 'linear-gradient(145deg, #FEE2E2 0%, #FECACA 100%)', 
+      color: '#DC2626',
+      glow: '0 4px 12px -2px rgba(220, 38, 38, 0.25)'
+    },
+    'Critical': { 
+      bg: 'linear-gradient(145deg, #FEE2E2 0%, #FECACA 100%)', 
+      color: '#DC2626',
+      glow: '0 4px 12px -2px rgba(220, 38, 38, 0.25)'
+    },
+    '高': { 
+      bg: 'linear-gradient(145deg, #FFEDD5 0%, #FED7AA 100%)', 
+      color: '#EA580C',
+      glow: '0 4px 12px -2px rgba(234, 88, 12, 0.25)'
+    },
+    'High': { 
+      bg: 'linear-gradient(145deg, #FFEDD5 0%, #FED7AA 100%)', 
+      color: '#EA580C',
+      glow: '0 4px 12px -2px rgba(234, 88, 12, 0.25)'
+    },
+    '中': { 
+      bg: 'linear-gradient(145deg, #FEF9C3 0%, #FEF08A 100%)', 
+      color: '#CA8A04',
+      glow: '0 4px 12px -2px rgba(202, 138, 4, 0.25)'
+    },
+    'Medium': { 
+      bg: 'linear-gradient(145deg, #FEF9C3 0%, #FEF08A 100%)', 
+      color: '#CA8A04',
+      glow: '0 4px 12px -2px rgba(202, 138, 4, 0.25)'
+    },
+    '低': { 
+      bg: 'linear-gradient(145deg, #DBEAFE 0%, #BFDBFE 100%)', 
+      color: '#2563EB',
+      glow: '0 4px 12px -2px rgba(37, 99, 235, 0.25)'
+    },
+    'Low': { 
+      bg: 'linear-gradient(145deg, #DBEAFE 0%, #BFDBFE 100%)', 
+      color: '#2563EB',
+      glow: '0 4px 12px -2px rgba(37, 99, 235, 0.25)'
+    },
+  };
+
+  const style = styles[severity] || { 
+    bg: 'linear-gradient(145deg, #F1F5F9 0%, #E2E8F0 100%)', 
+    color: '#475569',
+    glow: '0 4px 12px -2px rgba(71, 85, 105, 0.15)'
   };
 
   return (
-    <span className={`px-2 py-1 rounded-full text-xs font-semibold border ${colors[severity] || 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+    <span 
+      className="px-3 py-1.5 rounded-xl text-xs font-bold inline-flex items-center"
+      style={{ 
+        background: style.bg, 
+        color: style.color,
+        boxShadow: `${style.glow}, inset 0 1px 0 rgba(255,255,255,0.6)`
+      }}
+    >
       {severity}
+    </span>
+  );
+};
+
+// Score indicator component
+const ScoreIndicator: React.FC<{ score: number }> = ({ score }) => {
+  let gradient, glow;
+  if (score >= 80) {
+    gradient = 'linear-gradient(145deg, #34D399 0%, #10B981 100%)';
+    glow = '0 4px 12px -2px rgba(52, 211, 153, 0.4)';
+  } else if (score >= 60) {
+    gradient = 'linear-gradient(145deg, #60A5FA 0%, #3B82F6 100%)';
+    glow = '0 4px 12px -2px rgba(96, 165, 250, 0.4)';
+  } else {
+    gradient = 'linear-gradient(145deg, #FB7185 0%, #F43F5E 100%)';
+    glow = '0 4px 12px -2px rgba(251, 113, 133, 0.4)';
+  }
+
+  return (
+    <span 
+      className="px-2.5 py-1 rounded-lg text-xs font-bold text-white"
+      style={{ 
+        background: gradient,
+        boxShadow: `${glow}, inset 0 1px 0 rgba(255,255,255,0.3)`
+      }}
+    >
+      {score}分
     </span>
   );
 };
 
 export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, processSteps, optimizedImage, isGeneratingImage }) => {
   
-  // Determine if input is a video based on data URL prefix
   const isVideo = originalImage && originalImage.startsWith('data:video');
 
   return (
-    <div className="space-y-8 animate-fade-in pb-12">
+    <div className="space-y-8 pb-8">
       
-      {/* Visual Content Section: Either Single Image/Video or Business Flow */}
-      
-      {/* Case 1: Business Flow */}
+      {/* Visual Content Section */}
       {processSteps && processSteps.length > 0 ? (
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-             <div className="w-full flex items-center justify-start mb-6 border-b border-slate-100 pb-2">
-                <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-                    <ListChecks className="w-5 h-5 text-indigo-500" />
-                    测评业务流程 (User Flow)
-                </h3>
-            </div>
-            <div className="relative border-l-2 border-indigo-100 ml-4 space-y-8 pb-4">
-                {processSteps.map((step, idx) => (
-                    <div key={step.id} className="relative pl-8">
-                         {/* Timeline Dot */}
-                        <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-indigo-500 border-4 border-white shadow-sm ring-1 ring-indigo-100"></div>
-                        
-                        <div className="bg-slate-50 border border-slate-200 rounded-xl overflow-hidden">
-                             {/* Header / Action Description */}
-                             <div className="bg-white border-b border-slate-100 p-3 flex gap-3 items-center">
-                                <span className="bg-slate-800 text-white text-xs font-bold px-2 py-1 rounded">步骤 {idx + 1}</span>
-                                <p className="text-sm font-medium text-slate-700">
-                                    {step.description || "用户浏览此界面"}
-                                </p>
-                             </div>
-                             {/* Image */}
-                             <div className="p-2">
-                                <img 
-                                    src={step.image} 
-                                    alt={`Step ${idx + 1}`} 
-                                    className="w-full h-auto max-h-[300px] object-contain rounded-lg"
-                                />
-                             </div>
-                        </div>
+        <div className="clay-card p-6 rounded-3xl">
+          <div className="w-full flex items-center justify-start mb-6 pb-3" style={{ borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
+            <h3 className="text-lg font-bold text-clay-800 flex items-center gap-2.5 font-display">
+              <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{
+                background: 'linear-gradient(145deg, #A78BFA 0%, #8B5CF6 100%)',
+                boxShadow: '0 4px 12px -2px rgba(139, 92, 246, 0.35)'
+              }}>
+                <ListChecks className="w-4 h-4 text-white" />
+              </div>
+              测评业务流程
+            </h3>
+          </div>
+          <div className="relative ml-4 space-y-6 pb-4" style={{ borderLeft: '2px solid rgba(139, 92, 246, 0.2)' }}>
+            {processSteps.map((step, idx) => (
+              <div key={step.id} className="relative pl-8">
+                {/* Timeline Dot */}
+                <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full" style={{
+                  background: 'linear-gradient(145deg, #A78BFA 0%, #8B5CF6 100%)',
+                  boxShadow: '0 2px 8px -2px rgba(139, 92, 246, 0.5), 0 0 0 4px white'
+                }}></div>
+                
+                <div className="clay-card rounded-2xl overflow-hidden">
+                  <div className="p-3 flex gap-3 items-center" style={{ 
+                    background: 'linear-gradient(145deg, #FAFBFD 0%, #F5F7FA 100%)',
+                    borderBottom: '1px solid rgba(0,0,0,0.04)'
+                  }}>
+                    <span className="text-[10px] font-bold uppercase px-2.5 py-1 rounded-lg text-white" style={{
+                      background: 'linear-gradient(145deg, #3D4B61 0%, #2A3544 100%)',
+                      boxShadow: '0 2px 6px -2px rgba(42, 53, 68, 0.4)'
+                    }}>步骤 {idx + 1}</span>
+                    <p className="text-sm font-medium text-clay-700">
+                      {step.description || "用户浏览此界面"}
+                    </p>
+                  </div>
+                  <div className="p-3" style={{ background: 'linear-gradient(145deg, #F5F7FA 0%, #EAEEF4 100%)' }}>
+                    <img 
+                      src={step.image} 
+                      alt={`Step ${idx + 1}`} 
+                      className="w-full h-auto max-h-[280px] object-contain rounded-xl"
+                      style={{ boxShadow: '0 4px 16px -4px rgba(0,0,0,0.1)' }}
+                    />
+                  </div>
+                </div>
 
-                        {/* Visual Connector for next step */}
-                        {idx < processSteps.length - 1 && (
-                            <div className="absolute left-8 bottom-[-24px] flex justify-center w-full opacity-30">
-                                <ArrowDown size={20} className="text-indigo-300" />
-                            </div>
-                        )}
-                    </div>
-                ))}
-            </div>
+                {idx < processSteps.length - 1 && (
+                  <div className="absolute left-8 bottom-[-20px] flex justify-center w-full opacity-40">
+                    <ArrowDown size={18} className="text-accent-violet" />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       ) : (
-        /* Case 2: Single Image or Video */
         originalImage && (
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center">
-                <div className="w-full flex items-center justify-start mb-4 border-b border-slate-100 pb-2">
-                    <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-                        {isVideo ? <VideoIcon className="w-5 h-5 text-indigo-500" /> : <ImageIcon className="w-5 h-5 text-indigo-500" />}
-                        {isVideo ? "测评视频" : "测评界面截图"}
-                    </h3>
+          <div className="clay-card p-6 rounded-3xl flex flex-col items-center">
+            <div className="w-full flex items-center justify-start mb-5 pb-3" style={{ borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
+              <h3 className="text-lg font-bold text-clay-800 flex items-center gap-2.5 font-display">
+                <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{
+                  background: isVideo 
+                    ? 'linear-gradient(145deg, #38BDF8 0%, #0EA5E9 100%)'
+                    : 'linear-gradient(145deg, #A78BFA 0%, #8B5CF6 100%)',
+                  boxShadow: isVideo
+                    ? '0 4px 12px -2px rgba(56, 189, 248, 0.35)'
+                    : '0 4px 12px -2px rgba(139, 92, 246, 0.35)'
+                }}>
+                  {isVideo ? <VideoIcon className="w-4 h-4 text-white" /> : <ImageIcon className="w-4 h-4 text-white" />}
                 </div>
-                <div className="max-w-2xl w-full rounded-xl overflow-hidden border border-slate-200 bg-slate-50 p-2">
-                    {isVideo ? (
-                        <video 
-                            src={originalImage} 
-                            controls 
-                            className="w-full h-auto max-h-[400px] object-contain mx-auto rounded-lg shadow-sm"
-                        >
-                            您的浏览器不支持视频播放。
-                        </video>
-                    ) : (
-                        <img 
-                        src={originalImage} 
-                        alt="Analyzed UI" 
-                        className="w-full h-auto max-h-[400px] object-contain mx-auto rounded-lg shadow-sm"
-                        />
-                    )}
-                </div>
+                {isVideo ? "测评视频" : "测评界面截图"}
+              </h3>
             </div>
+            <div className="max-w-2xl w-full rounded-2xl overflow-hidden p-3" style={{
+              background: 'linear-gradient(145deg, #EAEEF4 0%, #F0F3F9 100%)',
+              boxShadow: 'inset 0 2px 6px rgba(0,0,0,0.06), inset 0 -1px 0 rgba(255,255,255,0.6)'
+            }}>
+              {isVideo ? (
+                <video 
+                  src={originalImage} 
+                  controls 
+                  className="w-full h-auto max-h-[380px] object-contain mx-auto rounded-xl"
+                  style={{ boxShadow: '0 8px 24px -6px rgba(0,0,0,0.15)' }}
+                >
+                  您的浏览器不支持视频播放。
+                </video>
+              ) : (
+                <img 
+                  src={originalImage} 
+                  alt="Analyzed UI" 
+                  className="w-full h-auto max-h-[380px] object-contain mx-auto rounded-xl"
+                  style={{ boxShadow: '0 8px 24px -6px rgba(0,0,0,0.15)' }}
+                />
+              )}
+            </div>
+          </div>
         )
       )}
 
-      {/* Header Section */}
+      {/* Header Section - Score & Radar */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Overall Score */}
         <div className="md:col-span-1">
-          <div className="bg-gradient-to-br from-indigo-600 to-indigo-800 text-white p-6 rounded-2xl shadow-lg h-full flex flex-col justify-between relative overflow-hidden">
+          <div className="clay-card h-full flex flex-col justify-between relative overflow-hidden rounded-3xl p-6" style={{
+            background: 'linear-gradient(145deg, #A78BFA 0%, #8B5CF6 50%, #7C3AED 100%)',
+            boxShadow: '0 12px 32px -8px rgba(139, 92, 246, 0.4), inset 0 1px 0 rgba(255,255,255,0.3)'
+          }}>
             <div className="relative z-10">
-              <h2 className="text-indigo-100 text-sm font-medium uppercase tracking-widest mb-1">{report.modelType || 'ETS'} 总体评分</h2>
-              <div className="flex items-baseline gap-2">
-                <span className="text-6xl font-bold">{report.overallScore}</span>
-                <span className="text-xl text-indigo-300">/ 100</span>
+              <div className="flex items-center gap-2 mb-2">
+                <Award className="text-white/70" size={16} />
+                <h2 className="text-white/80 text-xs font-semibold uppercase tracking-widest">{report.modelType || 'ETS'} 总体评分</h2>
               </div>
-              <div className="mt-4 inline-block px-3 py-1 bg-white/20 backdrop-blur-sm rounded-lg text-sm">
-                {report.overallScore >= 80 ? '优秀 (Excellent)' : report.overallScore >= 60 ? '良好 (Average)' : '需改进 (Improve)'}
+              <div className="flex items-baseline gap-2 mt-3">
+                <span className="text-6xl font-bold text-white font-display" style={{ textShadow: '0 2px 12px rgba(0,0,0,0.15)' }}>{report.overallScore}</span>
+                <span className="text-2xl text-white/60">/ 100</span>
+              </div>
+              <div className="mt-5 inline-block px-4 py-2 rounded-xl text-sm font-semibold" style={{
+                background: 'rgba(255,255,255,0.2)',
+                backdropFilter: 'blur(8px)',
+                color: 'white',
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.3)'
+              }}>
+                {report.overallScore >= 80 ? '✨ 优秀' : report.overallScore >= 60 ? '👍 良好' : '⚠️ 需改进'}
               </div>
             </div>
-            <div className="absolute right-0 bottom-0 opacity-10 transform translate-x-4 translate-y-4">
-              <Target size={140} />
+            <div className="absolute right-0 bottom-0 opacity-10 transform translate-x-6 translate-y-6">
+              <Target size={160} strokeWidth={1} />
             </div>
           </div>
         </div>
 
         {/* Radar Chart */}
-        <div className="md:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-          <h3 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
-            <Target className="w-5 h-5 text-indigo-500" />
+        <div className="md:col-span-2 clay-card p-6 rounded-3xl">
+          <h3 className="text-lg font-bold text-clay-800 mb-5 flex items-center gap-2.5 font-display">
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{
+              background: 'linear-gradient(145deg, #38BDF8 0%, #0EA5E9 100%)',
+              boxShadow: '0 4px 12px -2px rgba(56, 189, 248, 0.35)'
+            }}>
+              <TrendingUp className="w-4 h-4 text-white" />
+            </div>
             维度分布
           </h3>
-          <div className="flex flex-col md:flex-row h-full gap-4">
+          <div className="flex flex-col md:flex-row h-full gap-5">
             <div className="flex-1 h-64 md:h-auto">
-               <ETSRadarChart data={report.dimensionScores} />
+              <ETSRadarChart data={report.dimensionScores} />
             </div>
-            <div className="md:w-48 overflow-y-auto max-h-64 pr-2 border-l border-slate-100 pl-4">
+            <div className="md:w-48 overflow-y-auto max-h-64 pr-2 pl-5" style={{ borderLeft: '1px solid rgba(0,0,0,0.05)' }}>
               <div className="space-y-3">
                 {report.dimensionScores.map((d) => (
                   <div key={d.dimension} className="flex justify-between items-center text-sm">
-                    <span className="text-slate-500 truncate mr-2" title={d.dimension}>{d.dimension}</span>
-                    <span className={`font-bold ${d.score > 80 ? 'text-emerald-600' : 'text-slate-700'}`}>{d.score}</span>
+                    <span className="text-clay-500 truncate mr-3" title={d.dimension}>{d.dimension}</span>
+                    <ScoreIndicator score={d.score} />
                   </div>
                 ))}
               </div>
@@ -167,59 +286,74 @@ export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, p
 
       {/* Summary Section */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-          <h3 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
-            <FileText className="w-5 h-5 text-blue-500" />
+        <div className="clay-card p-6 rounded-3xl">
+          <h3 className="text-lg font-bold text-clay-800 mb-4 flex items-center gap-2.5 font-display">
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{
+              background: 'linear-gradient(145deg, #60A5FA 0%, #3B82F6 100%)',
+              boxShadow: '0 4px 12px -2px rgba(96, 165, 250, 0.35)'
+            }}>
+              <FileText className="w-4 h-4 text-white" />
+            </div>
             执行摘要
           </h3>
-          <p className="text-slate-600 leading-relaxed text-sm md:text-base">
+          <p className="text-clay-600 leading-relaxed text-sm md:text-base">
             {report.executiveSummary}
           </p>
         </div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-          <h3 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
-            <User className="w-5 h-5 text-purple-500" />
+        <div className="clay-card p-6 rounded-3xl">
+          <h3 className="text-lg font-bold text-clay-800 mb-4 flex items-center gap-2.5 font-display">
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{
+              background: 'linear-gradient(145deg, #C084FC 0%, #A855F7 100%)',
+              boxShadow: '0 4px 12px -2px rgba(192, 132, 252, 0.35)'
+            }}>
+              <User className="w-4 h-4 text-white" />
+            </div>
             角色视角分析
           </h3>
-          <div className="bg-purple-50 p-4 rounded-xl border border-purple-100">
-             <p className="text-slate-700 italic leading-relaxed text-sm md:text-base">
+          <div className="rounded-2xl p-5" style={{
+            background: 'linear-gradient(145deg, #FAF5FF 0%, #F3E8FF 100%)',
+            boxShadow: 'inset 0 2px 6px rgba(168, 85, 247, 0.08), inset 0 -1px 0 rgba(255,255,255,0.6)'
+          }}>
+            <p className="text-clay-700 italic leading-relaxed text-sm md:text-base">
               "{report.personaPerspective}"
             </p>
           </div>
         </div>
       </div>
 
-       {/* Detailed Dimension Analysis (New Section) */}
-       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-        <div className="p-6 border-b border-slate-100">
-          <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-            <ListChecks className="w-5 h-5 text-teal-500" />
+      {/* Detailed Dimension Analysis */}
+      <div className="clay-card rounded-3xl overflow-hidden">
+        <div className="p-6" style={{ borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
+          <h3 className="text-lg font-bold text-clay-800 flex items-center gap-2.5 font-display">
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{
+              background: 'linear-gradient(145deg, #2DD4BF 0%, #14B8A6 100%)',
+              boxShadow: '0 4px 12px -2px rgba(45, 212, 191, 0.35)'
+            }}>
+              <ListChecks className="w-4 h-4 text-white" />
+            </div>
             维度详细解读
           </h3>
         </div>
         <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
           {report.dimensionScores.map((dim, idx) => (
-            <div key={idx} className="p-4 rounded-xl bg-slate-50 border border-slate-100 flex flex-col gap-2">
+            <div key={idx} className="p-5 rounded-2xl flex flex-col gap-3" style={{
+              background: 'linear-gradient(145deg, #FAFBFD 0%, #F5F7FA 100%)',
+              boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.04), inset 0 -1px 0 rgba(255,255,255,0.8)'
+            }}>
               <div className="flex justify-between items-center">
-                <span className="font-bold text-slate-700">{dim.dimension}</span>
-                <span className={`px-2 py-0.5 rounded text-xs font-bold ${
-                  dim.score >= 80 ? 'bg-emerald-100 text-emerald-700' : 
-                  dim.score >= 60 ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'
-                }`}>
-                  {dim.score}分
-                </span>
+                <span className="font-bold text-clay-700">{dim.dimension}</span>
+                <ScoreIndicator score={dim.score} />
               </div>
-              <p className="text-sm text-slate-600 leading-relaxed">
+              <p className="text-sm text-clay-600 leading-relaxed">
                 {dim.comment || "暂无详细评价"}
               </p>
               
-              {/* Context Limitation Disclaimer for System Performance */}
               {dim.dimension.includes("系统性能") && (
-                <div className="flex items-start gap-1.5 mt-2 pt-2 border-t border-slate-200/60">
-                   <Info className="w-3 h-3 text-slate-400 mt-0.5 flex-shrink-0" />
-                   <p className="text-xs text-slate-400 italic">
-                     说明：{isVideo ? "基于视频录屏分析交互性能与反馈速度。" : "根据截图无法测算真实的系统响应性能。此评分仅针对“页面布局稳定性、无明显的文字溢出或元素错乱”等视觉基础元素进行审查。"}
-                   </p>
+                <div className="flex items-start gap-2 mt-2 pt-3" style={{ borderTop: '1px solid rgba(0,0,0,0.05)' }}>
+                  <Info className="w-3.5 h-3.5 text-clay-400 mt-0.5 flex-shrink-0" />
+                  <p className="text-xs text-clay-400 italic">
+                    说明：{isVideo ? "基于视频录屏分析交互性能与反馈速度。" : "根据截图无法测算真实的系统响应性能。此评分仅针对视觉基础元素进行审查。"}
+                  </p>
                 </div>
               )}
             </div>
@@ -227,62 +361,85 @@ export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, p
         </div>
       </div>
 
-      {/* Visual Optimization Comparison - HIDDEN FOR VIDEO */}
+      {/* Visual Optimization Comparison */}
       {!isVideo && (optimizedImage || isGeneratingImage) && (
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-          <div className="p-6 border-b border-slate-100">
-            <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-              <Wand2 className="w-5 h-5 text-indigo-500" />
-              视觉优化方案 (AI 自动生成)
+        <div className="clay-card rounded-3xl overflow-hidden">
+          <div className="p-6" style={{ borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
+            <h3 className="text-lg font-bold text-clay-800 flex items-center gap-2.5 font-display">
+              <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{
+                background: 'linear-gradient(145deg, #F472B6 0%, #EC4899 100%)',
+                boxShadow: '0 4px 12px -2px rgba(244, 114, 182, 0.35)'
+              }}>
+                <Wand2 className="w-4 h-4 text-white" />
+              </div>
+              视觉优化方案
             </h3>
-            <p className="text-sm text-slate-500 mt-1">基于 AI 视觉模型生成的优化建议效果图。</p>
+            <p className="text-sm text-clay-500 mt-1.5">基于 AI 视觉模型生成的优化建议效果图</p>
           </div>
           <div className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
               
               {/* Original */}
-              <div className="space-y-3">
-                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block text-center">当前版本 (Before)</span>
-                <div className="relative group rounded-xl overflow-hidden border border-slate-200 bg-slate-50 aspect-square flex items-center justify-center">
-                  {/* If flow, show first step, else show original image */}
+              <div className="space-y-4">
+                <span className="text-xs font-bold text-clay-500 uppercase tracking-wider block text-center">当前版本</span>
+                <div className="relative rounded-2xl overflow-hidden aspect-square flex items-center justify-center p-4" style={{
+                  background: 'linear-gradient(145deg, #EAEEF4 0%, #F0F3F9 100%)',
+                  boxShadow: 'inset 0 2px 6px rgba(0,0,0,0.06)'
+                }}>
                   {(processSteps && processSteps.length > 0) ? (
                     <img 
                       src={processSteps[0].image} 
                       alt="Original Design" 
-                      className="max-w-full max-h-full object-contain"
+                      className="max-w-full max-h-full object-contain rounded-xl"
+                      style={{ boxShadow: '0 8px 24px -6px rgba(0,0,0,0.12)' }}
                     />
                   ) : originalImage && (
                     <img 
                       src={originalImage} 
                       alt="Original Design" 
-                      className="max-w-full max-h-full object-contain"
+                      className="max-w-full max-h-full object-contain rounded-xl"
+                      style={{ boxShadow: '0 8px 24px -6px rgba(0,0,0,0.12)' }}
                     />
                   )}
                 </div>
               </div>
 
-              {/* Arrow on Desktop */}
-              <div className="hidden md:flex justify-center text-slate-300">
-                <ArrowRight size={32} />
+              {/* Arrow */}
+              <div className="hidden md:flex justify-center">
+                <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{
+                  background: 'linear-gradient(145deg, #F5F3FF 0%, #EDE9FE 100%)',
+                  boxShadow: '0 4px 12px -4px rgba(139, 92, 246, 0.2)'
+                }}>
+                  <ChevronRight size={24} className="text-accent-violet" />
+                </div>
               </div>
 
               {/* Optimized */}
-              <div className="space-y-3">
-                <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider block text-center">AI 优化建议 (After)</span>
-                <div className="relative group rounded-xl overflow-hidden border-2 border-indigo-100 bg-indigo-50/30 aspect-square flex items-center justify-center">
+              <div className="space-y-4">
+                <span className="text-xs font-bold uppercase tracking-wider block text-center" style={{ color: '#8B5CF6' }}>AI 优化建议</span>
+                <div className="relative rounded-2xl overflow-hidden aspect-square flex items-center justify-center p-4" style={{
+                  background: 'linear-gradient(145deg, #F5F3FF 0%, #EDE9FE 100%)',
+                  boxShadow: 'inset 0 2px 6px rgba(139, 92, 246, 0.08), 0 4px 16px -4px rgba(139, 92, 246, 0.15)'
+                }}>
                   {isGeneratingImage ? (
-                    <div className="flex flex-col items-center justify-center gap-3 text-indigo-500">
-                      <div className="w-8 h-8 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+                    <div className="flex flex-col items-center justify-center gap-4 text-accent-violet">
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{
+                        background: 'linear-gradient(145deg, #A78BFA 0%, #8B5CF6 100%)',
+                        boxShadow: '0 4px 12px -2px rgba(139, 92, 246, 0.4)'
+                      }}>
+                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                      </div>
                       <span className="text-sm font-medium animate-pulse">正在绘制优化方案...</span>
                     </div>
                   ) : optimizedImage ? (
                     <img 
                       src={optimizedImage} 
                       alt="Optimized Design" 
-                      className="max-w-full max-h-full object-contain transition-transform duration-700 hover:scale-105"
+                      className="max-w-full max-h-full object-contain rounded-xl transition-transform duration-500 hover:scale-105"
+                      style={{ boxShadow: '0 8px 24px -6px rgba(139, 92, 246, 0.2)' }}
                     />
                   ) : (
-                    <div className="text-slate-400 text-sm">无法生成优化图</div>
+                    <div className="text-clay-400 text-sm">无法生成优化图</div>
                   )}
                 </div>
               </div>
@@ -293,116 +450,143 @@ export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, p
       )}
 
       {/* Issues List */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-        <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-          <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-            <AlertTriangle className="w-5 h-5 text-orange-500" />
+      <div className="clay-card rounded-3xl overflow-hidden">
+        <div className="p-6 flex justify-between items-center" style={{ borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
+          <h3 className="text-lg font-bold text-clay-800 flex items-center gap-2.5 font-display">
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{
+              background: 'linear-gradient(145deg, #FBBF24 0%, #F59E0B 100%)',
+              boxShadow: '0 4px 12px -2px rgba(251, 191, 36, 0.35)'
+            }}>
+              <AlertTriangle className="w-4 h-4 text-white" />
+            </div>
             发现的问题
           </h3>
-          <span className="text-xs font-medium text-slate-400">{report.issues.length} 个问题</span>
+          <span className="clay-badge px-3 py-1.5 text-xs font-bold text-clay-600">{report.issues.length} 个问题</span>
         </div>
         
         <div className="p-6 pb-0">
           {/* Legend Section */}
-          <div className="bg-slate-50/50 p-5 rounded-xl border border-slate-200/60">
+          <div className="p-5 rounded-2xl" style={{
+            background: 'linear-gradient(145deg, #FAFBFD 0%, #F5F7FA 100%)',
+            boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.04)'
+          }}>
             <div className="flex items-center gap-2 mb-4">
-              <HelpCircle size={15} className="text-slate-400" />
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">严重等级判定标准</span>
+              <HelpCircle size={14} className="text-clay-400" />
+              <span className="text-xs font-bold text-clay-500 uppercase tracking-wider">严重等级判定标准</span>
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {/* Level 1 */}
-              <div className="relative bg-white p-4 rounded-lg border border-slate-100 shadow-sm overflow-hidden group hover:border-red-100 transition-colors">
-                <div className="absolute left-0 top-0 bottom-0 w-1 bg-red-500 rounded-l-lg"></div>
-                <div className="pl-2">
-                    <div className="flex justify-between items-start mb-1">
-                        <span className="text-sm font-bold text-slate-800">一级问题</span>
-                        <span className="text-[10px] font-bold px-1.5 py-0.5 bg-red-50 text-red-600 rounded uppercase tracking-wide">Critical</span>
-                    </div>
-                    <div className="text-xs font-semibold text-slate-700 mb-1">常用功能 + 影响大</div>
-                    <p className="text-[10px] text-slate-500 leading-relaxed">
-                        导致操作失败、损害用户利益 <br/> (有效性问题)
-                    </p>
+              <div className="clay-card p-4 rounded-xl relative overflow-hidden group hover:shadow-soft transition-all">
+                <div className="absolute left-0 top-0 bottom-0 w-1 rounded-l-xl" style={{
+                  background: 'linear-gradient(180deg, #EF4444 0%, #DC2626 100%)'
+                }}></div>
+                <div className="pl-3">
+                  <div className="flex justify-between items-start mb-2">
+                    <span className="text-sm font-bold text-clay-800">一级问题</span>
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md uppercase tracking-wide" style={{
+                      background: 'linear-gradient(145deg, #FEE2E2 0%, #FECACA 100%)',
+                      color: '#DC2626'
+                    }}>Critical</span>
+                  </div>
+                  <div className="text-xs font-semibold text-clay-700 mb-1">常用功能 + 影响大</div>
+                  <p className="text-[10px] text-clay-500 leading-relaxed">
+                    导致操作失败、损害用户利益
+                  </p>
                 </div>
               </div>
 
               {/* Level 2 */}
-              <div className="relative bg-white p-4 rounded-lg border border-slate-100 shadow-sm overflow-hidden group hover:border-orange-100 transition-colors">
-                <div className="absolute left-0 top-0 bottom-0 w-1 bg-orange-500 rounded-l-lg"></div>
-                <div className="pl-2">
-                    <div className="flex justify-between items-start mb-1">
-                        <span className="text-sm font-bold text-slate-800">二级问题</span>
-                        <span className="text-[10px] font-bold px-1.5 py-0.5 bg-orange-50 text-orange-600 rounded uppercase tracking-wide">Major</span>
-                    </div>
-                    <div className="text-xs font-semibold text-slate-700 mb-1">常用(中/小) / 不常用(大)</div>
-                    <p className="text-[10px] text-slate-500 leading-relaxed">
-                        操作延迟、受挫但不导致失败 <br/> (效率问题)
-                    </p>
+              <div className="clay-card p-4 rounded-xl relative overflow-hidden group hover:shadow-soft transition-all">
+                <div className="absolute left-0 top-0 bottom-0 w-1 rounded-l-xl" style={{
+                  background: 'linear-gradient(180deg, #F97316 0%, #EA580C 100%)'
+                }}></div>
+                <div className="pl-3">
+                  <div className="flex justify-between items-start mb-2">
+                    <span className="text-sm font-bold text-clay-800">二级问题</span>
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md uppercase tracking-wide" style={{
+                      background: 'linear-gradient(145deg, #FFEDD5 0%, #FED7AA 100%)',
+                      color: '#EA580C'
+                    }}>Major</span>
+                  </div>
+                  <div className="text-xs font-semibold text-clay-700 mb-1">常用(中/小) / 不常用(大)</div>
+                  <p className="text-[10px] text-clay-500 leading-relaxed">
+                    操作延迟、受挫但不导致失败
+                  </p>
                 </div>
               </div>
 
               {/* Level 3 */}
-              <div className="relative bg-white p-4 rounded-lg border border-slate-100 shadow-sm overflow-hidden group hover:border-blue-100 transition-colors">
-                 <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-500 rounded-l-lg"></div>
-                 <div className="pl-2">
-                    <div className="flex justify-between items-start mb-1">
-                        <span className="text-sm font-bold text-slate-800">三级问题</span>
-                        <span className="text-[10px] font-bold px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded uppercase tracking-wide">Minor</span>
-                    </div>
-                    <div className="text-xs font-semibold text-slate-700 mb-1">不常用功能 + 影响中/小</div>
-                    <p className="text-[10px] text-slate-500 leading-relaxed">
-                        仅影响使用感受，无明显阻碍 <br/> (满意度问题)
-                    </p>
+              <div className="clay-card p-4 rounded-xl relative overflow-hidden group hover:shadow-soft transition-all">
+                <div className="absolute left-0 top-0 bottom-0 w-1 rounded-l-xl" style={{
+                  background: 'linear-gradient(180deg, #3B82F6 0%, #2563EB 100%)'
+                }}></div>
+                <div className="pl-3">
+                  <div className="flex justify-between items-start mb-2">
+                    <span className="text-sm font-bold text-clay-800">三级问题</span>
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md uppercase tracking-wide" style={{
+                      background: 'linear-gradient(145deg, #DBEAFE 0%, #BFDBFE 100%)',
+                      color: '#2563EB'
+                    }}>Minor</span>
+                  </div>
+                  <div className="text-xs font-semibold text-clay-700 mb-1">不常用功能 + 影响中/小</div>
+                  <p className="text-[10px] text-clay-500 leading-relaxed">
+                    仅影响使用感受，无明显阻碍
+                  </p>
                 </div>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-white text-slate-500 text-xs uppercase tracking-wider border-b border-slate-100">
-                <th className="p-6 font-medium w-32">严重程度</th>
-                <th className="p-6 font-medium w-48">位置</th>
-                <th className="p-6 font-medium">问题描述</th>
-                <th className="p-6 font-medium w-1/3">优化建议</th>
-              </tr>
-            </thead>
-            <tbody className="text-sm divide-y divide-slate-100">
-              {report.issues.map((issue, index) => (
-                <tr key={index} className="hover:bg-slate-50 transition-colors">
-                  <td className="p-6">
-                    <SeverityBadge severity={issue.severity} />
-                  </td>
-                  <td className="p-6 text-slate-700 font-medium">{issue.location}</td>
-                  <td className="p-6 text-slate-600">{issue.description}</td>
-                  <td className="p-6 text-slate-600 italic">
-                    <div className="flex items-start gap-2 bg-slate-50 p-2 rounded-lg border border-slate-100">
-                      <Zap className="w-3 h-3 text-indigo-500 mt-1 shrink-0" />
-                      {issue.recommendation}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="overflow-x-auto p-6">
+          <div className="space-y-3">
+            {report.issues.map((issue, index) => (
+              <div key={index} className="clay-card p-5 rounded-2xl hover:shadow-soft transition-all">
+                <div className="flex flex-wrap gap-3 items-start mb-3">
+                  <SeverityBadge severity={issue.severity} />
+                  <span className="clay-badge px-3 py-1.5 text-xs font-semibold text-clay-600">{issue.location}</span>
+                </div>
+                <p className="text-clay-700 text-sm mb-4">{issue.description}</p>
+                <div className="flex items-start gap-3 p-4 rounded-xl" style={{
+                  background: 'linear-gradient(145deg, #F0FDF4 0%, #DCFCE7 100%)',
+                  boxShadow: 'inset 0 1px 3px rgba(34, 197, 94, 0.08)'
+                }}>
+                  <div className="w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0" style={{
+                    background: 'linear-gradient(145deg, #34D399 0%, #10B981 100%)',
+                    boxShadow: '0 2px 8px -2px rgba(52, 211, 153, 0.4)'
+                  }}>
+                    <Zap className="w-3 h-3 text-white" />
+                  </div>
+                  <p className="text-sm text-emerald-700">{issue.recommendation}</p>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
       {/* Strategic Recommendations */}
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-        <h3 className="text-lg font-semibold text-slate-800 mb-6 flex items-center gap-2">
-          <CheckCircle className="w-5 h-5 text-emerald-500" />
+      <div className="clay-card p-6 rounded-3xl">
+        <h3 className="text-lg font-bold text-clay-800 mb-6 flex items-center gap-2.5 font-display">
+          <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{
+            background: 'linear-gradient(145deg, #34D399 0%, #10B981 100%)',
+            boxShadow: '0 4px 12px -2px rgba(52, 211, 153, 0.35)'
+          }}>
+            <Lightbulb className="w-4 h-4 text-white" />
+          </div>
           战略优化建议
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {report.optimizationSuggestions.map((suggestion, idx) => (
-            <div key={idx} className="flex items-start gap-4 p-4 rounded-xl border border-slate-100 bg-slate-50 hover:bg-white hover:shadow-md transition-all">
-              <div className="flex-shrink-0 w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold text-sm">
+            <div key={idx} className="clay-card flex items-start gap-4 p-5 rounded-2xl hover:shadow-soft transition-all group">
+              <div className="flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm text-white" style={{
+                background: 'linear-gradient(145deg, #34D399 0%, #10B981 100%)',
+                boxShadow: '0 4px 12px -2px rgba(52, 211, 153, 0.3)'
+              }}>
                 {idx + 1}
               </div>
-              <p className="text-slate-700 text-sm">{suggestion}</p>
+              <p className="text-clay-700 text-sm leading-relaxed">{suggestion}</p>
             </div>
           ))}
         </div>

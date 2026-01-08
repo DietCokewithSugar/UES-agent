@@ -1,27 +1,288 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ETS Agent - Experience Analysis</title>
+    <title>ETS Agent - 产品体验分析工具</title>
+    
+    <!-- Google Fonts - 独特优雅的字体组合 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              'display': ['Outfit', 'Noto Sans SC', 'system-ui', 'sans-serif'],
+              'body': ['Noto Sans SC', 'Outfit', 'system-ui', 'sans-serif'],
+            },
+            colors: {
+              // 现代软拟态色板
+              'clay': {
+                50: '#F8F9FC',
+                100: '#F2F4F8',
+                200: '#E8ECF4',
+                300: '#D4DBE8',
+                400: '#A3B1CC',
+                500: '#7B8BA8',
+                600: '#5A6B86',
+                700: '#3D4B61',
+                800: '#2A3544',
+                900: '#1A2230',
+              },
+              'soft': {
+                white: '#FEFEFE',
+                cream: '#F5F5F7',
+                pearl: '#EAEEF4',
+              },
+              'accent': {
+                violet: '#8B5CF6',
+                indigo: '#6366F1',
+                sky: '#38BDF8',
+                emerald: '#34D399',
+                amber: '#FBBF24',
+                rose: '#FB7185',
+                coral: '#FF7F6B',
+              }
+            },
+            boxShadow: {
+              // 柔和弥散阴影
+              'soft-sm': '0 2px 8px -2px rgba(0, 0, 0, 0.06), 0 4px 16px -4px rgba(0, 0, 0, 0.04)',
+              'soft': '0 4px 16px -4px rgba(0, 0, 0, 0.08), 0 8px 32px -8px rgba(0, 0, 0, 0.06)',
+              'soft-lg': '0 8px 24px -6px rgba(0, 0, 0, 0.1), 0 16px 48px -12px rgba(0, 0, 0, 0.08)',
+              'soft-xl': '0 12px 36px -8px rgba(0, 0, 0, 0.12), 0 24px 64px -16px rgba(0, 0, 0, 0.1)',
+              // 彩色发光
+              'glow-violet': '0 8px 24px -4px rgba(139, 92, 246, 0.35)',
+              'glow-indigo': '0 8px 24px -4px rgba(99, 102, 241, 0.35)',
+              'glow-emerald': '0 8px 24px -4px rgba(52, 211, 153, 0.35)',
+              'glow-rose': '0 8px 24px -4px rgba(251, 113, 133, 0.35)',
+              'glow-amber': '0 8px 24px -4px rgba(251, 191, 36, 0.35)',
+              // 内阴影凹陷
+              'inset-soft': 'inset 0 2px 4px rgba(0, 0, 0, 0.06)',
+              'inset-deep': 'inset 0 4px 8px rgba(0, 0, 0, 0.1), inset 0 -1px 0 rgba(255, 255, 255, 0.5)',
+            },
+            borderRadius: {
+              'clay': '20px',
+              'pill': '999px',
+              'blob': '32px',
+            }
+          }
+        }
+      }
+    </script>
+    
     <style>
       :root {
-        color-scheme: light; /* Force light mode for form controls */
+        color-scheme: light;
+        --bg-primary: #F2F4F8;
+        --surface-elevated: #FFFFFF;
+        --text-primary: #1A2230;
+        --text-secondary: #5A6B86;
+        --accent-primary: #8B5CF6;
+        --accent-secondary: #6366F1;
+        
+        /* 内高光效果 */
+        --highlight-top: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+        --highlight-subtle: inset 0 1px 2px rgba(255, 255, 255, 0.5);
+        
+        /* 玻璃釉边框 */
+        --border-glass: 1px solid rgba(255, 255, 255, 0.6);
+        --border-soft: 1px solid rgba(0, 0, 0, 0.04);
       }
       
-      /* Globally hide scrollbars */
       * {
-        -ms-overflow-style: none;  /* IE and Edge */
-        scrollbar-width: none;  /* Firefox */
+        -ms-overflow-style: none;
+        scrollbar-width: none;
       }
       
-      /* Hide scrollbar for Chrome, Safari and Opera */
       ::-webkit-scrollbar {
         display: none;
       }
+      
+      body {
+        font-family: 'Noto Sans SC', 'Outfit', system-ui, sans-serif;
+        background: linear-gradient(145deg, #F2F4F8 0%, #E8ECF4 100%);
+        min-height: 100vh;
+      }
+      
+      /* 软拟态卡片基础类 */
+      .clay-card {
+        background: linear-gradient(145deg, #FFFFFF 0%, #FAFBFD 100%);
+        border: 1px solid rgba(255, 255, 255, 0.8);
+        border-radius: 24px;
+        box-shadow: 
+          0 4px 16px -4px rgba(0, 0, 0, 0.08),
+          0 8px 32px -8px rgba(0, 0, 0, 0.06),
+          inset 0 1px 0 rgba(255, 255, 255, 0.8);
+      }
+      
+      .clay-card-raised {
+        background: linear-gradient(145deg, #FFFFFF 0%, #F8FAFC 100%);
+        border: 1px solid rgba(255, 255, 255, 0.9);
+        border-radius: 24px;
+        box-shadow: 
+          0 8px 24px -6px rgba(0, 0, 0, 0.1),
+          0 16px 48px -12px rgba(0, 0, 0, 0.08),
+          inset 0 1px 0 rgba(255, 255, 255, 0.9);
+      }
+      
+      .clay-inset {
+        background: linear-gradient(145deg, #E8ECF4 0%, #F0F3F9 100%);
+        border: 1px solid rgba(0, 0, 0, 0.03);
+        border-radius: 16px;
+        box-shadow: 
+          inset 0 2px 6px rgba(0, 0, 0, 0.06),
+          inset 0 -1px 0 rgba(255, 255, 255, 0.6);
+      }
+      
+      /* 软拟态按钮 */
+      .clay-btn {
+        background: linear-gradient(145deg, #FFFFFF 0%, #F5F7FA 100%);
+        border: 1px solid rgba(255, 255, 255, 0.8);
+        border-radius: 999px;
+        box-shadow: 
+          0 4px 12px -2px rgba(0, 0, 0, 0.08),
+          inset 0 1px 0 rgba(255, 255, 255, 0.9);
+        transition: all 0.2s ease;
+      }
+      
+      .clay-btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 
+          0 6px 16px -2px rgba(0, 0, 0, 0.1),
+          inset 0 1px 0 rgba(255, 255, 255, 0.9);
+      }
+      
+      .clay-btn:active {
+        transform: translateY(0);
+        box-shadow: 
+          0 2px 8px -2px rgba(0, 0, 0, 0.08),
+          inset 0 2px 4px rgba(0, 0, 0, 0.04);
+      }
+      
+      /* 主要按钮 - 彩色渐变 */
+      .clay-btn-primary {
+        background: linear-gradient(145deg, #A78BFA 0%, #8B5CF6 50%, #7C3AED 100%);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        color: white;
+        box-shadow: 
+          0 8px 24px -4px rgba(139, 92, 246, 0.4),
+          inset 0 1px 0 rgba(255, 255, 255, 0.3);
+      }
+      
+      .clay-btn-primary:hover {
+        box-shadow: 
+          0 12px 28px -4px rgba(139, 92, 246, 0.5),
+          inset 0 1px 0 rgba(255, 255, 255, 0.3);
+      }
+      
+      /* 选中态高亮 */
+      .clay-selected {
+        background: linear-gradient(145deg, #F5F3FF 0%, #EDE9FE 100%);
+        border: 2px solid #A78BFA;
+        box-shadow: 
+          0 4px 16px -4px rgba(139, 92, 246, 0.25),
+          inset 0 1px 0 rgba(255, 255, 255, 0.8);
+      }
+      
+      /* 输入框凹陷 */
+      .clay-input {
+        background: linear-gradient(145deg, #EAEEF4 0%, #F5F7FA 100%);
+        border: 1px solid rgba(0, 0, 0, 0.04);
+        border-radius: 14px;
+        box-shadow: 
+          inset 0 2px 4px rgba(0, 0, 0, 0.05),
+          inset 0 -1px 0 rgba(255, 255, 255, 0.6);
+      }
+      
+      .clay-input:focus {
+        background: linear-gradient(145deg, #F0F3F9 0%, #FAFBFD 100%);
+        border: 1px solid rgba(139, 92, 246, 0.4);
+        box-shadow: 
+          inset 0 1px 2px rgba(0, 0, 0, 0.04),
+          0 0 0 3px rgba(139, 92, 246, 0.15);
+      }
+      
+      /* 动画 */
+      @keyframes float {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-4px); }
+      }
+      
+      @keyframes pulse-soft {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.7; }
+      }
+      
+      @keyframes fade-in-up {
+        from {
+          opacity: 0;
+          transform: translateY(12px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      
+      .animate-fade-in-up {
+        animation: fade-in-up 0.4s ease-out forwards;
+      }
+      
+      .animate-float {
+        animation: float 3s ease-in-out infinite;
+      }
+      
+      /* 模态背景 */
+      .modal-backdrop {
+        background: rgba(26, 34, 48, 0.4);
+        backdrop-filter: blur(12px);
+      }
+      
+      /* 标签切换 */
+      .clay-tab {
+        background: transparent;
+        border-radius: 12px;
+        transition: all 0.25s ease;
+      }
+      
+      .clay-tab.active {
+        background: linear-gradient(145deg, #FFFFFF 0%, #F8FAFC 100%);
+        box-shadow: 
+          0 2px 8px -2px rgba(0, 0, 0, 0.08),
+          inset 0 1px 0 rgba(255, 255, 255, 0.9);
+      }
+      
+      /* 徽章 */
+      .clay-badge {
+        background: linear-gradient(145deg, #FFFFFF 0%, #F5F7FA 100%);
+        border: 1px solid rgba(255, 255, 255, 0.8);
+        border-radius: 999px;
+        box-shadow: 
+          0 2px 6px -2px rgba(0, 0, 0, 0.06),
+          inset 0 1px 0 rgba(255, 255, 255, 0.8);
+      }
+      
+      /* 进度条 */
+      .clay-progress {
+        background: linear-gradient(145deg, #E8ECF4 0%, #F0F3F9 100%);
+        border-radius: 999px;
+        box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.08);
+      }
+      
+      .clay-progress-bar {
+        background: linear-gradient(90deg, #A78BFA 0%, #8B5CF6 50%, #7C3AED 100%);
+        border-radius: 999px;
+        box-shadow: 
+          0 2px 8px -2px rgba(139, 92, 246, 0.5),
+          inset 0 1px 0 rgba(255, 255, 255, 0.3);
+      }
     </style>
-  <script type="importmap">
+    
+    <script type="importmap">
 {
   "imports": {
     "lucide-react": "https://aistudiocdn.com/lucide-react@^0.554.0",
@@ -37,7 +298,7 @@
 }
 </script>
 </head>
-  <body class="bg-slate-50 text-slate-900 font-sans antialiased">
+  <body class="bg-clay-100 text-clay-800 font-body antialiased">
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
   </body>
