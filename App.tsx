@@ -197,6 +197,9 @@ export default function App() {
   const [viewingPersonaId, setViewingPersonaId] = useState<string>(DEFAULT_PERSONAS[0].id);
   const evaluationModel = EvaluationModel.ETS;
   
+  // Accordion Stepper State
+  const [activeStep, setActiveStep] = useState<1 | 2 | 3>(1);
+  
   // Input State
   const [uploadMode, setUploadMode] = useState<'single' | 'flow' | 'video'>('single');
   const [image, setImage] = useState<string | null>(null);
@@ -236,6 +239,49 @@ export default function App() {
   const jsonImportRef = useRef<HTMLInputElement>(null);
 
   const getSelectedPersonas = () => personas.filter(p => selectedPersonaIds.includes(p.id));
+
+  // Step completion status
+  const isStep1Complete = 
+    (uploadMode === 'single' && !!image) || 
+    (uploadMode === 'flow' && processSteps.length > 0) ||
+    (uploadMode === 'video' && !!video);
+    
+  const isStep2Complete = selectedPersonaIds.length > 0;
+  
+  // Get upload summary for collapsed state
+  const getUploadSummary = () => {
+    if (uploadMode === 'single' && image) return '已上传：1 张图片';
+    if (uploadMode === 'flow' && processSteps.length > 0) return `已上传：${processSteps.length} 张流程图`;
+    if (uploadMode === 'video' && video) return '已上传：1 个视频';
+    return '未上传';
+  };
+  
+  // Get persona summary for collapsed state  
+  const getPersonaSummary = () => {
+    return `准备模拟 ${selectedPersonaIds.length} 种用户类型`;
+  };
+  
+  // Handle step navigation
+  const goToNextStep = () => {
+    if (activeStep === 1 && isStep1Complete) {
+      setActiveStep(2);
+    } else if (activeStep === 2 && isStep2Complete) {
+      setActiveStep(3);
+    }
+  };
+  
+  const goToStep = (step: 1 | 2 | 3) => {
+    // Allow going to step 1 always
+    // Allow going to step 2 if step 1 is complete
+    // Allow going to step 3 if step 1 and 2 are complete
+    if (step === 1) {
+      setActiveStep(1);
+    } else if (step === 2 && isStep1Complete) {
+      setActiveStep(2);
+    } else if (step === 3 && isStep1Complete && isStep2Complete) {
+      setActiveStep(3);
+    }
+  };
 
   // Single File Handler
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -637,8 +683,8 @@ export default function App() {
       )}
 
       {/* ========== Sidebar / Configuration Panel ========== */}
-      <div className="w-full md:w-[420px] h-auto md:h-screen flex flex-col sticky top-0 z-20 overflow-y-auto print:hidden p-4 md:p-5">
-        <div className="clay-card-raised flex-1 flex flex-col overflow-hidden">
+      <div className="w-full md:w-[400px] h-auto md:h-screen flex flex-col sticky top-0 z-20 overflow-hidden print:hidden p-4 md:p-5">
+        <div className="clay-card-raised flex-1 flex flex-col overflow-hidden rounded-[28px]">
           
           {/* Brand Header */}
           <div className="p-6 flex justify-between items-center" style={{ borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
@@ -663,333 +709,572 @@ export default function App() {
             </button>
           </div>
 
-          {/* Step 1: Upload */}
-          <div className="p-6 flex-1 overflow-y-auto" style={{ borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
-            <h2 className="text-xs font-bold text-clay-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-              <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold" style={{
-                background: 'linear-gradient(145deg, #A78BFA 0%, #8B5CF6 100%)',
-                color: 'white',
-                boxShadow: '0 2px 8px -2px rgba(139, 92, 246, 0.4)'
-              }}>1</span>
-              上传需测内容
-            </h2>
+          {/* Accordion Stepper Container */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-3">
             
-            {/* Toggle Mode */}
-            <div className="clay-inset p-1.5 rounded-2xl mb-5 flex gap-1">
-              {[
-                { key: 'single', label: '单页', icon: null },
-                { key: 'flow', label: '流程', icon: null },
-                { key: 'video', label: '视频', icon: Video }
-              ].map(mode => (
-                <button 
-                  key={mode.key}
-                  onClick={() => setUploadMode(mode.key as any)}
-                  className={`flex-1 py-2.5 text-xs font-semibold rounded-xl transition-all flex items-center justify-center gap-1.5 ${
-                    uploadMode === mode.key 
-                      ? 'clay-tab active text-accent-violet' 
-                      : 'text-clay-500 hover:text-clay-700'
-                  }`}
-                >
-                  {mode.icon && <mode.icon size={12} />}
-                  {mode.label}
-                </button>
-              ))}
-            </div>
-
-            {uploadMode === 'single' && (
-              <div 
-                onClick={() => fileInputRef.current?.click()}
-                className={`rounded-3xl p-8 text-center cursor-pointer transition-all ${
-                  image 
-                    ? 'clay-selected' 
-                    : 'clay-inset hover:shadow-soft'
-                }`}
-                style={{ border: image ? undefined : '2px dashed rgba(139, 92, 246, 0.2)' }}
-              >
-                <input 
-                  ref={fileInputRef}
-                  type="file" 
-                  accept="image/*" 
-                  onChange={handleFileChange} 
-                  className="hidden" 
-                />
-                {image ? (
-                  <div className="relative">
-                    <img src={image} alt="Preview" className="max-h-36 mx-auto rounded-2xl" style={{ boxShadow: '0 8px 24px -6px rgba(0,0,0,0.15)' }} />
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/5 rounded-2xl opacity-0 hover:opacity-100 transition-opacity">
-                      <span className="clay-badge px-4 py-2 text-xs font-semibold text-clay-700">更换图片</span>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center gap-3 text-clay-400 py-4">
-                    <div className="w-14 h-14 rounded-2xl flex items-center justify-center" style={{
-                      background: 'linear-gradient(145deg, #E8ECF4 0%, #F0F3F9 100%)',
-                      boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.06)'
-                    }}>
-                      <Upload size={24} className="text-clay-400" />
-                    </div>
-                    <span className="text-sm font-medium">点击上传图片</span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {uploadMode === 'video' && (
-              <div 
-                onClick={() => videoInputRef.current?.click()}
-                className={`rounded-3xl p-8 text-center cursor-pointer transition-all ${
-                  video 
-                    ? 'clay-selected' 
-                    : 'clay-inset hover:shadow-soft'
-                }`}
-                style={{ border: video ? undefined : '2px dashed rgba(139, 92, 246, 0.2)' }}
-              >
-                <input 
-                  ref={videoInputRef}
-                  type="file" 
-                  accept="video/mp4,video/webm,video/quicktime" 
-                  onChange={handleVideoChange} 
-                  className="hidden" 
-                />
-                {video ? (
-                  <div className="relative">
-                    <video src={video} className="max-h-36 mx-auto rounded-2xl bg-black" style={{ boxShadow: '0 8px 24px -6px rgba(0,0,0,0.15)' }} />
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/5 rounded-2xl opacity-0 hover:opacity-100 transition-opacity">
-                      <span className="clay-badge px-4 py-2 text-xs font-semibold text-clay-700">更换视频</span>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center gap-3 text-clay-400 py-4">
-                    <div className="w-14 h-14 rounded-2xl flex items-center justify-center" style={{
-                      background: 'linear-gradient(145deg, #E8ECF4 0%, #F0F3F9 100%)',
-                      boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.06)'
-                    }}>
-                      <Film size={24} className="text-clay-400" />
-                    </div>
-                    <span className="text-sm font-medium">点击上传视频</span>
-                    <span className="text-[10px] clay-badge px-3 py-1" style={{ background: 'linear-gradient(145deg, #F5F3FF 0%, #EDE9FE 100%)', color: '#7C3AED' }}>限制 50MB</span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {uploadMode === 'flow' && (
-              <div className="space-y-4">
-                <div className="space-y-3">
-                  {processSteps.map((step, idx) => (
-                    <div key={step.id} className="clay-card p-4 group relative rounded-2xl">
-                      <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                        <button onClick={() => removeStep(step.id)} className="clay-btn p-2 text-clay-400 hover:text-accent-rose">
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                      
-                      <div className="flex gap-4 items-start">
-                        <div className="w-20 h-20 shrink-0 rounded-xl overflow-hidden" style={{ boxShadow: '0 4px 12px -4px rgba(0,0,0,0.1)' }}>
-                          <img src={step.image} alt={`Step ${idx+1}`} className="w-full h-full object-cover" />
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-2">
-                            <span className="text-[10px] font-bold uppercase px-2 py-1 rounded-lg" style={{
-                              background: 'linear-gradient(145deg, #A78BFA 0%, #8B5CF6 100%)',
-                              color: 'white',
-                              boxShadow: '0 2px 6px -2px rgba(139, 92, 246, 0.4)'
-                            }}>步骤 {idx + 1}</span>
-                          </div>
-                          <textarea 
-                            value={step.description}
-                            onChange={(e) => updateStepDescription(step.id, e.target.value)}
-                            placeholder="输入用户操作说明..."
-                            className="clay-input w-full text-xs p-3 outline-none resize-none"
-                            rows={2}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div 
-                  onClick={handleAddFlowStep}
-                  className="clay-inset rounded-2xl p-6 text-center cursor-pointer hover:shadow-soft transition-all flex flex-col items-center justify-center gap-2 text-clay-400"
-                  style={{ border: '2px dashed rgba(139, 92, 246, 0.2)' }}
-                >
-                  <input 
-                    ref={flowStepInputRef}
-                    type="file" 
-                    accept="image/*" 
-                    multiple
-                    onChange={handleFlowImageSelect}
-                    className="hidden" 
-                  />
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{
-                    background: 'linear-gradient(145deg, #F5F3FF 0%, #EDE9FE 100%)',
-                    color: '#8B5CF6'
-                  }}>
-                    <ImagePlus size={18} />
-                  </div>
-                  <span className="text-xs font-medium">添加流程截图 (支持多选)</span>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Step 2: Personas */}
-          <div className="p-6" style={{ borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xs font-bold text-clay-400 uppercase tracking-wider flex items-center gap-2">
-                <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold" style={{
-                  background: 'linear-gradient(145deg, #38BDF8 0%, #0EA5E9 100%)',
-                  color: 'white',
-                  boxShadow: '0 2px 8px -2px rgba(56, 189, 248, 0.4)'
-                }}>2</span>
-                选择模拟角色
-              </h2>
-              <div className="flex gap-2">
-                <button 
-                  onClick={handleDownloadTemplate}
-                  className="clay-btn p-2 text-clay-400 hover:text-accent-violet transition-colors"
-                  title="下载角色模版"
-                >
-                  <FileJson size={14} />
-                </button>
-                <button 
-                  onClick={() => {
-                    setNewPersonaData(EMPTY_PERSONA);
-                    setEditingPersonaId(null);
-                    setIsModalOpen(true);
-                  }}
-                  className="clay-btn p-2 transition-colors"
-                  style={{ 
-                    background: 'linear-gradient(145deg, #F5F3FF 0%, #EDE9FE 100%)',
-                    color: '#8B5CF6'
-                  }}
-                  title="新建角色"
-                >
-                  <Plus size={14} />
-                </button>
-              </div>
-            </div>
-            
-            <div className="space-y-2.5 max-h-52 overflow-y-auto pr-1">
-              {personas.map(persona => {
-                const isSelected = selectedPersonaIds.includes(persona.id);
-                const isCustom = !['1', '2', '3', 'pm-1', 'design-1', 'ops-1', 'compliance-1', 'a11y-1', 'cs-1'].includes(persona.id);
-                return (
-                  <div 
-                    key={persona.id}
-                    onClick={() => togglePersonaSelection(persona.id)}
-                    className={`p-3.5 rounded-2xl cursor-pointer transition-all duration-200 relative group flex items-start gap-3 ${
-                      isSelected
-                        ? 'clay-selected' 
-                        : 'clay-card hover:shadow-soft'
-                    }`}
-                  >
-                    {/* Checkbox */}
-                    <div className={`mt-0.5 w-5 h-5 rounded-lg flex items-center justify-center transition-all ${
-                      isSelected 
-                        ? '' 
-                        : 'clay-inset'
-                    }`} style={isSelected ? {
-                      background: 'linear-gradient(145deg, #A78BFA 0%, #8B5CF6 100%)',
-                      boxShadow: '0 2px 8px -2px rgba(139, 92, 246, 0.4)'
-                    } : {}}>
-                      {isSelected && <Check size={12} className="text-white" strokeWidth={3} />}
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <span className={`font-semibold text-sm block truncate pr-6 ${isSelected ? 'text-accent-violet' : 'text-clay-700'}`}>
-                        {persona.name}
-                      </span>
-                      <p className={`text-xs line-clamp-2 mt-0.5 ${isSelected ? 'text-accent-violet/70' : 'text-clay-500'}`}>
-                        {persona.description}
-                      </p>
-                    </div>
-                    
-                    {/* Actions */}
-                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      {isCustom && (
-                        <button 
-                          onClick={(e) => handleEditPersona(e, persona)}
-                          className="clay-btn p-1.5 text-clay-400 hover:text-accent-violet"
-                          title="编辑角色"
-                        >
-                          <Pencil size={11} />
-                        </button>
-                      )}
-                      <button 
-                        onClick={(e) => handleExportPersona(e, persona)}
-                        className="clay-btn p-1.5 text-clay-400 hover:text-accent-violet"
-                        title="导出角色配置"
-                      >
-                        <Download size={11} />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Options */}
-            <div className="mt-5 pt-5" style={{ borderTop: '1px solid rgba(0,0,0,0.04)' }}>
-              <h2 className="text-xs font-bold text-clay-400 uppercase tracking-wider mb-3">附加选项</h2>
-              
-              <div 
-                onClick={() => uploadMode !== 'video' && setShouldGenerateImages(!shouldGenerateImages)}
-                className={`clay-card p-4 rounded-2xl flex items-center gap-4 cursor-pointer transition-all ${uploadMode === 'video' ? 'opacity-50 cursor-not-allowed' : 'hover:shadow-soft'}`}
-              >
-                <div className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all ${
-                  shouldGenerateImages 
-                    ? '' 
-                    : 'clay-inset'
-                }`} style={shouldGenerateImages ? {
-                  background: 'linear-gradient(145deg, #34D399 0%, #10B981 100%)',
-                  boxShadow: '0 2px 8px -2px rgba(52, 211, 153, 0.4)'
-                } : {}}>
-                  {shouldGenerateImages && <Check size={14} className="text-white" />}
-                </div>
-                <div>
-                  <span className={`text-sm font-medium ${shouldGenerateImages ? 'text-accent-emerald' : 'text-clay-600'}`}>
-                    生成优化效果图
-                  </span>
-                  <p className="text-xs text-clay-400">
-                    {uploadMode === 'video' ? '视频模式不支持生成效果图' : 'AI 将尝试绘制优化后的界面'}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Step 3: Analyze Button */}
-          <div className="p-6">
-            <button 
-              onClick={handleAnalyze}
-              disabled={!isReadyToAnalyze || isAnalyzing || selectedPersonaIds.length === 0}
-              className={`w-full py-4 px-6 rounded-2xl flex items-center justify-center gap-3 font-bold text-white transition-all transform active:scale-[0.98] ${
-                !isReadyToAnalyze || isAnalyzing || selectedPersonaIds.length === 0
-                  ? 'bg-clay-300 cursor-not-allowed' 
-                  : 'clay-btn-primary hover:scale-[1.01]'
+            {/* ===== Step 1: Upload ===== */}
+            <div 
+              className={`accordion-step rounded-3xl transition-all duration-500 ease-out overflow-hidden ${
+                activeStep === 1 
+                  ? 'clay-card-raised step-expanded' 
+                  : 'step-collapsed cursor-pointer hover:opacity-100'
               }`}
-              style={isReadyToAnalyze && !isAnalyzing && selectedPersonaIds.length > 0 ? {
-                background: 'linear-gradient(145deg, #A78BFA 0%, #8B5CF6 50%, #7C3AED 100%)',
-                boxShadow: '0 8px 24px -4px rgba(139, 92, 246, 0.4), inset 0 1px 0 rgba(255,255,255,0.3)'
-              } : {}}
+              style={{
+                opacity: activeStep === 1 ? 1 : 0.7,
+                boxShadow: activeStep === 1 
+                  ? '0 12px 32px -8px rgba(139, 92, 246, 0.25), inset 0 1px 0 rgba(255,255,255,0.9)' 
+                  : '0 2px 8px -2px rgba(0,0,0,0.06)',
+                background: activeStep === 1 
+                  ? 'linear-gradient(145deg, #FFFFFF 0%, #F8FAFC 100%)' 
+                  : 'linear-gradient(145deg, #F5F7FA 0%, #EAEEF4 100%)',
+              }}
+              onClick={() => activeStep !== 1 && goToStep(1)}
             >
-              {isAnalyzing ? (
-                <>
-                  <Loader2 size={20} className="animate-spin" />
-                  <span>分析中...</span>
-                </>
-              ) : (
-                <>
-                  <Zap size={20} />
-                  <span>开始全维度审计</span>
-                </>
-              )}
-            </button>
-            <div className="text-center mt-3">
-              <span className="text-xs text-clay-400">预计消耗: {selectedPersonaIds.length} x Token</span>
+              {/* Step 1 Header - Always visible */}
+              <div 
+                className={`flex items-center gap-3 transition-all duration-300 ${
+                  activeStep === 1 ? 'p-5 pb-4' : 'p-4'
+                }`}
+              >
+                {/* Step indicator */}
+                <div 
+                  className={`shrink-0 rounded-full flex items-center justify-center transition-all duration-300 ${
+                    activeStep === 1 ? 'w-8 h-8' : 'w-7 h-7'
+                  }`}
+                  style={{
+                    background: isStep1Complete && activeStep !== 1
+                      ? 'linear-gradient(145deg, #34D399 0%, #10B981 100%)'
+                      : 'linear-gradient(145deg, #A78BFA 0%, #8B5CF6 100%)',
+                    boxShadow: activeStep === 1 
+                      ? '0 4px 12px -2px rgba(139, 92, 246, 0.4)' 
+                      : '0 2px 6px -2px rgba(139, 92, 246, 0.3)'
+                  }}
+                >
+                  {isStep1Complete && activeStep !== 1 ? (
+                    <Check size={14} className="text-white step-check-icon" strokeWidth={3} />
+                  ) : (
+                    <span className="text-white text-xs font-bold">1</span>
+                  )}
+                </div>
+                
+                {/* Title & Summary */}
+                <div className="flex-1 min-w-0">
+                  <h3 className={`font-semibold transition-all duration-300 ${
+                    activeStep === 1 ? 'text-sm text-clay-800' : 'text-xs text-clay-600'
+                  }`}>
+                    {activeStep === 1 ? '上传需测内容' : (isStep1Complete ? getUploadSummary() : '上传需测内容')}
+                  </h3>
+                  {activeStep !== 1 && !isStep1Complete && (
+                    <p className="text-[10px] text-clay-400 mt-0.5">点击展开</p>
+                  )}
+                </div>
+                
+                {/* Expand indicator */}
+                <ChevronRight 
+                  size={16} 
+                  className={`text-clay-400 transition-transform duration-300 ${
+                    activeStep === 1 ? 'rotate-90' : ''
+                  }`}
+                />
+              </div>
+              
+              {/* Step 1 Content - Expandable */}
+              <div 
+                className={`accordion-content transition-all duration-500 ease-out ${
+                  activeStep === 1 ? 'max-h-[600px] opacity-100' : 'max-h-0 opacity-0'
+                }`}
+                style={{ overflow: 'hidden' }}
+              >
+                <div className="px-5 pb-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+                  {/* Toggle Mode */}
+                  <div className="clay-inset p-1.5 rounded-2xl flex gap-1">
+                    {[
+                      { key: 'single', label: '单页', icon: null },
+                      { key: 'flow', label: '流程', icon: null },
+                      { key: 'video', label: '视频', icon: Video }
+                    ].map(mode => (
+                      <button 
+                        key={mode.key}
+                        onClick={() => setUploadMode(mode.key as any)}
+                        className={`flex-1 py-2.5 text-xs font-semibold rounded-xl transition-all flex items-center justify-center gap-1.5 ${
+                          uploadMode === mode.key 
+                            ? 'clay-tab active text-accent-violet' 
+                            : 'text-clay-500 hover:text-clay-700'
+                        }`}
+                      >
+                        {mode.icon && <mode.icon size={12} />}
+                        {mode.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {uploadMode === 'single' && (
+                    <div 
+                      onClick={() => fileInputRef.current?.click()}
+                      className={`rounded-3xl p-6 text-center cursor-pointer transition-all ${
+                        image 
+                          ? 'clay-selected' 
+                          : 'clay-inset hover:shadow-soft'
+                      }`}
+                      style={{ border: image ? undefined : '2px dashed rgba(139, 92, 246, 0.2)' }}
+                    >
+                      <input 
+                        ref={fileInputRef}
+                        type="file" 
+                        accept="image/*" 
+                        onChange={handleFileChange} 
+                        className="hidden" 
+                      />
+                      {image ? (
+                        <div className="relative">
+                          <img src={image} alt="Preview" className="max-h-28 mx-auto rounded-2xl" style={{ boxShadow: '0 8px 24px -6px rgba(0,0,0,0.15)' }} />
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/5 rounded-2xl opacity-0 hover:opacity-100 transition-opacity">
+                            <span className="clay-badge px-4 py-2 text-xs font-semibold text-clay-700">更换图片</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center gap-2 text-clay-400 py-2">
+                          <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{
+                            background: 'linear-gradient(145deg, #E8ECF4 0%, #F0F3F9 100%)',
+                            boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.06)'
+                          }}>
+                            <Upload size={20} className="text-clay-400" />
+                          </div>
+                          <span className="text-xs font-medium">点击上传图片</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {uploadMode === 'video' && (
+                    <div 
+                      onClick={() => videoInputRef.current?.click()}
+                      className={`rounded-3xl p-6 text-center cursor-pointer transition-all ${
+                        video 
+                          ? 'clay-selected' 
+                          : 'clay-inset hover:shadow-soft'
+                      }`}
+                      style={{ border: video ? undefined : '2px dashed rgba(139, 92, 246, 0.2)' }}
+                    >
+                      <input 
+                        ref={videoInputRef}
+                        type="file" 
+                        accept="video/mp4,video/webm,video/quicktime" 
+                        onChange={handleVideoChange} 
+                        className="hidden" 
+                      />
+                      {video ? (
+                        <div className="relative">
+                          <video src={video} className="max-h-28 mx-auto rounded-2xl bg-black" style={{ boxShadow: '0 8px 24px -6px rgba(0,0,0,0.15)' }} />
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/5 rounded-2xl opacity-0 hover:opacity-100 transition-opacity">
+                            <span className="clay-badge px-4 py-2 text-xs font-semibold text-clay-700">更换视频</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center gap-2 text-clay-400 py-2">
+                          <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{
+                            background: 'linear-gradient(145deg, #E8ECF4 0%, #F0F3F9 100%)',
+                            boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.06)'
+                          }}>
+                            <Film size={20} className="text-clay-400" />
+                          </div>
+                          <span className="text-xs font-medium">点击上传视频</span>
+                          <span className="text-[10px] clay-badge px-3 py-1" style={{ background: 'linear-gradient(145deg, #F5F3FF 0%, #EDE9FE 100%)', color: '#7C3AED' }}>限制 50MB</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {uploadMode === 'flow' && (
+                    <div className="space-y-3">
+                      {processSteps.length > 0 && (
+                        <div className="space-y-2">
+                          {processSteps.map((step, idx) => (
+                            <div key={step.id} className="clay-card p-3 group relative rounded-2xl">
+                              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                                <button onClick={() => removeStep(step.id)} className="clay-btn p-1.5 text-clay-400 hover:text-accent-rose">
+                                  <Trash2 size={12} />
+                                </button>
+                              </div>
+                              
+                              <div className="flex gap-3 items-start">
+                                <div className="w-16 h-16 shrink-0 rounded-xl overflow-hidden" style={{ boxShadow: '0 4px 12px -4px rgba(0,0,0,0.1)' }}>
+                                  <img src={step.image} alt={`Step ${idx+1}`} className="w-full h-full object-cover" />
+                                </div>
+                                <div className="flex-1">
+                                  <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-md inline-block mb-1.5" style={{
+                                    background: 'linear-gradient(145deg, #A78BFA 0%, #8B5CF6 100%)',
+                                    color: 'white',
+                                  }}>步骤 {idx + 1}</span>
+                                  <textarea 
+                                    value={step.description}
+                                    onChange={(e) => updateStepDescription(step.id, e.target.value)}
+                                    placeholder="输入操作说明..."
+                                    className="clay-input w-full text-[11px] p-2 outline-none resize-none"
+                                    rows={2}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <div 
+                        onClick={handleAddFlowStep}
+                        className="clay-inset rounded-2xl p-4 text-center cursor-pointer hover:shadow-soft transition-all flex flex-col items-center justify-center gap-1.5 text-clay-400"
+                        style={{ border: '2px dashed rgba(139, 92, 246, 0.2)' }}
+                      >
+                        <input 
+                          ref={flowStepInputRef}
+                          type="file" 
+                          accept="image/*" 
+                          multiple
+                          onChange={handleFlowImageSelect}
+                          className="hidden" 
+                        />
+                        <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{
+                          background: 'linear-gradient(145deg, #F5F3FF 0%, #EDE9FE 100%)',
+                          color: '#8B5CF6'
+                        }}>
+                          <ImagePlus size={14} />
+                        </div>
+                        <span className="text-[11px] font-medium">添加流程截图</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Next Step Button */}
+                  <button
+                    onClick={goToNextStep}
+                    disabled={!isStep1Complete}
+                    className={`w-full py-3 rounded-2xl flex items-center justify-center gap-2 text-sm font-semibold transition-all ${
+                      isStep1Complete
+                        ? 'text-white'
+                        : 'bg-clay-200 text-clay-400 cursor-not-allowed'
+                    }`}
+                    style={isStep1Complete ? {
+                      background: 'linear-gradient(145deg, #A78BFA 0%, #8B5CF6 100%)',
+                      boxShadow: '0 6px 16px -4px rgba(139, 92, 246, 0.4)'
+                    } : {}}
+                  >
+                    <span>下一步</span>
+                    <ArrowRight size={16} />
+                  </button>
+                </div>
+              </div>
             </div>
+
+            {/* ===== Step 2: Personas ===== */}
+            <div 
+              className={`accordion-step rounded-3xl transition-all duration-500 ease-out overflow-hidden ${
+                activeStep === 2 
+                  ? 'clay-card-raised step-expanded' 
+                  : 'step-collapsed'
+              } ${activeStep !== 2 && isStep1Complete ? 'cursor-pointer hover:opacity-100' : ''}`}
+              style={{
+                opacity: activeStep === 2 ? 1 : (isStep1Complete ? 0.7 : 0.4),
+                boxShadow: activeStep === 2 
+                  ? '0 12px 32px -8px rgba(56, 189, 248, 0.25), inset 0 1px 0 rgba(255,255,255,0.9)' 
+                  : '0 2px 8px -2px rgba(0,0,0,0.06)',
+                background: activeStep === 2 
+                  ? 'linear-gradient(145deg, #FFFFFF 0%, #F8FAFC 100%)' 
+                  : 'linear-gradient(145deg, #F5F7FA 0%, #EAEEF4 100%)',
+                pointerEvents: !isStep1Complete && activeStep !== 2 ? 'none' : 'auto'
+              }}
+              onClick={() => activeStep !== 2 && isStep1Complete && goToStep(2)}
+            >
+              {/* Step 2 Header */}
+              <div 
+                className={`flex items-center gap-3 transition-all duration-300 ${
+                  activeStep === 2 ? 'p-5 pb-4' : 'p-4'
+                }`}
+              >
+                <div 
+                  className={`shrink-0 rounded-full flex items-center justify-center transition-all duration-300 ${
+                    activeStep === 2 ? 'w-8 h-8' : 'w-7 h-7'
+                  }`}
+                  style={{
+                    background: isStep2Complete && isStep1Complete && activeStep !== 2
+                      ? 'linear-gradient(145deg, #34D399 0%, #10B981 100%)'
+                      : 'linear-gradient(145deg, #38BDF8 0%, #0EA5E9 100%)',
+                    boxShadow: activeStep === 2 
+                      ? '0 4px 12px -2px rgba(56, 189, 248, 0.4)' 
+                      : '0 2px 6px -2px rgba(56, 189, 248, 0.3)'
+                  }}
+                >
+                  {isStep2Complete && isStep1Complete && activeStep !== 2 ? (
+                    <Check size={14} className="text-white step-check-icon" strokeWidth={3} />
+                  ) : (
+                    <span className="text-white text-xs font-bold">2</span>
+                  )}
+                </div>
+                
+                <div className="flex-1 min-w-0">
+                  <h3 className={`font-semibold transition-all duration-300 ${
+                    activeStep === 2 ? 'text-sm text-clay-800' : 'text-xs text-clay-600'
+                  }`}>
+                    {activeStep === 2 ? '选择模拟角色' : (isStep2Complete ? getPersonaSummary() : '选择模拟角色')}
+                  </h3>
+                  {activeStep !== 2 && !isStep1Complete && (
+                    <p className="text-[10px] text-clay-400 mt-0.5">请先完成上一步</p>
+                  )}
+                </div>
+                
+                <ChevronRight 
+                  size={16} 
+                  className={`text-clay-400 transition-transform duration-300 ${
+                    activeStep === 2 ? 'rotate-90' : ''
+                  }`}
+                />
+              </div>
+              
+              {/* Step 2 Content */}
+              <div 
+                className={`accordion-content transition-all duration-500 ease-out ${
+                  activeStep === 2 ? 'max-h-[800px] opacity-100' : 'max-h-0 opacity-0'
+                }`}
+                style={{ overflow: 'hidden' }}
+              >
+                <div className="px-5 pb-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+                  {/* Actions */}
+                  <div className="flex justify-end gap-2">
+                    <button 
+                      onClick={handleDownloadTemplate}
+                      className="clay-btn p-2 text-clay-400 hover:text-accent-violet transition-colors"
+                      title="下载角色模版"
+                    >
+                      <FileJson size={14} />
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setNewPersonaData(EMPTY_PERSONA);
+                        setEditingPersonaId(null);
+                        setIsModalOpen(true);
+                      }}
+                      className="clay-btn p-2 transition-colors"
+                      style={{ 
+                        background: 'linear-gradient(145deg, #F5F3FF 0%, #EDE9FE 100%)',
+                        color: '#8B5CF6'
+                      }}
+                      title="新建角色"
+                    >
+                      <Plus size={14} />
+                    </button>
+                  </div>
+                  
+                  {/* Persona List */}
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                    {personas.map(persona => {
+                      const isSelected = selectedPersonaIds.includes(persona.id);
+                      const isCustom = !['1', '2', '3', 'pm-1', 'design-1', 'ops-1', 'compliance-1', 'a11y-1', 'cs-1'].includes(persona.id);
+                      return (
+                        <div 
+                          key={persona.id}
+                          onClick={() => togglePersonaSelection(persona.id)}
+                          className={`p-3 rounded-2xl cursor-pointer transition-all duration-200 relative group flex items-start gap-3 ${
+                            isSelected
+                              ? 'clay-selected' 
+                              : 'clay-card hover:shadow-soft'
+                          }`}
+                        >
+                          <div className={`mt-0.5 w-5 h-5 rounded-lg flex items-center justify-center transition-all ${
+                            isSelected ? '' : 'clay-inset'
+                          }`} style={isSelected ? {
+                            background: 'linear-gradient(145deg, #A78BFA 0%, #8B5CF6 100%)',
+                            boxShadow: '0 2px 8px -2px rgba(139, 92, 246, 0.4)'
+                          } : {}}>
+                            {isSelected && <Check size={12} className="text-white" strokeWidth={3} />}
+                          </div>
+
+                          <div className="flex-1 min-w-0">
+                            <span className={`font-semibold text-xs block truncate pr-6 ${isSelected ? 'text-accent-violet' : 'text-clay-700'}`}>
+                              {persona.name}
+                            </span>
+                            <p className={`text-[11px] line-clamp-1 mt-0.5 ${isSelected ? 'text-accent-violet/70' : 'text-clay-500'}`}>
+                              {persona.description}
+                            </p>
+                          </div>
+                          
+                          <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {isCustom && (
+                              <button 
+                                onClick={(e) => handleEditPersona(e, persona)}
+                                className="clay-btn p-1.5 text-clay-400 hover:text-accent-violet"
+                                title="编辑角色"
+                              >
+                                <Pencil size={10} />
+                              </button>
+                            )}
+                            <button 
+                              onClick={(e) => handleExportPersona(e, persona)}
+                              className="clay-btn p-1.5 text-clay-400 hover:text-accent-violet"
+                              title="导出角色配置"
+                            >
+                              <Download size={10} />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Generate Image Option */}
+                  <div 
+                    onClick={() => uploadMode !== 'video' && setShouldGenerateImages(!shouldGenerateImages)}
+                    className={`clay-card p-3 rounded-2xl flex items-center gap-3 cursor-pointer transition-all ${uploadMode === 'video' ? 'opacity-50 cursor-not-allowed' : 'hover:shadow-soft'}`}
+                  >
+                    <div className={`w-5 h-5 rounded-lg flex items-center justify-center transition-all ${
+                      shouldGenerateImages ? '' : 'clay-inset'
+                    }`} style={shouldGenerateImages ? {
+                      background: 'linear-gradient(145deg, #34D399 0%, #10B981 100%)',
+                      boxShadow: '0 2px 8px -2px rgba(52, 211, 153, 0.4)'
+                    } : {}}>
+                      {shouldGenerateImages && <Check size={12} className="text-white" />}
+                    </div>
+                    <div className="flex-1">
+                      <span className={`text-xs font-medium ${shouldGenerateImages ? 'text-accent-emerald' : 'text-clay-600'}`}>
+                        生成优化效果图
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Next Step Button */}
+                  <button
+                    onClick={goToNextStep}
+                    disabled={!isStep2Complete}
+                    className={`w-full py-3 rounded-2xl flex items-center justify-center gap-2 text-sm font-semibold transition-all ${
+                      isStep2Complete
+                        ? 'text-white'
+                        : 'bg-clay-200 text-clay-400 cursor-not-allowed'
+                    }`}
+                    style={isStep2Complete ? {
+                      background: 'linear-gradient(145deg, #38BDF8 0%, #0EA5E9 100%)',
+                      boxShadow: '0 6px 16px -4px rgba(56, 189, 248, 0.4)'
+                    } : {}}
+                  >
+                    <span>下一步</span>
+                    <ArrowRight size={16} />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* ===== Step 3: Analyze ===== */}
+            <div 
+              className={`accordion-step rounded-3xl transition-all duration-500 ease-out overflow-hidden ${
+                activeStep === 3 
+                  ? 'clay-card-raised step-expanded' 
+                  : 'step-collapsed'
+              } ${activeStep !== 3 && isStep1Complete && isStep2Complete ? 'cursor-pointer hover:opacity-100' : ''}`}
+              style={{
+                opacity: activeStep === 3 ? 1 : (isStep1Complete && isStep2Complete ? 0.7 : 0.4),
+                boxShadow: activeStep === 3 
+                  ? '0 12px 32px -8px rgba(52, 211, 153, 0.25), inset 0 1px 0 rgba(255,255,255,0.9)' 
+                  : '0 2px 8px -2px rgba(0,0,0,0.06)',
+                background: activeStep === 3 
+                  ? 'linear-gradient(145deg, #FFFFFF 0%, #F8FAFC 100%)' 
+                  : 'linear-gradient(145deg, #F5F7FA 0%, #EAEEF4 100%)',
+                pointerEvents: !(isStep1Complete && isStep2Complete) && activeStep !== 3 ? 'none' : 'auto'
+              }}
+              onClick={() => activeStep !== 3 && isStep1Complete && isStep2Complete && goToStep(3)}
+            >
+              {/* Step 3 Header */}
+              <div 
+                className={`flex items-center gap-3 transition-all duration-300 ${
+                  activeStep === 3 ? 'p-5 pb-4' : 'p-4'
+                }`}
+              >
+                <div 
+                  className={`shrink-0 rounded-full flex items-center justify-center transition-all duration-300 ${
+                    activeStep === 3 ? 'w-8 h-8' : 'w-7 h-7'
+                  }`}
+                  style={{
+                    background: 'linear-gradient(145deg, #34D399 0%, #10B981 100%)',
+                    boxShadow: activeStep === 3 
+                      ? '0 4px 12px -2px rgba(52, 211, 153, 0.4)' 
+                      : '0 2px 6px -2px rgba(52, 211, 153, 0.3)'
+                  }}
+                >
+                  <span className="text-white text-xs font-bold">3</span>
+                </div>
+                
+                <div className="flex-1 min-w-0">
+                  <h3 className={`font-semibold transition-all duration-300 ${
+                    activeStep === 3 ? 'text-sm text-clay-800' : 'text-xs text-clay-600'
+                  }`}>
+                    开始分析
+                  </h3>
+                  {activeStep !== 3 && !(isStep1Complete && isStep2Complete) && (
+                    <p className="text-[10px] text-clay-400 mt-0.5">请先完成前两步</p>
+                  )}
+                </div>
+                
+                <ChevronRight 
+                  size={16} 
+                  className={`text-clay-400 transition-transform duration-300 ${
+                    activeStep === 3 ? 'rotate-90' : ''
+                  }`}
+                />
+              </div>
+              
+              {/* Step 3 Content */}
+              <div 
+                className={`accordion-content transition-all duration-500 ease-out ${
+                  activeStep === 3 ? 'max-h-[300px] opacity-100' : 'max-h-0 opacity-0'
+                }`}
+                style={{ overflow: 'hidden' }}
+              >
+                <div className="px-5 pb-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+                  {/* Summary Info */}
+                  <div className="clay-inset p-4 rounded-2xl space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-clay-500">上传内容</span>
+                      <span className="text-clay-700 font-medium">{getUploadSummary()}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-clay-500">模拟角色</span>
+                      <span className="text-clay-700 font-medium">{selectedPersonaIds.length} 个</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-clay-500">生成效果图</span>
+                      <span className="text-clay-700 font-medium">{shouldGenerateImages ? '是' : '否'}</span>
+                    </div>
+                  </div>
+                  
+                  {/* Analyze Button */}
+                  <button 
+                    onClick={handleAnalyze}
+                    disabled={!isReadyToAnalyze || isAnalyzing || selectedPersonaIds.length === 0}
+                    className={`w-full py-4 px-6 rounded-2xl flex items-center justify-center gap-3 font-bold text-white transition-all transform active:scale-[0.98] ${
+                      !isReadyToAnalyze || isAnalyzing || selectedPersonaIds.length === 0
+                        ? 'bg-clay-300 cursor-not-allowed' 
+                        : 'clay-btn-primary hover:scale-[1.01]'
+                    }`}
+                    style={isReadyToAnalyze && !isAnalyzing && selectedPersonaIds.length > 0 ? {
+                      background: 'linear-gradient(145deg, #34D399 0%, #10B981 50%, #059669 100%)',
+                      boxShadow: '0 8px 24px -4px rgba(52, 211, 153, 0.4), inset 0 1px 0 rgba(255,255,255,0.3)'
+                    } : {}}
+                  >
+                    {isAnalyzing ? (
+                      <>
+                        <Loader2 size={20} className="animate-spin" />
+                        <span>分析中...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Zap size={20} />
+                        <span>开始全维度审计</span>
+                      </>
+                    )}
+                  </button>
+                  <div className="text-center">
+                    <span className="text-[11px] text-clay-400">预计消耗: {selectedPersonaIds.length} x Token</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
           </div>
         </div>
       </div>

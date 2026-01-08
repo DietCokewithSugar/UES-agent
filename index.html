@@ -280,6 +280,109 @@
           0 2px 8px -2px rgba(139, 92, 246, 0.5),
           inset 0 1px 0 rgba(255, 255, 255, 0.3);
       }
+      
+      /* ===== Accordion Stepper Styles ===== */
+      .accordion-step {
+        transform-origin: top center;
+        will-change: transform, opacity, box-shadow;
+      }
+      
+      .accordion-step.step-expanded {
+        transform: scale(1);
+      }
+      
+      .accordion-step.step-collapsed {
+        transform: scale(0.98);
+      }
+      
+      .accordion-step.step-collapsed:hover {
+        opacity: 1 !important;
+        transform: scale(1);
+        box-shadow: 
+          0 4px 16px -4px rgba(0, 0, 0, 0.12),
+          inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
+      }
+      
+      .accordion-content {
+        will-change: max-height, opacity;
+      }
+      
+      /* Step expand animation */
+      @keyframes stepExpand {
+        from {
+          opacity: 0;
+          transform: translateY(-8px) scale(0.98);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+      
+      @keyframes stepCollapse {
+        from {
+          opacity: 1;
+          transform: scale(1);
+        }
+        to {
+          opacity: 0.7;
+          transform: scale(0.98);
+        }
+      }
+      
+      /* Glow effects for active steps */
+      .accordion-step.step-expanded::before {
+        content: '';
+        position: absolute;
+        inset: -2px;
+        border-radius: 26px;
+        background: linear-gradient(
+          145deg,
+          rgba(139, 92, 246, 0.15) 0%,
+          rgba(56, 189, 248, 0.1) 50%,
+          rgba(52, 211, 153, 0.1) 100%
+        );
+        z-index: -1;
+        opacity: 0;
+        animation: glowPulse 2s ease-in-out infinite;
+      }
+      
+      @keyframes glowPulse {
+        0%, 100% { opacity: 0.5; }
+        50% { opacity: 1; }
+      }
+      
+      /* Smooth height transition helper */
+      .accordion-content {
+        transition: 
+          max-height 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+          opacity 0.3s ease-out;
+      }
+      
+      /* Step number badge pulse when active */
+      .accordion-step.step-expanded .step-badge {
+        animation: badgePulse 2s ease-in-out infinite;
+      }
+      
+      @keyframes badgePulse {
+        0%, 100% { 
+          box-shadow: 0 4px 12px -2px currentColor;
+        }
+        50% { 
+          box-shadow: 0 6px 20px -2px currentColor;
+        }
+      }
+      
+      /* Completed step checkmark bounce */
+      @keyframes checkBounce {
+        0% { transform: scale(0); }
+        50% { transform: scale(1.2); }
+        100% { transform: scale(1); }
+      }
+      
+      .step-check-icon {
+        animation: checkBounce 0.4s ease-out;
+      }
     </style>
     
     <script type="importmap">
