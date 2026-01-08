@@ -33,17 +33,7 @@ const SeverityBadge: React.FC<{ severity: string }> = ({ severity }) => {
       color: '#DC2626',
       glow: '0 4px 12px -2px rgba(220, 38, 38, 0.25)'
     },
-    'Critical': { 
-      bg: 'linear-gradient(145deg, #FEE2E2 0%, #FECACA 100%)', 
-      color: '#DC2626',
-      glow: '0 4px 12px -2px rgba(220, 38, 38, 0.25)'
-    },
     '高': { 
-      bg: 'linear-gradient(145deg, #FFEDD5 0%, #FED7AA 100%)', 
-      color: '#EA580C',
-      glow: '0 4px 12px -2px rgba(234, 88, 12, 0.25)'
-    },
-    'High': { 
       bg: 'linear-gradient(145deg, #FFEDD5 0%, #FED7AA 100%)', 
       color: '#EA580C',
       glow: '0 4px 12px -2px rgba(234, 88, 12, 0.25)'
@@ -53,17 +43,7 @@ const SeverityBadge: React.FC<{ severity: string }> = ({ severity }) => {
       color: '#CA8A04',
       glow: '0 4px 12px -2px rgba(202, 138, 4, 0.25)'
     },
-    'Medium': { 
-      bg: 'linear-gradient(145deg, #FEF9C3 0%, #FEF08A 100%)', 
-      color: '#CA8A04',
-      glow: '0 4px 12px -2px rgba(202, 138, 4, 0.25)'
-    },
     '低': { 
-      bg: 'linear-gradient(145deg, #DBEAFE 0%, #BFDBFE 100%)', 
-      color: '#2563EB',
-      glow: '0 4px 12px -2px rgba(37, 99, 235, 0.25)'
-    },
-    'Low': { 
       bg: 'linear-gradient(145deg, #DBEAFE 0%, #BFDBFE 100%)', 
       color: '#2563EB',
       glow: '0 4px 12px -2px rgba(37, 99, 235, 0.25)'
@@ -163,7 +143,7 @@ export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, p
                   <div className="p-3" style={{ background: 'linear-gradient(145deg, #F5F7FA 0%, #EAEEF4 100%)' }}>
                     <img 
                       src={step.image} 
-                      alt={`Step ${idx + 1}`} 
+                      alt={`步骤 ${idx + 1}`} 
                       className="w-full h-auto max-h-[280px] object-contain rounded-xl"
                       style={{ boxShadow: '0 4px 16px -4px rgba(0,0,0,0.1)' }}
                     />
@@ -213,7 +193,7 @@ export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, p
               ) : (
                 <img 
                   src={originalImage} 
-                  alt="Analyzed UI" 
+                  alt="测评界面" 
                   className="w-full h-auto max-h-[380px] object-contain mx-auto rounded-xl"
                   style={{ boxShadow: '0 8px 24px -6px rgba(0,0,0,0.15)' }}
                 />
@@ -270,11 +250,11 @@ export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, p
             <div className="flex-1 h-64 md:h-auto">
               <ETSRadarChart data={report.dimensionScores} />
             </div>
-            <div className="md:w-48 overflow-y-auto max-h-64 pr-2 pl-5" style={{ borderLeft: '1px solid rgba(0,0,0,0.05)' }}>
+            <div className="md:w-40 overflow-y-auto max-h-64 pr-2 pl-5" style={{ borderLeft: '1px solid rgba(0,0,0,0.05)' }}>
               <div className="space-y-3">
                 {report.dimensionScores.map((d) => (
-                  <div key={d.dimension} className="flex justify-between items-center text-sm">
-                    <span className="text-clay-500 truncate mr-3" title={d.dimension}>{d.dimension}</span>
+                  <div key={d.dimension} className="flex justify-between items-center text-sm gap-3">
+                    <span className="text-clay-500 whitespace-nowrap">{d.dimension}</span>
                     <ScoreIndicator score={d.score} />
                   </div>
                 ))}
@@ -389,14 +369,14 @@ export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, p
                   {(processSteps && processSteps.length > 0) ? (
                     <img 
                       src={processSteps[0].image} 
-                      alt="Original Design" 
+                      alt="原始设计" 
                       className="max-w-full max-h-full object-contain rounded-xl"
                       style={{ boxShadow: '0 8px 24px -6px rgba(0,0,0,0.12)' }}
                     />
                   ) : originalImage && (
                     <img 
                       src={originalImage} 
-                      alt="Original Design" 
+                      alt="原始设计" 
                       className="max-w-full max-h-full object-contain rounded-xl"
                       style={{ boxShadow: '0 8px 24px -6px rgba(0,0,0,0.12)' }}
                     />
@@ -434,7 +414,7 @@ export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, p
                   ) : optimizedImage ? (
                     <img 
                       src={optimizedImage} 
-                      alt="Optimized Design" 
+                      alt="优化设计" 
                       className="max-w-full max-h-full object-contain rounded-xl transition-transform duration-500 hover:scale-105"
                       style={{ boxShadow: '0 8px 24px -6px rgba(139, 92, 246, 0.2)' }}
                     />
@@ -484,10 +464,10 @@ export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, p
                 <div className="pl-3">
                   <div className="flex justify-between items-start mb-2">
                     <span className="text-sm font-bold text-clay-800">一级问题</span>
-                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md uppercase tracking-wide" style={{
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md tracking-wide" style={{
                       background: 'linear-gradient(145deg, #FEE2E2 0%, #FECACA 100%)',
                       color: '#DC2626'
-                    }}>Critical</span>
+                    }}>严重</span>
                   </div>
                   <div className="text-xs font-semibold text-clay-700 mb-1">常用功能 + 影响大</div>
                   <p className="text-[10px] text-clay-500 leading-relaxed">
@@ -504,10 +484,10 @@ export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, p
                 <div className="pl-3">
                   <div className="flex justify-between items-start mb-2">
                     <span className="text-sm font-bold text-clay-800">二级问题</span>
-                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md uppercase tracking-wide" style={{
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md tracking-wide" style={{
                       background: 'linear-gradient(145deg, #FFEDD5 0%, #FED7AA 100%)',
                       color: '#EA580C'
-                    }}>Major</span>
+                    }}>主要</span>
                   </div>
                   <div className="text-xs font-semibold text-clay-700 mb-1">常用(中/小) / 不常用(大)</div>
                   <p className="text-[10px] text-clay-500 leading-relaxed">
@@ -524,10 +504,10 @@ export const ReportView: React.FC<ReportViewProps> = ({ report, originalImage, p
                 <div className="pl-3">
                   <div className="flex justify-between items-start mb-2">
                     <span className="text-sm font-bold text-clay-800">三级问题</span>
-                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md uppercase tracking-wide" style={{
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md tracking-wide" style={{
                       background: 'linear-gradient(145deg, #DBEAFE 0%, #BFDBFE 100%)',
                       color: '#2563EB'
-                    }}>Minor</span>
+                    }}>轻微</span>
                   </div>
                   <div className="text-xs font-semibold text-clay-700 mb-1">不常用功能 + 影响中/小</div>
                   <p className="text-[10px] text-clay-500 leading-relaxed">

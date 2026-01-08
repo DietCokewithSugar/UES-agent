@@ -827,7 +827,7 @@ export default function App() {
                       />
                       {image ? (
                         <div className="relative">
-                          <img src={image} alt="Preview" className="max-h-28 mx-auto rounded-2xl" style={{ boxShadow: '0 8px 24px -6px rgba(0,0,0,0.15)' }} />
+                          <img src={image} alt="预览" className="max-h-28 mx-auto rounded-2xl" style={{ boxShadow: '0 8px 24px -6px rgba(0,0,0,0.15)' }} />
                           <div className="absolute inset-0 flex items-center justify-center bg-black/5 rounded-2xl opacity-0 hover:opacity-100 transition-opacity">
                             <span className="clay-badge px-4 py-2 text-xs font-semibold text-clay-700">更换图片</span>
                           </div>
@@ -899,7 +899,7 @@ export default function App() {
                               
                               <div className="flex gap-3 items-start">
                                 <div className="w-16 h-16 shrink-0 rounded-xl overflow-hidden" style={{ boxShadow: '0 4px 12px -4px rgba(0,0,0,0.1)' }}>
-                                  <img src={step.image} alt={`Step ${idx+1}`} className="w-full h-full object-cover" />
+                                  <img src={step.image} alt={`步骤 ${idx+1}`} className="w-full h-full object-cover" />
                                 </div>
                                 <div className="flex-1">
                                   <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-md inline-block mb-1.5" style={{
@@ -1569,8 +1569,8 @@ export default function App() {
                     onChange={(e) => setNewPersonaData({...newPersonaData, role: e.target.value as UserRole})}
                     className="clay-input w-full p-3.5 outline-none bg-transparent"
                   >
-                    <option value={UserRole.USER}>普通用户 (User)</option>
-                    <option value={UserRole.EXPERT}>专家评审 (Expert)</option>
+                    <option value={UserRole.USER}>普通用户</option>
+                    <option value={UserRole.EXPERT}>专家评审</option>
                   </select>
                 </div>
                 <div className="col-span-2">
