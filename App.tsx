@@ -224,9 +224,9 @@ export default function App() {
 
   // Settings State
   const [apiConfig, setApiConfig] = useState<ApiConfig>({
-    provider: 'google',
+    provider: 'openrouter',
     openRouterModel: 'google/gemini-2.5-flash',
-    imageModel: 'google/gemini-3-pro-image-preview'
+    imageModel: 'google/gemini-2.5-flash-image'
   });
 
   // Export State
