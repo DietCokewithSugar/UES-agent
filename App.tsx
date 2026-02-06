@@ -1,11 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, Sparkles, Settings, ChevronRight, Check, Loader2, Plus, X, Layers, Square, CheckSquare, Users, Download, Archive, Package, Globe, FileUp, FileJson, Trash2, GripVertical, ImagePlus, Pencil, Video, Film, Zap, Star, Moon, Sun, ArrowRight } from 'lucide-react';
+import { Upload, Sparkles, Settings, ChevronRight, Check, Loader2, Plus, X, Layers, Square, CheckSquare, Users, Download, Archive, Package, Globe, FileUp, FileJson, Trash2, GripVertical, ImagePlus, Pencil, Video, Film, Zap, Star, Moon, Sun, ArrowRight, BarChart3 } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import JSZip from 'jszip';
 import * as FileSaver from 'file-saver';
 import { Persona, ETSReport, UserRole, EvaluationModel, ApiConfig, ProcessStep } from './types';
 import { analyzeDesign, generateOptimizedDesign } from './services/geminiService';
 import { ReportView } from './components/ReportView';
+import { SummaryReport } from './components/SummaryReport';
 
 // --- Helper for FileSaver ---
 const saveFile = (data: Blob | string, filename: string) => {
@@ -233,6 +234,8 @@ export default function App() {
   const [isExporting, setIsExporting] = useState(false);
   const [isBatchExporting, setIsBatchExporting] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
+  const summaryRef = useRef<HTMLDivElement>(null);
+  const [showSummary, setShowSummary] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const flowStepInputRef = useRef<HTMLInputElement>(null);
@@ -407,6 +410,7 @@ export default function App() {
     setError(null);
     setReports({});
     setOptimizedImages({});
+    setShowSummary(false);
     setViewingPersonaId(targets[0].id);
 
     try {
@@ -586,13 +590,16 @@ export default function App() {
   };
 
   const handleExportImage = async () => {
-    if (!reportRef.current) return;
+    const refToUse = showSummary ? summaryRef : reportRef;
+    if (!refToUse.current) return;
     
     setIsExporting(true);
     try {
-      const blob = await generatePngBlob(reportRef.current);
+      const blob = await generatePngBlob(refToUse.current);
       if (blob) {
-        const currentPersonaName = personas.find(p => p.id === viewingPersonaId)?.name || 'Report';
+        const currentPersonaName = showSummary 
+          ? '综合评估报告'
+          : (personas.find(p => p.id === viewingPersonaId)?.name || 'Report');
         saveFile(blob, `ETS_Report_${currentPersonaName}.png`);
       }
     } catch (err) {
@@ -1286,13 +1293,29 @@ export default function App() {
         {Object.keys(reports).length > 0 && (
           <div className="clay-card mb-5 p-3 flex items-center justify-between sticky top-0 z-20" style={{ background: 'rgba(255,255,255,0.9)', backdropFilter: 'blur(16px)' }}>
             <div className="flex gap-2 overflow-x-auto no-scrollbar">
+              {hasMultipleReports && (
+                <button
+                  onClick={() => setShowSummary(true)}
+                  className={`px-4 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap transition-all flex items-center gap-2 ${
+                    showSummary ? '' : 'clay-btn text-clay-600'
+                  }`}
+                  style={showSummary ? {
+                    background: 'linear-gradient(145deg, #34D399 0%, #10B981 50%, #059669 100%)',
+                    color: 'white',
+                    boxShadow: '0 6px 20px -4px rgba(52, 211, 153, 0.4), inset 0 1px 0 rgba(255,255,255,0.3)'
+                  } : {}}
+                >
+                  <BarChart3 size={14} />
+                  综合报告
+                </button>
+              )}
               {Object.keys(reports).map(id => {
                 const persona = personas.find(p => p.id === id);
-                const isActive = viewingPersonaId === id;
+                const isActive = !showSummary && viewingPersonaId === id;
                 return (
                   <button
                     key={id}
-                    onClick={() => setViewingPersonaId(id)}
+                    onClick={() => { setShowSummary(false); setViewingPersonaId(id); }}
                     className={`px-4 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap transition-all flex items-center gap-2 ${
                       isActive 
                         ? '' 
@@ -1363,6 +1386,31 @@ export default function App() {
               </div>
               <h3 className="text-xl font-bold text-clay-800 font-display">分析中断</h3>
               <p className="text-clay-500 max-w-md mt-3">{error}</p>
+            </div>
+          ) : showSummary && hasMultipleReports ? (
+            <div ref={summaryRef} className="clay-card-raised p-8 md:p-10 rounded-[32px] animate-fade-in-up">
+              <div className="mb-8 pb-6 flex justify-between items-end" style={{ borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
+                <div>
+                  <h2 className="text-3xl font-bold text-clay-800 mb-3 font-display">综合评估报告</h2>
+                  <div className="flex items-center gap-3 text-clay-500 text-sm">
+                    <span className="clay-badge px-4 py-1.5 font-semibold" style={{
+                      background: 'linear-gradient(145deg, #D1FAE5 0%, #A7F3D0 100%)',
+                      color: '#059669'
+                    }}>
+                      {Object.keys(reports).length} 个角色综合
+                    </span>
+                    <span>•</span>
+                    <span>{new Date().toLocaleDateString()}</span>
+                  </div>
+                </div>
+                <div className="w-14 h-14 rounded-2xl flex items-center justify-center" style={{
+                  background: 'linear-gradient(145deg, #D1FAE5 0%, #A7F3D0 100%)',
+                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.8)'
+                }}>
+                  <BarChart3 className="text-emerald-600/50" size={28} />
+                </div>
+              </div>
+              <SummaryReport reports={reports} personas={personas} />
             </div>
           ) : currentReport ? (
             <div ref={reportRef} id={`report-view-${viewingPersonaId}`} className="clay-card-raised p-8 md:p-10 rounded-[32px] animate-fade-in-up">
