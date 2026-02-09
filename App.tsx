@@ -182,7 +182,7 @@ const OPENROUTER_TEXT_MODELS = [
 
 const GOOGLE_IMAGE_MODELS = [
   { value: "google/gemini-3-pro-image-preview", label: "Gemini 3 Pro Image (Google)" },
-  { value: "google/gemini-2.5-flash-image", label: "Gemini 2.5 Flash Image (Google)" }
+  { value: "google/gemini-3-pro-preview", label: "Gemini 2.5 Flash Image (Google)" }
 ];
 
 const OPENROUTER_IMAGE_MODELS = [
@@ -225,9 +225,9 @@ export default function App() {
 
   // Settings State
   const [apiConfig, setApiConfig] = useState<ApiConfig>({
-    provider: 'openrouter',
+    provider: 'google',
     openRouterModel: 'google/gemini-2.5-flash',
-    imageModel: 'google/gemini-2.5-flash-image'
+    imageModel: 'google/gemini-3-pro-preview'
   });
 
   // Export State

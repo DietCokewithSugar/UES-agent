@@ -252,7 +252,7 @@ export const analyzeDesign = async (
     const report = await callOpenRouter(
       prompt, 
       input, 
-      apiConfig.openRouterModel || "google/gemini-2.5-flash"
+      apiConfig.openRouterModel || "google/gemini-3-pro-preview"
     );
     report.modelType = model;
     return report;
@@ -387,7 +387,7 @@ export const generateOptimizedDesign = async (
   const cleanBase64 = originalImageBase64.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
 
   // Use selected image model or default
-  const imageModel = apiConfig.imageModel || 'gemini-2.5-flash';
+  const imageModel = apiConfig.imageModel || 'google/gemini-3-pro-preview';
 
   // Construct a focused prompt based on the specific issues found in the report
   // Updated filter for new severity levels (Level 1 and Level 2 are considered critical/high enough)
