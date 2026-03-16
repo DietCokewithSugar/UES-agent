@@ -1,6 +1,5 @@
 import React from 'react';
 import { Persona, PersonaRecommendation } from '../types';
-import { CheckCircle2, Plus } from 'lucide-react';
 
 interface PersonaRecommendationsProps {
   recommendations: PersonaRecommendation[];
@@ -50,7 +49,6 @@ export const PersonaRecommendations: React.FC<PersonaRecommendationsProps> = ({
                   onClick={() => onAddExisting(existingPersona.id)}
                   className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700"
                 >
-                  <CheckCircle2 size={14} />
                   加入评测
                 </button>
               ) : item.personaDraft ? (
@@ -58,7 +56,6 @@ export const PersonaRecommendations: React.FC<PersonaRecommendationsProps> = ({
                   onClick={() => onCreateFromDraft(item.personaDraft!)}
                   className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-700"
                 >
-                  <Plus size={14} />
                   保存并加入
                 </button>
               ) : null}
