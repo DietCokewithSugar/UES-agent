@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { toPng } from 'html-to-image';
 import JSZip from 'jszip';
 import * as FileSaver from 'file-saver';
@@ -14,6 +14,7 @@ import {
 } from './types';
 import { FRAMEWORK_PRESETS } from './config/frameworkPresets';
 import { CUSTOM_FRAMEWORK_TEMPLATE, parseFrameworkJson } from './utils/frameworkSchema';
+import { clearSetupDraft, loadSetupDraft, saveSetupDraft } from './utils/draftStorage';
 import {
   analyzeDesign,
   generateOptimizedDesign,
@@ -138,6 +139,26 @@ const OPENROUTER_IMAGE_MODELS = [
 ];
 
 const STEP_TITLES = ['上传评测素材', '定义业务场景与目标', '选择评测体系', '选择评测角色'];
+const SCENARIO_REQUIRED_FIELDS: Array<keyof EvaluationScenario> = [
+  'businessGoal',
+  'targetUsers',
+  'keyTasks'
+];
+const SCENARIO_FIELD_LABELS: Record<keyof EvaluationScenario, string> = {
+  industry: '行业',
+  productType: '产品类型',
+  businessGoal: '评测目标',
+  targetUsers: '目标用户',
+  keyTasks: '关键任务流',
+  painPoints: '用户痛点',
+  successCriteria: '成功标准',
+  constraints: '约束条件',
+  source: '来源'
+};
+const TUTORIAL_LINKS = [
+  { label: '如何定义评测目标', href: 'https://www.nngroup.com/articles/task-analysis/' },
+  { label: '可用性评估快速清单', href: 'https://www.nngroup.com/articles/heuristic-evaluation/' }
+];
 
 type PageMode = 'setup' | 'report';
 type SetupStep = 1 | 2 | 3 | 4;
@@ -165,6 +186,12 @@ export default function App() {
   const [isDropActive, setIsDropActive] = useState(false);
 
   const [scenario, setScenario] = useState<EvaluationScenario>(EMPTY_SCENARIO);
+  const [showAiGuide, setShowAiGuide] = useState(true);
+  const [showProgressChecklist, setShowProgressChecklist] = useState(true);
+  const [showConfigOverview, setShowConfigOverview] = useState(false);
+  const [hasStoredDraft, setHasStoredDraft] = useState(false);
+  const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
 
   const [reports, setReports] = useState<Record<string, FrameworkReport>>({});
   const [viewingPersonaId, setViewingPersonaId] = useState<string>(DEFAULT_PERSONAS[0].id);
@@ -215,33 +242,115 @@ export default function App() {
     (uploadMode === 'single' && !!image) ||
     (uploadMode === 'video' && !!video) ||
     (uploadMode === 'flow' && processSteps.length > 0);
-  const scenarioComplete = !!scenario.businessGoal.trim() || !!scenario.keyTasks.trim();
+  const scenarioComplete = SCENARIO_REQUIRED_FIELDS.every((field) => scenario[field].trim());
+  const missingScenarioFields = SCENARIO_REQUIRED_FIELDS.filter((field) => !scenario[field].trim());
   const frameworkComplete = !!selectedFramework;
   const personaComplete = selectedPersonaIds.length > 0;
+  const scenarioHasAnyInput = useMemo(
+    () =>
+      (Object.entries(scenario) as Array<[keyof EvaluationScenario, string]>).some(
+        ([key, value]) => key !== 'source' && value.trim()
+      ),
+    [scenario]
+  );
+  const hasMeaningfulSetup = uploadComplete || scenarioHasAnyInput || frameworkComplete || personaComplete;
 
-  const completionList = [
-    { label: STEP_TITLES[0], done: uploadComplete },
-    { label: STEP_TITLES[1], done: scenarioComplete },
-    { label: STEP_TITLES[2], done: frameworkComplete },
-    { label: STEP_TITLES[3], done: personaComplete }
+  const completionList: Array<{ id: string; label: string; done: boolean; detail?: string }> = [
+    { id: 'step-1', label: STEP_TITLES[0], done: uploadComplete },
+    {
+      id: 'step-2',
+      label: STEP_TITLES[1],
+      done: scenarioComplete,
+      detail: missingScenarioFields.length
+        ? `待补充：${missingScenarioFields.map((field) => SCENARIO_FIELD_LABELS[field]).join('、')}`
+        : '关键字段已完成'
+    },
+    {
+      id: 'step-3',
+      label: STEP_TITLES[2],
+      done: frameworkComplete,
+      detail: frameworkComplete ? selectedFramework?.name : '请选择评测体系'
+    },
+    {
+      id: 'step-4',
+      label: STEP_TITLES[3],
+      done: personaComplete,
+      detail: personaComplete ? `已选择 ${selectedPersonaIds.length} 个角色` : '请选择至少 1 个角色'
+    }
   ];
+  completionList[0].detail = uploadComplete
+    ? uploadMode === 'single'
+      ? singleFileName || '已上传单页截图'
+      : uploadMode === 'video'
+      ? videoFileName || '已上传视频'
+      : `已上传 ${processSteps.length} 张流程图`
+    : '请先上传素材';
+
+  const setupChecklist = useMemo(
+    () => [
+      { id: 'upload-source', step: 1, label: '上传评测素材', done: uploadComplete },
+      ...SCENARIO_REQUIRED_FIELDS.map((field) => ({
+        id: `scenario-${field}`,
+        step: 2,
+        label: `填写${SCENARIO_FIELD_LABELS[field]}`,
+        done: Boolean(scenario[field].trim())
+      })),
+      { id: 'framework-select', step: 3, label: '选择评测体系', done: frameworkComplete },
+      { id: 'persona-select', step: 4, label: '选择至少 1 个评测角色', done: personaComplete }
+    ],
+    [frameworkComplete, personaComplete, scenario, uploadComplete]
+  );
+
+  const pendingChecklist = setupChecklist.filter((item) => !item.done);
+  const completedChecklist = setupChecklist.filter((item) => item.done);
   const completionPercent = Math.round((completionList.filter((item) => item.done).length / completionList.length) * 100);
 
   const missingGuidance = useMemo(() => {
-    const missing = [];
+    const missing: string[] = [];
     if (!uploadComplete) missing.push('上传素材');
-    if (!scenarioComplete) missing.push('填写评测目标或关键任务');
+    if (!scenarioComplete) {
+      missing.push(
+        `完善业务场景（缺少：${missingScenarioFields.map((field) => SCENARIO_FIELD_LABELS[field]).join('、')}）`
+      );
+    }
     if (!frameworkComplete) missing.push('选择评测体系');
     if (!personaComplete) missing.push('选择至少一个角色');
     return missing;
-  }, [frameworkComplete, personaComplete, scenarioComplete, uploadComplete]);
+  }, [frameworkComplete, missingScenarioFields, personaComplete, scenarioComplete, uploadComplete]);
 
   const canAnalyze = uploadComplete && scenarioComplete && frameworkComplete && personaComplete && activeStep === 4;
+  const canExportSetupConfig = hasMeaningfulSetup;
+  const canGoNext =
+    (activeStep === 1 && uploadComplete) ||
+    (activeStep === 2 && scenarioComplete) ||
+    (activeStep === 3 && frameworkComplete);
+  const currentStepHint =
+    activeStep === 1
+      ? '先上传可用于评测的素材。'
+      : activeStep === 2
+      ? '完善业务目标、目标用户和关键任务。'
+      : activeStep === 3
+      ? '选择评测体系与模型来源。'
+      : '选择角色后即可开始评测。';
+
   const hasMultipleReports = Object.keys(reports).length > 1;
   const currentReport = reports[viewingPersonaId];
 
   const getFrameworkForReport = (report: FrameworkReport) =>
     frameworks.find((framework) => framework.id === report.frameworkId) || FRAMEWORK_PRESETS[0];
+
+  useEffect(() => {
+    const draft = loadSetupDraft();
+    if (!draft) return;
+    setHasStoredDraft(true);
+    setDraftSavedAt(draft.savedAt);
+  }, []);
+
+  useEffect(() => {
+    if (pendingChecklist.length === 0) {
+      setShowProgressChecklist(false);
+    }
+  }, [pendingChecklist.length]);
 
   const goToNextStep = () => {
     setActiveStep((previous) => {
@@ -250,6 +359,78 @@ export default function App() {
       if (previous === 3 && frameworkComplete) return 4;
       return previous;
     });
+  };
+
+  const goToPreviousStep = () => {
+    setActiveStep((previous) => {
+      if (previous === 4) return 3;
+      if (previous === 3) return 2;
+      if (previous === 2) return 1;
+      return previous;
+    });
+  };
+
+  const handleSaveDraft = () => {
+    const saveResult = saveSetupDraft({
+      version: 1,
+      savedAt: new Date().toISOString(),
+      uploadMode,
+      activeStep,
+      selectedFrameworkId,
+      selectedPersonaIds,
+      scenario,
+      shouldGenerateImages,
+      sourceMeta: {
+        singleFileName,
+        videoFileName,
+        flowStepCount: processSteps.length,
+        flowStepNames: processSteps.map((step) => step.fileName || '未命名')
+      }
+    });
+    if (saveResult.ok) {
+      const now = new Date().toISOString();
+      setHasStoredDraft(true);
+      setDraftSavedAt(now);
+      setInfoMessage('草稿已保存。稍后可点击“恢复草稿”继续配置（素材需重新上传）。');
+      setError(null);
+    } else if (saveResult.ok === false) {
+      setError(saveResult.error);
+    }
+  };
+
+  const handleRestoreDraft = () => {
+    const draft = loadSetupDraft();
+    if (!draft) {
+      setError('没有可恢复的草稿。');
+      return;
+    }
+    setUploadMode(draft.uploadMode);
+    setActiveStep(draft.activeStep);
+    setSelectedFrameworkId(draft.selectedFrameworkId);
+    setSelectedPersonaIds(
+      draft.selectedPersonaIds.filter((id) => personas.some((persona) => persona.id === id))
+    );
+    setScenario(draft.scenario);
+    setShouldGenerateImages(draft.shouldGenerateImages);
+    setSingleFileName(draft.sourceMeta.singleFileName || '');
+    setVideoFileName(draft.sourceMeta.videoFileName || '');
+    setImage(null);
+    setVideo(null);
+    setProcessSteps([]);
+    resetAnalysisResult();
+    setPageMode('setup');
+    setShowAiGuide(false);
+    setInfoMessage('草稿已恢复（本地文件安全限制，素材需要重新上传后再开始评测）。');
+    setError(null);
+    setHasStoredDraft(true);
+    setDraftSavedAt(draft.savedAt);
+  };
+
+  const handleClearDraft = () => {
+    clearSetupDraft();
+    setHasStoredDraft(false);
+    setDraftSavedAt(null);
+    setInfoMessage('已清除本地草稿。');
   };
 
   const resetAnalysisResult = () => {
@@ -266,6 +447,7 @@ export default function App() {
     setProcessSteps([]);
     setSingleFileName('');
     setVideoFileName('');
+    setInfoMessage(null);
     resetAnalysisResult();
   };
 
@@ -405,6 +587,7 @@ export default function App() {
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     saveFile(blob, 'ux_evaluation_config.json');
+    setInfoMessage('配置已导出为 JSON。');
   };
 
   const importPersona = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -457,6 +640,7 @@ export default function App() {
     if (!currentInput) return;
     setIsInferringScenario(true);
     setError(null);
+    setInfoMessage(null);
     try {
       const inferred = await inferScenarioFromInput(currentInput, apiConfig);
       setScenario((previous) => ({
@@ -464,6 +648,8 @@ export default function App() {
         ...inferred,
         source: previous.businessGoal || previous.keyTasks ? 'mixed' : 'ai_inferred'
       }));
+      setShowAiGuide(false);
+      setInfoMessage('AI 已生成场景草稿，请确认并按需修改。');
     } catch (err) {
       setError(err instanceof Error ? err.message : '场景提炼失败');
     } finally {
@@ -475,6 +661,7 @@ export default function App() {
     if (!currentInput || !selectedFramework) return;
     setIsRecommending(true);
     setError(null);
+    setInfoMessage(null);
     try {
       const recommendations = await recommendPersonas({
         input: currentInput,
@@ -508,6 +695,7 @@ export default function App() {
     setShowSummary(false);
     setViewingPersonaId(selectedPersonas[0].id);
     setError(null);
+    setInfoMessage(null);
     setReports({});
 
     try {
@@ -618,20 +806,50 @@ export default function App() {
     <div className="min-h-screen bg-slate-100 text-slate-900">
       {pageMode === 'setup' ? (
         <div className="mx-auto max-w-4xl p-4 md:p-6 pb-28 space-y-4">
-          <header className="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
-            <h1 className="text-xl font-semibold">AI 用户体验评测</h1>
-            <p className="text-sm text-slate-600">
-              先完成配置，再进入报告。你将按照 4 个步骤完成一次评测，当前完成度 {completionPercent}%。
-            </p>
-            <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
-              <div className="h-full bg-slate-700" style={{ width: `${completionPercent}%` }} />
+          <header className="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="space-y-1">
+                <h1 className="text-xl font-semibold">AI 用户体验评测</h1>
+                <p className="text-sm text-slate-600">
+                  先完成配置，再进入报告。当前步骤 {activeStep}/4：{STEP_TITLES[activeStep - 1]}。
+                </p>
+                <p className="text-xs text-slate-500">{currentStepHint}</p>
+              </div>
+              <div className="flex flex-wrap gap-2 text-xs">
+                <button onClick={handleSaveDraft} className="rounded-lg border border-slate-200 px-3 py-2">
+                  保存草稿
+                </button>
+                <button
+                  onClick={handleRestoreDraft}
+                  disabled={!hasStoredDraft}
+                  className="rounded-lg border border-slate-200 px-3 py-2 disabled:opacity-50"
+                >
+                  恢复草稿
+                </button>
+                <button
+                  onClick={handleClearDraft}
+                  disabled={!hasStoredDraft}
+                  className="rounded-lg border border-slate-200 px-3 py-2 disabled:opacity-50"
+                >
+                  清除草稿
+                </button>
+              </div>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+
+            <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+              <div className="h-full bg-slate-700 transition-all" style={{ width: `${completionPercent}%` }} />
+            </div>
+            <p className="text-xs text-slate-500">
+              配置完成度 {completionPercent}%。
+              {draftSavedAt ? ` 最近草稿保存于 ${new Date(draftSavedAt).toLocaleString()}` : ' 你可以随时保存草稿稍后继续。'}
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
               {completionList.map((item, index) => (
                 <button
-                  key={item.label}
+                  key={item.id}
                   onClick={() => setActiveStep((index + 1) as SetupStep)}
-                  className={`rounded-lg border px-2 py-1.5 text-left ${
+                  className={`rounded-lg border px-2 py-2 text-left ${
                     activeStep === index + 1
                       ? 'border-slate-400 bg-slate-100'
                       : item.done
@@ -639,18 +857,72 @@ export default function App() {
                       : 'border-slate-200 bg-white'
                   }`}
                 >
-                  <div>步骤 {index + 1}</div>
+                  <div className="flex items-center justify-between">
+                    <span>步骤 {index + 1}</span>
+                    <span className={item.done ? 'text-emerald-700' : 'text-amber-600'}>
+                      {item.done ? '已完成' : '待完成'}
+                    </span>
+                  </div>
                   <div className="font-medium mt-0.5">{item.label}</div>
+                  {item.detail && <div className="mt-1 text-[11px] text-slate-500">{item.detail}</div>}
                 </button>
               ))}
+            </div>
+
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-semibold text-slate-700">教程与最佳实践</p>
+                <button
+                  onClick={() => setShowConfigOverview((previous) => !previous)}
+                  className="text-xs text-slate-600 underline"
+                >
+                  {showConfigOverview ? '收起配置总览' : '展开配置总览'}
+                </button>
+              </div>
+              <div className="mt-1 flex flex-wrap gap-3 text-xs">
+                {TUTORIAL_LINKS.map((item) => (
+                  <a key={item.href} href={item.href} target="_blank" rel="noreferrer" className="underline text-slate-600">
+                    {item.label}
+                  </a>
+                ))}
+              </div>
             </div>
           </header>
 
           {error && <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</div>}
+          {infoMessage && <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-700">{infoMessage}</div>}
+
+          {showConfigOverview && (
+            <section className="rounded-xl border border-slate-200 bg-white p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-semibold">配置总览</h2>
+                <p className="text-xs text-slate-500">
+                  已完成 {completedChecklist.length}/{setupChecklist.length} 项
+                </p>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                {setupChecklist.map((item) => (
+                  <div key={item.id} className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2">
+                    <p className="font-medium text-slate-700">
+                      步骤 {item.step} · {item.label}
+                    </p>
+                    <p className={item.done ? 'text-emerald-700' : 'text-amber-600'}>
+                      {item.done ? '已完成' : '待完成'}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           <section className={`rounded-xl border bg-white p-4 space-y-3 ${activeStep === 1 ? 'border-slate-400' : 'border-slate-200'}`}>
             <div className="flex items-center justify-between gap-2">
-              <h2 className="text-base font-semibold">步骤 1：{STEP_TITLES[0]}</h2>
+              <div className="space-y-1">
+                <h2 className="text-base font-semibold">步骤 1：{STEP_TITLES[0]}</h2>
+                <p className={`text-xs ${uploadComplete ? 'text-emerald-700' : 'text-amber-600'}`}>
+                  {uploadComplete ? '素材已就绪' : '请先上传至少 1 份可评测素材'}
+                </p>
+              </div>
               <button onClick={() => clearForMode(uploadMode)} className="text-xs text-slate-500 underline">
                 清空素材
               </button>
@@ -767,20 +1039,34 @@ export default function App() {
 
           {activeStep >= 2 && (
             <section className={`rounded-xl border bg-white p-4 ${activeStep === 2 ? 'border-slate-400' : 'border-slate-200'}`}>
-              <h2 className="text-base font-semibold mb-3">步骤 2：{STEP_TITLES[1]}</h2>
+              <div className="mb-3 space-y-1">
+                <h2 className="text-base font-semibold">步骤 2：{STEP_TITLES[1]}</h2>
+                <p className={`text-xs ${scenarioComplete ? 'text-emerald-700' : 'text-amber-600'}`}>
+                  {scenarioComplete
+                    ? '关键场景字段已完成'
+                    : `还需填写：${missingScenarioFields.map((field) => SCENARIO_FIELD_LABELS[field]).join('、')}`}
+                </p>
+              </div>
               <ScenarioEditor
                 scenario={scenario}
                 onChange={setScenario}
                 onInfer={inferScenario}
                 isInferring={isInferringScenario}
                 canInfer={!!currentInput}
+                showAiGuide={showAiGuide && activeStep === 2}
+                onDismissAiGuide={() => setShowAiGuide(false)}
               />
             </section>
           )}
 
           {activeStep >= 3 && (
             <section className={`rounded-xl border bg-white p-4 space-y-3 ${activeStep === 3 ? 'border-slate-400' : 'border-slate-200'}`}>
-              <h2 className="text-base font-semibold">步骤 3：{STEP_TITLES[2]}</h2>
+              <div className="space-y-1">
+                <h2 className="text-base font-semibold">步骤 3：{STEP_TITLES[2]}</h2>
+                <p className={`text-xs ${frameworkComplete ? 'text-emerald-700' : 'text-amber-600'}`}>
+                  {frameworkComplete ? `已选择：${selectedFramework?.name}` : '请选择评测体系后继续'}
+                </p>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
                 <select
                   value={selectedFrameworkId}
@@ -867,7 +1153,12 @@ export default function App() {
           {activeStep >= 4 && (
             <section className={`rounded-xl border bg-white p-4 space-y-3 ${activeStep === 4 ? 'border-slate-400' : 'border-slate-200'}`}>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 className="text-base font-semibold">步骤 4：{STEP_TITLES[3]}</h2>
+                <div className="space-y-1">
+                  <h2 className="text-base font-semibold">步骤 4：{STEP_TITLES[3]}</h2>
+                  <p className={`text-xs ${personaComplete ? 'text-emerald-700' : 'text-amber-600'}`}>
+                    {personaComplete ? `已选 ${selectedPersonaIds.length} 个角色` : '请至少勾选 1 个角色'}
+                  </p>
+                </div>
                 <div className="flex gap-2">
                   <button onClick={() => personaImportRef.current?.click()} className="rounded-lg border border-slate-200 px-3 py-2 text-xs">
                     导入角色
@@ -975,18 +1266,44 @@ export default function App() {
           )}
 
           <div className="sticky bottom-3 rounded-xl border border-slate-200 bg-white p-4 space-y-3">
-            <div className="text-sm">
-              {missingGuidance.length > 0 ? (
-                <p>还需完成：{missingGuidance.join('、')}</p>
-              ) : (
-                <p>配置已完成，可以开始评测。</p>
-              )}
-            </div>
+            {pendingChecklist.length > 0 ? (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <button
+                  onClick={() => setShowProgressChecklist((previous) => !previous)}
+                  className="w-full flex items-center justify-between text-left"
+                >
+                  <span className="text-sm font-medium">还需完成 {pendingChecklist.length} 项配置</span>
+                  <span className="text-xs text-slate-500">{showProgressChecklist ? '收起' : '展开'}</span>
+                </button>
+                {showProgressChecklist && (
+                  <div className="mt-2 space-y-1">
+                    {pendingChecklist.map((item) => (
+                      <p key={item.id} className="text-xs text-amber-700">
+                        步骤 {item.step}：{item.label}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
+                全部前置条件已完成，点击“开始评测”进入报告阶段。
+              </div>
+            )}
+
             <div className="flex flex-wrap gap-2">
               <button
-                onClick={goToNextStep}
-                disabled={activeStep === 4}
+                onClick={goToPreviousStep}
+                disabled={activeStep === 1}
                 className="rounded-lg border border-slate-200 px-4 py-2 text-sm disabled:opacity-50"
+              >
+                上一步
+              </button>
+              <button
+                onClick={goToNextStep}
+                disabled={activeStep === 4 || !canGoNext}
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm disabled:opacity-50"
+                title={!canGoNext && activeStep !== 4 ? '请先完成当前步骤关键配置' : ''}
               >
                 下一步
               </button>
@@ -994,13 +1311,18 @@ export default function App() {
                 onClick={analyze}
                 disabled={!canAnalyze || isAnalyzing}
                 className="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
+                title={!canAnalyze ? `还需完成：${missingGuidance.join('；')}` : ''}
               >
                 {isAnalyzing ? '分析中...' : '开始评测'}
               </button>
-              <button onClick={exportSetupConfig} className="rounded-lg border border-slate-200 px-4 py-2 text-sm">
-                导出评测配置
-              </button>
+              {canExportSetupConfig && (
+                <button onClick={exportSetupConfig} className="rounded-lg border border-slate-200 px-4 py-2 text-sm">
+                  导出评测配置
+                </button>
+              )}
             </div>
+            {!canAnalyze && <p className="text-xs text-slate-500">开始评测前需：{missingGuidance.join('；')}</p>}
+            {!canExportSetupConfig && <p className="text-xs text-slate-500">完成任一配置项后可导出评测配置。</p>}
           </div>
         </div>
       ) : (
