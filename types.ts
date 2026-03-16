@@ -135,6 +135,7 @@ export interface ProcessStep {
   id: string;
   image: string; // Base64
   description: string; // User action description
+  fileName?: string;
 }
 
 declare global {

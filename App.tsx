@@ -12,20 +12,22 @@ import {
   ProcessStep,
   UserRole
 } from './types';
-import { FRAMEWORK_PRESETS, DEFAULT_FRAMEWORK_ID } from './config/frameworkPresets';
+import { FRAMEWORK_PRESETS } from './config/frameworkPresets';
 import { CUSTOM_FRAMEWORK_TEMPLATE, parseFrameworkJson } from './utils/frameworkSchema';
-import { analyzeDesign, generateOptimizedDesign, inferScenarioFromInput, recommendPersonas } from './services/geminiService';
+import {
+  analyzeDesign,
+  generateOptimizedDesign,
+  inferScenarioFromInput,
+  recommendPersonas
+} from './services/geminiService';
 import { ReportView } from './components/ReportView';
 import { SummaryReport } from './components/SummaryReport';
 import { ScenarioEditor } from './components/ScenarioEditor';
 import { PersonaRecommendations } from './components/PersonaRecommendations';
-import { Download, FileJson, FileUp, Loader2, Plus, Sparkles, Users } from 'lucide-react';
 
 const saveFile = (data: Blob | string, filename: string) => {
   const save = (FileSaver as any).saveAs || (FileSaver as any).default || FileSaver;
-  if (typeof save === 'function') {
-    save(data, filename);
-  }
+  if (typeof save === 'function') save(data, filename);
 };
 
 const DEFAULT_PERSONAS: Persona[] = [
@@ -135,20 +137,32 @@ const OPENROUTER_IMAGE_MODELS = [
   { value: 'openai/gpt-5-image', label: 'GPT-5 Image' }
 ];
 
+const STEP_TITLES = ['上传评测素材', '定义业务场景与目标', '选择评测体系', '选择评测角色'];
+
+type PageMode = 'setup' | 'report';
+type SetupStep = 1 | 2 | 3 | 4;
+type UploadMode = 'single' | 'flow' | 'video';
+
 export default function App() {
+  const [pageMode, setPageMode] = useState<PageMode>('setup');
+  const [activeStep, setActiveStep] = useState<SetupStep>(1);
+
   const [personas, setPersonas] = useState<Persona[]>(DEFAULT_PERSONAS);
-  const [selectedPersonaIds, setSelectedPersonaIds] = useState<string[]>([DEFAULT_PERSONAS[0].id]);
+  const [selectedPersonaIds, setSelectedPersonaIds] = useState<string[]>([]);
   const [personaDraft, setPersonaDraft] = useState<Omit<Persona, 'id'>>(EMPTY_PERSONA);
   const [showPersonaForm, setShowPersonaForm] = useState(false);
   const [personaRecommendations, setPersonaRecommendations] = useState<PersonaRecommendation[]>([]);
 
   const [frameworks, setFrameworks] = useState<EvaluationFramework[]>(FRAMEWORK_PRESETS);
-  const [selectedFrameworkId, setSelectedFrameworkId] = useState(DEFAULT_FRAMEWORK_ID);
+  const [selectedFrameworkId, setSelectedFrameworkId] = useState('');
 
-  const [uploadMode, setUploadMode] = useState<'single' | 'flow' | 'video'>('single');
+  const [uploadMode, setUploadMode] = useState<UploadMode>('single');
   const [image, setImage] = useState<string | null>(null);
   const [video, setVideo] = useState<string | null>(null);
   const [processSteps, setProcessSteps] = useState<ProcessStep[]>([]);
+  const [singleFileName, setSingleFileName] = useState('');
+  const [videoFileName, setVideoFileName] = useState('');
+  const [isDropActive, setIsDropActive] = useState(false);
 
   const [scenario, setScenario] = useState<EvaluationScenario>(EMPTY_SCENARIO);
 
@@ -182,9 +196,10 @@ export default function App() {
   const summaryCaptureRef = useRef<HTMLDivElement>(null);
 
   const selectedFramework = useMemo(
-    () => frameworks.find((framework) => framework.id === selectedFrameworkId) || FRAMEWORK_PRESETS[0],
+    () => frameworks.find((framework) => framework.id === selectedFrameworkId),
     [frameworks, selectedFrameworkId]
   );
+
   const selectedPersonas = useMemo(
     () => personas.filter((persona) => selectedPersonaIds.includes(persona.id)),
     [personas, selectedPersonaIds]
@@ -193,44 +208,84 @@ export default function App() {
   const currentInput = useMemo(() => {
     if (uploadMode === 'single') return image;
     if (uploadMode === 'video') return video;
-    return processSteps.length ? processSteps : null;
+    return processSteps.length > 0 ? processSteps : null;
   }, [uploadMode, image, video, processSteps]);
 
-  const getFrameworkForReport = (report: FrameworkReport) =>
-    frameworks.find((framework) => framework.id === report.frameworkId) || selectedFramework;
+  const uploadComplete =
+    (uploadMode === 'single' && !!image) ||
+    (uploadMode === 'video' && !!video) ||
+    (uploadMode === 'flow' && processSteps.length > 0);
+  const scenarioComplete = !!scenario.businessGoal.trim() || !!scenario.keyTasks.trim();
+  const frameworkComplete = !!selectedFramework;
+  const personaComplete = selectedPersonaIds.length > 0;
 
-  const canAnalyze =
-    !!currentInput &&
-    selectedPersonaIds.length > 0 &&
-    (!!scenario.businessGoal.trim() || !!scenario.keyTasks.trim());
+  const completionList = [
+    { label: STEP_TITLES[0], done: uploadComplete },
+    { label: STEP_TITLES[1], done: scenarioComplete },
+    { label: STEP_TITLES[2], done: frameworkComplete },
+    { label: STEP_TITLES[3], done: personaComplete }
+  ];
+  const completionPercent = Math.round((completionList.filter((item) => item.done).length / completionList.length) * 100);
 
+  const missingGuidance = useMemo(() => {
+    const missing = [];
+    if (!uploadComplete) missing.push('上传素材');
+    if (!scenarioComplete) missing.push('填写评测目标或关键任务');
+    if (!frameworkComplete) missing.push('选择评测体系');
+    if (!personaComplete) missing.push('选择至少一个角色');
+    return missing;
+  }, [frameworkComplete, personaComplete, scenarioComplete, uploadComplete]);
+
+  const canAnalyze = uploadComplete && scenarioComplete && frameworkComplete && personaComplete && activeStep === 4;
   const hasMultipleReports = Object.keys(reports).length > 1;
   const currentReport = reports[viewingPersonaId];
+
+  const getFrameworkForReport = (report: FrameworkReport) =>
+    frameworks.find((framework) => framework.id === report.frameworkId) || FRAMEWORK_PRESETS[0];
+
+  const goToNextStep = () => {
+    setActiveStep((previous) => {
+      if (previous === 1 && uploadComplete) return 2;
+      if (previous === 2 && scenarioComplete) return 3;
+      if (previous === 3 && frameworkComplete) return 4;
+      return previous;
+    });
+  };
 
   const resetAnalysisResult = () => {
     setReports({});
     setOptimizedImages({});
-    setPersonaRecommendations([]);
     setError(null);
+    setShowSummary(false);
   };
 
-  const handleSingleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  const clearForMode = (mode: UploadMode) => {
+    setUploadMode(mode);
+    setImage(null);
+    setVideo(null);
+    setProcessSteps([]);
+    setSingleFileName('');
+    setVideoFileName('');
+    resetAnalysisResult();
+  };
+
+  const extractFiles = (fileList: FileList | null): File[] =>
+    fileList ? (Array.from(fileList) as File[]) : [];
+
+  const loadImageFile = (file: File) => {
     const reader = new FileReader();
     reader.onloadend = () => {
-      setUploadMode('single');
       setImage(reader.result as string);
       setVideo(null);
       setProcessSteps([]);
+      setSingleFileName(file.name);
+      setVideoFileName('');
       resetAnalysisResult();
     };
     reader.readAsDataURL(file);
   };
 
-  const handleVideoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  const loadVideoFile = (file: File) => {
     if (file.size > 50 * 1024 * 1024) {
       alert('视频大于 50MB，请压缩后再上传。');
       return;
@@ -238,21 +293,23 @@ export default function App() {
 
     const reader = new FileReader();
     reader.onloadend = () => {
-      setUploadMode('video');
       setVideo(reader.result as string);
       setImage(null);
       setProcessSteps([]);
+      setVideoFileName(file.name);
+      setSingleFileName('');
       resetAnalysisResult();
     };
     reader.readAsDataURL(file);
   };
 
-  const handleFlowUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files: File[] = event.target.files ? Array.from(event.target.files) : [];
-    if (!files.length) return;
-    setUploadMode('flow');
+  const loadFlowFiles = (files: File[]) => {
+    if (files.length === 0) return;
     setImage(null);
     setVideo(null);
+    setSingleFileName('');
+    setVideoFileName('');
+    setProcessSteps([]);
     resetAnalysisResult();
 
     files.forEach((file) => {
@@ -263,12 +320,26 @@ export default function App() {
           {
             id: `${Date.now()}-${Math.random()}`,
             image: reader.result as string,
-            description: ''
+            description: '',
+            fileName: file.name
           }
         ]);
       };
       reader.readAsDataURL(file);
     });
+  };
+
+  const handleInputFiles = (files: File[]) => {
+    if (!files.length) return;
+    if (uploadMode === 'single') {
+      loadImageFile(files[0]);
+      return;
+    }
+    if (uploadMode === 'video') {
+      loadVideoFile(files[0]);
+      return;
+    }
+    loadFlowFiles(files.filter((file) => file.type.startsWith('image/')));
   };
 
   const updateFlowStepDescription = (id: string, description: string) => {
@@ -279,6 +350,13 @@ export default function App() {
 
   const removeFlowStep = (id: string) => {
     setProcessSteps((previous) => previous.filter((step) => step.id !== id));
+  };
+
+  const handleDropUpload: React.DragEventHandler<HTMLDivElement> = (event) => {
+    event.preventDefault();
+    setIsDropActive(false);
+    const files = extractFiles(event.dataTransfer.files);
+    handleInputFiles(files);
   };
 
   const togglePersona = (personaId: string) => {
@@ -295,9 +373,15 @@ export default function App() {
     if (!personaDraft.name.trim()) return;
     const id = `persona-${Date.now()}`;
     setPersonas((previous) => [...previous, { ...personaDraft, id }]);
-    setSelectedPersonaIds((previous) => [...previous, id]);
+    setSelectedPersonaIds((previous) => [...new Set([...previous, id])]);
     setPersonaDraft(EMPTY_PERSONA);
     setShowPersonaForm(false);
+  };
+
+  const createPersonaFromRecommendation = (draft: Omit<Persona, 'id'>) => {
+    const id = `persona-${Date.now()}`;
+    setPersonas((previous) => [...previous, { ...draft, id }]);
+    setSelectedPersonaIds((previous) => [...new Set([...previous, id])]);
   };
 
   const exportPersona = (persona: Persona) => {
@@ -306,22 +390,36 @@ export default function App() {
     saveFile(blob, `persona_${persona.name}.json`);
   };
 
+  const exportSetupConfig = () => {
+    const payload = {
+      uploadMode,
+      selectedFrameworkId,
+      selectedPersonaIds,
+      scenario,
+      sourceMeta: {
+        singleFileName,
+        videoFileName,
+        flowStepCount: processSteps.length,
+        flowStepNames: processSteps.map((step) => step.fileName || '未命名')
+      }
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    saveFile(blob, 'ux_evaluation_config.json');
+  };
+
   const importPersona = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = (loadEvent) => {
       try {
         const parsed = JSON.parse(loadEvent.target?.result as string) as Omit<Persona, 'id'>;
-        if (!parsed.name || !parsed.role || !parsed.attributes) {
-          throw new Error('缺少必要字段');
-        }
+        if (!parsed.name || !parsed.role || !parsed.attributes) throw new Error('角色文件缺少必要字段');
         const id = `persona-${Date.now()}`;
         setPersonas((previous) => [...previous, { ...parsed, id }]);
-        setSelectedPersonaIds((previous) => [...previous, id]);
-      } catch (parseError) {
-        alert(parseError instanceof Error ? parseError.message : '角色 JSON 解析失败');
+        setSelectedPersonaIds((previous) => [...new Set([...previous, id])]);
+      } catch (err) {
+        alert(err instanceof Error ? err.message : '角色导入失败');
       }
     };
     reader.readAsText(file);
@@ -331,7 +429,6 @@ export default function App() {
   const importFramework = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = (loadEvent) => {
       const result = parseFrameworkJson((loadEvent.target?.result as string) || '');
@@ -365,13 +462,10 @@ export default function App() {
       setScenario((previous) => ({
         ...previous,
         ...inferred,
-        source:
-          previous.businessGoal || previous.keyTasks || previous.painPoints
-            ? 'mixed'
-            : 'ai_inferred'
+        source: previous.businessGoal || previous.keyTasks ? 'mixed' : 'ai_inferred'
       }));
-    } catch (inferError) {
-      setError(inferError instanceof Error ? inferError.message : '场景提炼失败');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '场景提炼失败');
     } finally {
       setIsInferringScenario(false);
     }
@@ -381,7 +475,6 @@ export default function App() {
     if (!currentInput || !selectedFramework) return;
     setIsRecommending(true);
     setError(null);
-
     try {
       const recommendations = await recommendPersonas({
         input: currentInput,
@@ -391,22 +484,15 @@ export default function App() {
         apiConfig
       });
       setPersonaRecommendations(recommendations);
-    } catch (recommendError) {
-      setError(recommendError instanceof Error ? recommendError.message : '角色推荐失败');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '角色推荐失败');
     } finally {
       setIsRecommending(false);
     }
   };
 
-  const createPersonaFromRecommendation = (draft: Omit<Persona, 'id'>) => {
-    const id = `persona-${Date.now()}`;
-    setPersonas((previous) => [...previous, { ...draft, id }]);
-    setSelectedPersonaIds((previous) => [...new Set([...previous, id])]);
-  };
-
   const analyze = async () => {
     if (!currentInput || !selectedFramework || selectedPersonas.length === 0) return;
-
     if (apiConfig.provider === 'google') {
       try {
         if (window.aistudio) {
@@ -441,27 +527,33 @@ export default function App() {
         const sourceImage = uploadMode === 'single' ? image : processSteps[0]?.image;
         if (sourceImage) {
           setIsGeneratingImage(true);
-          const optimized = await Promise.all(
+          const generatedList = await Promise.all(
             selectedPersonas.map(async (persona) => {
-              const report = nextReports[persona.id];
               try {
-                const generated = await generateOptimizedDesign(sourceImage, persona, report, apiConfig);
+                const generated = await generateOptimizedDesign(
+                  sourceImage,
+                  persona,
+                  nextReports[persona.id],
+                  apiConfig
+                );
                 return { personaId: persona.id, image: generated };
-              } catch (imageError) {
-                console.error('image generation failed', imageError);
+              } catch (err) {
+                console.error('generate image failed', err);
                 return null;
               }
             })
           );
-          const imageMap: Record<string, string> = {};
-          optimized.forEach((entry) => {
-            if (entry) imageMap[entry.personaId] = entry.image;
+          const generatedMap: Record<string, string> = {};
+          generatedList.forEach((entry) => {
+            if (entry) generatedMap[entry.personaId] = entry.image;
           });
-          setOptimizedImages(imageMap);
+          setOptimizedImages(generatedMap);
         }
       }
-    } catch (analysisError) {
-      setError(analysisError instanceof Error ? analysisError.message : '分析失败');
+
+      setPageMode('report');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '分析失败');
     } finally {
       setIsAnalyzing(false);
       setIsGeneratingImage(false);
@@ -469,283 +561,355 @@ export default function App() {
   };
 
   const generatePngBlob = async (node: HTMLElement): Promise<Blob | null> => {
-    const dataUrl = await toPng(node, { cacheBust: true, pixelRatio: 2, backgroundColor: '#F8FAFC' });
+    const dataUrl = await toPng(node, { cacheBust: true, pixelRatio: 2, backgroundColor: '#ffffff' });
     const response = await fetch(dataUrl);
     return response.blob();
   };
 
-  const exportCurrent = async () => {
+  const exportCurrentReport = async () => {
     const targetNode = showSummary ? summaryCaptureRef.current : reportCaptureRef.current;
     if (!targetNode) return;
     setIsExporting(true);
     try {
       const blob = await generatePngBlob(targetNode);
       if (blob) {
-        const name = showSummary ? 'summary' : viewingPersonaId;
-        saveFile(blob, `ux_framework_report_${name}.png`);
+        const filename = showSummary ? 'summary' : viewingPersonaId;
+        saveFile(blob, `ux_report_${filename}.png`);
       }
-    } catch (exportError) {
-      setError(exportError instanceof Error ? exportError.message : '导出失败');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '导出失败');
     } finally {
       setIsExporting(false);
     }
   };
 
-  const exportBatch = async () => {
-    const ids = Object.keys(reports);
-    if (!ids.length) return;
+  const exportBatchReports = async () => {
+    const reportIds = Object.keys(reports);
+    if (!reportIds.length) return;
     setIsBatchExporting(true);
     try {
       const zip = new JSZip();
-      for (const personaId of ids) {
-        const node = document.getElementById(`capture-${personaId}`);
+      for (const id of reportIds) {
+        const node = document.getElementById(`capture-${id}`);
         if (!node) continue;
         const blob = await generatePngBlob(node);
         if (blob) {
-          const personaName = personas.find((persona) => persona.id === personaId)?.name || personaId;
-          zip.file(`report_${personaName}.png`, blob);
+          const name = personas.find((persona) => persona.id === id)?.name || id;
+          zip.file(`report_${name}.png`, blob);
         }
       }
-      const zipContent = await zip.generateAsync({ type: 'blob' });
-      saveFile(zipContent as Blob, 'ux_framework_reports.zip');
-    } catch (zipError) {
-      setError(zipError instanceof Error ? zipError.message : '批量导出失败');
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      saveFile(zipBlob as Blob, 'ux_reports.zip');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '批量导出失败');
     } finally {
       setIsBatchExporting(false);
     }
   };
 
+  const uploadMainLabel =
+    uploadMode === 'single'
+      ? '上传单页截图'
+      : uploadMode === 'flow'
+      ? '上传流程步骤截图（可多选）'
+      : '上传评测录屏（mp4/webm/mov）';
+
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
-      <div className="mx-auto max-w-7xl p-4 md:p-6 space-y-4">
-        <header className="rounded-2xl border border-slate-200 bg-white p-4 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-lg md:text-xl font-bold">AI 用户体验评测框架</h1>
-            <p className="text-xs text-slate-500 mt-1">
-              可插拔评测体系（ETS / HEART / SUS-Lite / UEQ-Lite / 自定义）+ AI 场景提炼 + AI 角色推荐
+      {pageMode === 'setup' ? (
+        <div className="mx-auto max-w-4xl p-4 md:p-6 pb-28 space-y-4">
+          <header className="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
+            <h1 className="text-xl font-semibold">AI 用户体验评测</h1>
+            <p className="text-sm text-slate-600">
+              先完成配置，再进入报告。你将按照 4 个步骤完成一次评测，当前完成度 {completionPercent}%。
             </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <select
-              value={apiConfig.provider}
-              onChange={(event) =>
-                setApiConfig((previous) => ({ ...previous, provider: event.target.value as ApiConfig['provider'] }))
-              }
-              className="rounded-lg border border-slate-200 px-2 py-1.5"
-            >
-              <option value="google">Google GenAI</option>
-              <option value="openrouter">OpenRouter</option>
-            </select>
-            {apiConfig.provider === 'openrouter' && (
-              <select
-                value={apiConfig.openRouterModel}
-                onChange={(event) =>
-                  setApiConfig((previous) => ({ ...previous, openRouterModel: event.target.value }))
-                }
-                className="rounded-lg border border-slate-200 px-2 py-1.5"
-              >
-                {OPENROUTER_TEXT_MODELS.map((model) => (
-                  <option key={model.value} value={model.value}>
-                    {model.label}
-                  </option>
-                ))}
-              </select>
-            )}
-            <select
-              value={apiConfig.imageModel}
-              onChange={(event) => setApiConfig((previous) => ({ ...previous, imageModel: event.target.value }))}
-              className="rounded-lg border border-slate-200 px-2 py-1.5"
-            >
-              {(apiConfig.provider === 'google' ? GOOGLE_IMAGE_MODELS : OPENROUTER_IMAGE_MODELS).map((model) => (
-                <option key={model.value} value={model.value}>
-                  {model.label}
-                </option>
+            <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+              <div className="h-full bg-slate-700" style={{ width: `${completionPercent}%` }} />
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+              {completionList.map((item, index) => (
+                <button
+                  key={item.label}
+                  onClick={() => setActiveStep((index + 1) as SetupStep)}
+                  className={`rounded-lg border px-2 py-1.5 text-left ${
+                    activeStep === index + 1
+                      ? 'border-slate-400 bg-slate-100'
+                      : item.done
+                      ? 'border-emerald-200 bg-emerald-50'
+                      : 'border-slate-200 bg-white'
+                  }`}
+                >
+                  <div>步骤 {index + 1}</div>
+                  <div className="font-medium mt-0.5">{item.label}</div>
+                </button>
               ))}
-            </select>
-          </div>
-        </header>
+            </div>
+          </header>
 
-        <div className="grid grid-cols-1 lg:grid-cols-[440px_minmax(0,1fr)] gap-4">
-          <aside className="space-y-4">
-            <section className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
-              <h2 className="text-sm font-semibold">1) 上传评测素材</h2>
+          {error && <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</div>}
 
-              <div className="grid grid-cols-3 gap-2">
-                {(['single', 'flow', 'video'] as const).map((mode) => (
-                  <button
-                    key={mode}
-                    onClick={() => setUploadMode(mode)}
-                    className={`rounded-lg border px-2 py-1.5 text-xs font-semibold ${
-                      uploadMode === mode
-                        ? 'border-violet-300 bg-violet-50 text-violet-700'
-                        : 'border-slate-200 bg-slate-50 text-slate-600'
-                    }`}
-                  >
-                    {mode === 'single' ? '单页截图' : mode === 'flow' ? '流程截图' : '视频录屏'}
-                  </button>
-                ))}
-              </div>
+          <section className={`rounded-xl border bg-white p-4 space-y-3 ${activeStep === 1 ? 'border-slate-400' : 'border-slate-200'}`}>
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-base font-semibold">步骤 1：{STEP_TITLES[0]}</h2>
+              <button onClick={() => clearForMode(uploadMode)} className="text-xs text-slate-500 underline">
+                清空素材
+              </button>
+            </div>
 
+            <div className="grid grid-cols-3 gap-2 text-sm">
+              {(['single', 'flow', 'video'] as UploadMode[]).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => clearForMode(mode)}
+                  className={`rounded-lg border px-3 py-2 ${
+                    uploadMode === mode ? 'border-slate-400 bg-slate-100' : 'border-slate-200'
+                  }`}
+                >
+                  {mode === 'single' ? '单页截图' : mode === 'flow' ? '流程截图' : '视频录屏'}
+                </button>
+              ))}
+            </div>
+
+            <div
+              onDrop={handleDropUpload}
+              onDragOver={(event) => {
+                event.preventDefault();
+                setIsDropActive(true);
+              }}
+              onDragLeave={() => setIsDropActive(false)}
+              className={`rounded-lg border-2 border-dashed p-6 text-center ${
+                isDropActive ? 'border-slate-500 bg-slate-50' : 'border-slate-300 bg-white'
+              }`}
+            >
+              <p className="text-sm font-medium">{uploadMainLabel}</p>
+              <p className="text-xs text-slate-500 mt-1">支持拖拽文件到此区域，或点击按钮选择文件</p>
               {uploadMode === 'single' && (
-                <div className="space-y-2">
-                  <button
-                    onClick={() => imageInputRef.current?.click()}
-                    className="w-full rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-xs"
-                  >
-                    {image ? '重新上传图片' : '上传图片'}
+                <>
+                  <button onClick={() => imageInputRef.current?.click()} className="mt-3 rounded-lg border px-4 py-2 text-sm">
+                    选择图片
                   </button>
-                  <input ref={imageInputRef} type="file" accept="image/*" onChange={handleSingleImageUpload} className="hidden" />
-                  {image && <img src={image} alt="预览图" className="max-h-40 rounded-lg" />}
-                </div>
+                  <input
+                    ref={imageInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={(event) => handleInputFiles(extractFiles(event.target.files))}
+                    className="hidden"
+                  />
+                </>
               )}
-
               {uploadMode === 'video' && (
-                <div className="space-y-2">
-                  <button
-                    onClick={() => videoInputRef.current?.click()}
-                    className="w-full rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-xs"
-                  >
-                    {video ? '重新上传视频' : '上传视频（<=50MB）'}
+                <>
+                  <button onClick={() => videoInputRef.current?.click()} className="mt-3 rounded-lg border px-4 py-2 text-sm">
+                    选择视频
                   </button>
                   <input
                     ref={videoInputRef}
                     type="file"
                     accept="video/mp4,video/webm,video/quicktime"
-                    onChange={handleVideoUpload}
+                    onChange={(event) => handleInputFiles(extractFiles(event.target.files))}
                     className="hidden"
                   />
-                  {video && <video src={video} controls className="max-h-40 rounded-lg" />}
-                </div>
+                </>
               )}
-
               {uploadMode === 'flow' && (
-                <div className="space-y-2">
-                  <button
-                    onClick={() => flowInputRef.current?.click()}
-                    className="w-full rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-xs"
-                  >
-                    添加流程截图（可多选）
+                <>
+                  <button onClick={() => flowInputRef.current?.click()} className="mt-3 rounded-lg border px-4 py-2 text-sm">
+                    选择流程图片
                   </button>
-                  <input ref={flowInputRef} type="file" multiple accept="image/*" onChange={handleFlowUpload} className="hidden" />
-                  <div className="space-y-2">
-                    {processSteps.map((step, index) => (
-                      <div key={step.id} className="rounded-lg border border-slate-200 p-2 space-y-2">
-                        <img src={step.image} alt={`流程${index + 1}`} className="max-h-28 rounded-md" />
-                        <textarea
-                          value={step.description}
-                          onChange={(event) => updateFlowStepDescription(step.id, event.target.value)}
-                          placeholder="填写该步骤动作描述"
-                          rows={2}
-                          className="w-full rounded-md border border-slate-200 px-2 py-1.5 text-xs"
-                        />
-                        <button
-                          onClick={() => removeFlowStep(step.id)}
-                          className="text-[11px] text-rose-600 font-semibold"
-                        >
-                          删除此步骤
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                  <input
+                    ref={flowInputRef}
+                    type="file"
+                    multiple
+                    accept="image/*"
+                    onChange={(event) => handleInputFiles(extractFiles(event.target.files))}
+                    className="hidden"
+                  />
+                </>
               )}
+            </div>
+
+            {uploadMode === 'single' && image && (
+              <div className="rounded-lg border border-slate-200 p-3 space-y-2">
+                <p className="text-xs text-slate-500">已上传：{singleFileName || '图片文件'}</p>
+                <img src={image} alt="单页截图" className="max-h-56 rounded-md" />
+              </div>
+            )}
+            {uploadMode === 'video' && video && (
+              <div className="rounded-lg border border-slate-200 p-3 space-y-2">
+                <p className="text-xs text-slate-500">已上传：{videoFileName || '视频文件'}</p>
+                <video src={video} controls className="max-h-56 rounded-md" />
+              </div>
+            )}
+            {uploadMode === 'flow' && processSteps.length > 0 && (
+              <div className="rounded-lg border border-slate-200 p-3 space-y-2">
+                <p className="text-xs text-slate-500">已上传：{processSteps.length} 张流程图</p>
+                {processSteps.map((step, index) => (
+                  <div key={step.id} className="rounded-lg border border-slate-100 bg-slate-50 p-2 space-y-2">
+                    <p className="text-xs text-slate-500">
+                      步骤 {index + 1} {step.fileName ? `· ${step.fileName}` : ''}
+                    </p>
+                    <img src={step.image} alt={`步骤${index + 1}`} className="max-h-28 rounded-md" />
+                    <textarea
+                      value={step.description}
+                      onChange={(event) => updateFlowStepDescription(step.id, event.target.value)}
+                      placeholder="补充步骤描述（可选）"
+                      rows={2}
+                      className="w-full rounded-md border border-slate-200 px-2 py-1.5 text-xs"
+                    />
+                    <button onClick={() => removeFlowStep(step.id)} className="text-xs text-rose-600 underline">
+                      删除此步骤
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {activeStep >= 2 && (
+            <section className={`rounded-xl border bg-white p-4 ${activeStep === 2 ? 'border-slate-400' : 'border-slate-200'}`}>
+              <h2 className="text-base font-semibold mb-3">步骤 2：{STEP_TITLES[1]}</h2>
+              <ScenarioEditor
+                scenario={scenario}
+                onChange={setScenario}
+                onInfer={inferScenario}
+                isInferring={isInferringScenario}
+                canInfer={!!currentInput}
+              />
             </section>
+          )}
 
-            <ScenarioEditor
-              scenario={scenario}
-              onChange={setScenario}
-              onInfer={inferScenario}
-              isInferring={isInferringScenario}
-              canInfer={!!currentInput}
-            />
-
-            <section className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
-              <h2 className="text-sm font-semibold">2) 选择评测体系</h2>
-
-              <div className="space-y-2">
+          {activeStep >= 3 && (
+            <section className={`rounded-xl border bg-white p-4 space-y-3 ${activeStep === 3 ? 'border-slate-400' : 'border-slate-200'}`}>
+              <h2 className="text-base font-semibold">步骤 3：{STEP_TITLES[2]}</h2>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
                 <select
                   value={selectedFrameworkId}
                   onChange={(event) => setSelectedFrameworkId(event.target.value)}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  className="rounded-lg border border-slate-200 px-3 py-2"
                 >
+                  <option value="">请选择评测体系</option>
                   {frameworks.map((framework) => (
                     <option key={framework.id} value={framework.id}>
-                      {framework.name} ({framework.source === 'builtin' ? '内置' : '自定义'})
+                      {framework.name}（{framework.source === 'builtin' ? '内置' : '自定义'}）
                     </option>
                   ))}
                 </select>
-                <p className="text-xs text-slate-500">{selectedFramework.description}</p>
-                <div className="flex flex-wrap gap-2 text-xs">
-                  <button
-                    onClick={downloadFrameworkTemplate}
-                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5"
+                <select
+                  value={apiConfig.provider}
+                  onChange={(event) =>
+                    setApiConfig((previous) => ({
+                      ...previous,
+                      provider: event.target.value as ApiConfig['provider']
+                    }))
+                  }
+                  className="rounded-lg border border-slate-200 px-3 py-2"
+                >
+                  <option value="google">Google</option>
+                  <option value="openrouter">OpenRouter</option>
+                </select>
+                {apiConfig.provider === 'openrouter' ? (
+                  <select
+                    value={apiConfig.openRouterModel}
+                    onChange={(event) =>
+                      setApiConfig((previous) => ({
+                        ...previous,
+                        openRouterModel: event.target.value
+                      }))
+                    }
+                    className="rounded-lg border border-slate-200 px-3 py-2"
                   >
-                    <FileJson size={13} />
-                    下载体系模板
-                  </button>
-                  <button
-                    onClick={() => frameworkImportRef.current?.click()}
-                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5"
+                    {OPENROUTER_TEXT_MODELS.map((model) => (
+                      <option key={model.value} value={model.value}>
+                        {model.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <select
+                    value={apiConfig.imageModel}
+                    onChange={(event) =>
+                      setApiConfig((previous) => ({
+                        ...previous,
+                        imageModel: event.target.value
+                      }))
+                    }
+                    className="rounded-lg border border-slate-200 px-3 py-2"
                   >
-                    <FileUp size={13} />
-                    导入体系 JSON
-                  </button>
-                  <input ref={frameworkImportRef} type="file" accept=".json" onChange={importFramework} className="hidden" />
-                </div>
+                    {GOOGLE_IMAGE_MODELS.map((model) => (
+                      <option key={model.value} value={model.value}>
+                        {model.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+              <p className="text-xs text-slate-500">
+                {selectedFramework ? selectedFramework.description : '请选择一个评测体系，系统将按该体系生成报告。'}
+              </p>
+              <div className="flex flex-wrap gap-2 text-xs">
+                <button onClick={downloadFrameworkTemplate} className="rounded-lg border border-slate-200 px-3 py-2">
+                  下载体系模板
+                </button>
+                <button onClick={() => frameworkImportRef.current?.click()} className="rounded-lg border border-slate-200 px-3 py-2">
+                  导入体系 JSON
+                </button>
+                <input
+                  ref={frameworkImportRef}
+                  type="file"
+                  accept=".json"
+                  onChange={importFramework}
+                  className="hidden"
+                />
               </div>
             </section>
+          )}
 
-            <section className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold">3) 选择角色</h2>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => personaImportRef.current?.click()}
-                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs"
-                  >
-                    <FileUp size={12} />
-                    导入
+          {activeStep >= 4 && (
+            <section className={`rounded-xl border bg-white p-4 space-y-3 ${activeStep === 4 ? 'border-slate-400' : 'border-slate-200'}`}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-base font-semibold">步骤 4：{STEP_TITLES[3]}</h2>
+                <div className="flex gap-2">
+                  <button onClick={() => personaImportRef.current?.click()} className="rounded-lg border border-slate-200 px-3 py-2 text-xs">
+                    导入角色
                   </button>
-                  <input ref={personaImportRef} type="file" accept=".json" onChange={importPersona} className="hidden" />
+                  <input
+                    ref={personaImportRef}
+                    type="file"
+                    accept=".json"
+                    onChange={importPersona}
+                    className="hidden"
+                  />
                   <button
                     onClick={() => setShowPersonaForm((previous) => !previous)}
-                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs"
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-xs"
                   >
-                    <Plus size={12} />
-                    新角色
+                    新建角色
                   </button>
                 </div>
               </div>
 
-              <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                {personas.map((persona) => {
-                  const checked = selectedPersonaIds.includes(persona.id);
-                  return (
-                    <label key={persona.id} className="block rounded-lg border border-slate-200 bg-slate-50 p-2">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-start gap-2">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => togglePersona(persona.id)}
-                            className="mt-0.5"
-                          />
-                          <div>
-                            <p className="text-sm font-semibold text-slate-700">{persona.name}</p>
-                            <p className="text-xs text-slate-500">{persona.description}</p>
-                          </div>
+              <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                {personas.map((persona) => (
+                  <label key={persona.id} className="block rounded-lg border border-slate-200 bg-slate-50 p-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-start gap-2">
+                        <input
+                          type="checkbox"
+                          checked={selectedPersonaIds.includes(persona.id)}
+                          onChange={() => togglePersona(persona.id)}
+                          className="mt-0.5"
+                        />
+                        <div>
+                          <p className="text-sm font-medium">{persona.name}</p>
+                          <p className="text-xs text-slate-500">{persona.description}</p>
                         </div>
-                        <button
-                          onClick={() => exportPersona(persona)}
-                          className="rounded-md border border-slate-200 bg-white p-1 text-slate-500"
-                          title="导出角色"
-                        >
-                          <Download size={12} />
-                        </button>
                       </div>
-                    </label>
-                  );
-                })}
+                      <button onClick={() => exportPersona(persona)} className="text-xs text-slate-500 underline">
+                        导出
+                      </button>
+                    </div>
+                  </label>
+                ))}
               </div>
 
               {showPersonaForm && (
@@ -774,25 +938,21 @@ export default function App() {
                     <option value={UserRole.USER}>普通用户</option>
                     <option value={UserRole.EXPERT}>专家评审</option>
                   </select>
-                  <button
-                    onClick={savePersonaDraft}
-                    className="rounded-md bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white"
-                  >
+                  <button onClick={savePersonaDraft} className="rounded-md border border-slate-300 px-3 py-1.5 text-xs">
                     保存角色
                   </button>
                 </div>
               )}
 
-              <div className="flex flex-wrap gap-2 pt-1">
+              <div className="flex flex-wrap gap-2">
                 <button
                   onClick={fetchPersonaRecommendations}
                   disabled={!currentInput || isRecommending}
-                  className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 disabled:opacity-50"
+                  className="rounded-lg border border-slate-200 px-3 py-2 text-xs disabled:opacity-50"
                 >
-                  <Sparkles size={12} />
                   {isRecommending ? '推荐中...' : 'AI 推荐角色'}
                 </button>
-                <label className="inline-flex items-center gap-1 text-xs text-slate-600">
+                <label className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs">
                   <input
                     type="checkbox"
                     checked={shouldGenerateImages}
@@ -812,124 +972,135 @@ export default function App() {
                 onCreateFromDraft={createPersonaFromRecommendation}
               />
             </section>
+          )}
 
-            <section className="rounded-2xl border border-slate-200 bg-white p-4 space-y-2">
+          <div className="sticky bottom-3 rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+            <div className="text-sm">
+              {missingGuidance.length > 0 ? (
+                <p>还需完成：{missingGuidance.join('、')}</p>
+              ) : (
+                <p>配置已完成，可以开始评测。</p>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={goToNextStep}
+                disabled={activeStep === 4}
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm disabled:opacity-50"
+              >
+                下一步
+              </button>
               <button
                 onClick={analyze}
                 disabled={!canAnalyze || isAnalyzing}
-                className="w-full rounded-lg bg-violet-600 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                className="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
               >
                 {isAnalyzing ? '分析中...' : '开始评测'}
               </button>
-              <p className="text-[11px] text-slate-500">
-                分析条件：已上传素材 + 至少一个角色 + 场景中填写“评测目标”或“关键任务”。
-              </p>
-            </section>
-          </aside>
-
-          <main className="space-y-4">
-            <div className="rounded-2xl border border-slate-200 bg-white p-3 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex flex-wrap items-center gap-2">
-                {hasMultipleReports && (
-                  <button
-                    onClick={() => setShowSummary(true)}
-                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
-                      showSummary ? 'bg-emerald-600 text-white' : 'border border-slate-200 bg-slate-50 text-slate-600'
-                    }`}
-                  >
-                    综合报告
-                  </button>
-                )}
-                {Object.keys(reports).map((personaId) => {
-                  const personaName = personas.find((persona) => persona.id === personaId)?.name || personaId;
-                  const active = !showSummary && viewingPersonaId === personaId;
-                  return (
-                    <button
-                      key={personaId}
-                      onClick={() => {
-                        setViewingPersonaId(personaId);
-                        setShowSummary(false);
-                      }}
-                      className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
-                        active ? 'bg-violet-600 text-white' : 'border border-slate-200 bg-slate-50 text-slate-600'
-                      }`}
-                    >
-                      <span className="inline-flex items-center gap-1">
-                        <Users size={12} />
-                        {personaName}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={exportCurrent}
-                  disabled={isExporting || (!showSummary && !currentReport)}
-                  className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-50"
-                >
-                  {isExporting ? '导出中...' : '导出当前 PNG'}
-                </button>
-                <button
-                  onClick={exportBatch}
-                  disabled={isBatchExporting || Object.keys(reports).length === 0}
-                  className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-50"
-                >
-                  {isBatchExporting ? '打包中...' : '批量导出 ZIP'}
-                </button>
-              </div>
+              <button onClick={exportSetupConfig} className="rounded-lg border border-slate-200 px-4 py-2 text-sm">
+                导出评测配置
+              </button>
             </div>
-
-            {error && (
-              <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</div>
-            )}
-
-            {isAnalyzing ? (
-              <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center">
-                <Loader2 className="mx-auto animate-spin text-violet-600" />
-                <p className="mt-3 text-sm text-slate-600">正在基于所选体系进行多角色并行分析...</p>
-              </div>
-            ) : showSummary && hasMultipleReports ? (
-              <div ref={summaryCaptureRef} className="rounded-2xl border border-slate-200 bg-white p-4">
-                <SummaryReport reports={reports} personas={personas} />
-              </div>
-            ) : currentReport ? (
-              <div ref={reportCaptureRef} className="rounded-2xl border border-slate-200 bg-white p-4">
-                <ReportView
-                  report={currentReport}
-                  framework={getFrameworkForReport(currentReport)}
-                  originalImage={uploadMode === 'video' ? video : image}
-                  processSteps={uploadMode === 'flow' ? processSteps : undefined}
-                  optimizedImage={optimizedImages[viewingPersonaId]}
-                  isGeneratingImage={isGeneratingImage}
-                />
-              </div>
-            ) : (
-              <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center text-slate-500">
-                <p className="font-semibold text-slate-700">等待分析结果</p>
-                <p className="text-sm mt-1">
-                  上传素材、定义场景、选择体系与角色后，点击“开始评测”生成报告。
-                </p>
-              </div>
-            )}
-          </main>
-        </div>
-      </div>
-
-      <div className="fixed left-[-99999px] top-0 opacity-0 pointer-events-none">
-        {(Object.entries(reports) as Array<[string, FrameworkReport]>).map(([personaId, report]) => (
-          <div key={personaId} id={`capture-${personaId}`} className="w-[1200px] p-6 bg-white">
-            <ReportView
-              report={report}
-              framework={getFrameworkForReport(report)}
-              originalImage={uploadMode === 'video' ? video : image}
-              processSteps={uploadMode === 'flow' ? processSteps : undefined}
-              optimizedImage={optimizedImages[personaId]}
-              isGeneratingImage={false}
-            />
           </div>
-        ))}
-      </div>
+        </div>
+      ) : (
+        <div className="mx-auto max-w-6xl p-4 md:p-6 space-y-4">
+          <header className="rounded-xl border border-slate-200 bg-white p-4 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h1 className="text-lg font-semibold">评测报告</h1>
+              <p className="text-sm text-slate-500">已完成配置，当前处于报告查看阶段。</p>
+            </div>
+            <button onClick={() => setPageMode('setup')} className="rounded-lg border border-slate-200 px-4 py-2 text-sm">
+              返回配置
+            </button>
+          </header>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {hasMultipleReports && (
+                <button
+                  onClick={() => setShowSummary(true)}
+                  className={`rounded-lg px-3 py-1.5 text-xs ${
+                    showSummary ? 'bg-slate-900 text-white' : 'border border-slate-200'
+                  }`}
+                >
+                  综合报告
+                </button>
+              )}
+              {Object.keys(reports).map((id) => (
+                <button
+                  key={id}
+                  onClick={() => {
+                    setViewingPersonaId(id);
+                    setShowSummary(false);
+                  }}
+                  className={`rounded-lg px-3 py-1.5 text-xs ${
+                    !showSummary && viewingPersonaId === id ? 'bg-slate-900 text-white' : 'border border-slate-200'
+                  }`}
+                >
+                  {personas.find((persona) => persona.id === id)?.name || id}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={exportCurrentReport}
+                disabled={isExporting || (!showSummary && !currentReport)}
+                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs disabled:opacity-50"
+              >
+                {isExporting ? '导出中...' : '导出当前报告 PNG'}
+              </button>
+              <button
+                onClick={exportBatchReports}
+                disabled={isBatchExporting || Object.keys(reports).length === 0}
+                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs disabled:opacity-50"
+              >
+                {isBatchExporting ? '打包中...' : '导出全部报告 ZIP'}
+              </button>
+            </div>
+          </div>
+
+          {error && <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</div>}
+
+          {showSummary && hasMultipleReports ? (
+            <div ref={summaryCaptureRef} className="rounded-xl border border-slate-200 bg-white p-4">
+              <SummaryReport reports={reports} personas={personas} />
+            </div>
+          ) : currentReport ? (
+            <div ref={reportCaptureRef} className="rounded-xl border border-slate-200 bg-white p-4">
+              <ReportView
+                report={currentReport}
+                framework={getFrameworkForReport(currentReport)}
+                originalImage={uploadMode === 'video' ? video : image}
+                processSteps={uploadMode === 'flow' ? processSteps : undefined}
+                optimizedImage={optimizedImages[viewingPersonaId]}
+                isGeneratingImage={isGeneratingImage}
+              />
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
+              当前没有可展示的报告，请返回配置并执行评测。
+            </div>
+          )}
+        </div>
+      )}
+
+      {Object.keys(reports).length > 0 && (
+        <div className="fixed left-[-99999px] top-0 opacity-0 pointer-events-none">
+          {(Object.entries(reports) as Array<[string, FrameworkReport]>).map(([id, report]) => (
+            <div key={id} id={`capture-${id}`} className="w-[1200px] p-6 bg-white">
+              <ReportView
+                report={report}
+                framework={getFrameworkForReport(report)}
+                originalImage={uploadMode === 'video' ? video : image}
+                processSteps={uploadMode === 'flow' ? processSteps : undefined}
+                optimizedImage={optimizedImages[id]}
+                isGeneratingImage={false}
+              />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
