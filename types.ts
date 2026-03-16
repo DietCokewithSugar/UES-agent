@@ -4,7 +4,11 @@ export enum UserRole {
 }
 
 export enum EvaluationModel {
-  ETS = 'ETS'  // 8 Dimensions
+  ETS = 'ETS',
+  HEART = 'HEART',
+  SUS_LITE = 'SUS_LITE',
+  UEQ_LITE = 'UEQ_LITE',
+  CUSTOM = 'CUSTOM'
 }
 
 export interface PersonaAttributes {
@@ -25,6 +29,53 @@ export interface Persona {
   attributes: PersonaAttributes;
 }
 
+export type FrameworkSource = 'builtin' | 'custom';
+export type FrameworkChartType = 'radar' | 'bar' | 'mixed' | 'cards';
+
+export interface FrameworkDimension {
+  id: string;
+  name: string;
+  definition: string;
+  weight?: number;
+}
+
+export interface FrameworkSectionTemplate {
+  id: string;
+  title: string;
+  type: 'text' | 'list' | 'tags';
+  description?: string;
+}
+
+export interface EvaluationFramework {
+  id: string;
+  name: string;
+  source: FrameworkSource;
+  description: string;
+  modelType: EvaluationModel;
+  scoreRange: {
+    min: number;
+    max: number;
+  };
+  dimensions: FrameworkDimension[];
+  visualization: {
+    primaryChart: FrameworkChartType;
+  };
+  promptGuidelines: string;
+  reportSections?: FrameworkSectionTemplate[];
+}
+
+export interface EvaluationScenario {
+  industry: string;
+  productType: string;
+  businessGoal: string;
+  targetUsers: string;
+  keyTasks: string;
+  painPoints: string;
+  successCriteria: string;
+  constraints: string;
+  source: 'manual' | 'ai_inferred' | 'mixed';
+}
+
 export interface DimensionScore {
   dimension: string; // e.g., "易用性", "一致性"
   score: number; // 0-100
@@ -38,14 +89,38 @@ export interface Issue {
   recommendation: string;
 }
 
-export interface ETSReport {
-  modelType: EvaluationModel; // Track which model was used
+export interface ReportSectionData {
+  id: string;
+  title: string;
+  type: 'text' | 'list' | 'tags';
+  content: string | string[];
+}
+
+export interface FrameworkReport {
+  frameworkId: string;
+  frameworkName: string;
+  modelType: EvaluationModel;
   overallScore: number;
   dimensionScores: DimensionScore[];
   executiveSummary: string;
   personaPerspective: string; // How the specific persona feels
   issues: Issue[];
   optimizationSuggestions: string[]; // High level strategic suggestions
+  scenarioSummary?: string;
+  evidenceNotes?: string[];
+  confidence?: number; // 0-100
+  dynamicSections?: ReportSectionData[];
+}
+
+// Backward compatibility
+export type ETSReport = FrameworkReport;
+
+export interface PersonaRecommendation {
+  id: string;
+  existingPersonaId?: string;
+  personaDraft?: Omit<Persona, 'id'>;
+  matchScore: number; // 0-100
+  reasoning: string;
 }
 
 export type ApiProvider = 'google' | 'openrouter';
