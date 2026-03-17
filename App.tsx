@@ -139,6 +139,12 @@ const OPENROUTER_IMAGE_MODELS = [
 ];
 
 const STEP_TITLES = ['上传评测素材', '定义业务场景与目标', '选择评测体系', '选择评测角色'];
+const STEP_FOCUS_GUIDES: Record<number, string[]> = {
+  1: ['选择素材类型（单页/流程/视频）', '上传至少 1 份评测素材'],
+  2: ['补齐评测目标、目标用户、关键任务流', '可使用推荐示例多选快速填充'],
+  3: ['选择评测体系', '确认模型来源（Google / OpenRouter）'],
+  4: ['至少勾选 1 个评测角色', '可使用 AI 推荐或 AI 新建角色']
+};
 const SCENARIO_REQUIRED_FIELDS: Array<keyof EvaluationScenario> = [
   'businessGoal',
   'targetUsers',
@@ -155,11 +161,6 @@ const SCENARIO_FIELD_LABELS: Record<keyof EvaluationScenario, string> = {
   constraints: '约束条件',
   source: '来源'
 };
-const TUTORIAL_LINKS = [
-  { label: '如何定义评测目标', href: 'https://www.nngroup.com/articles/task-analysis/' },
-  { label: '可用性评估快速清单', href: 'https://www.nngroup.com/articles/heuristic-evaluation/' }
-];
-
 type PageMode = 'setup' | 'report';
 type SetupStep = 1 | 2 | 3 | 4;
 type UploadMode = 'single' | 'flow' | 'video';
@@ -325,14 +326,7 @@ export default function App() {
     (activeStep === 1 && uploadComplete) ||
     (activeStep === 2 && scenarioComplete) ||
     (activeStep === 3 && frameworkComplete);
-  const currentStepHint =
-    activeStep === 1
-      ? '先上传可用于评测的素材。'
-      : activeStep === 2
-      ? '完善业务目标、目标用户和关键任务。'
-      : activeStep === 3
-      ? '选择评测体系与模型来源。'
-      : '选择角色后即可开始评测。';
+  const activeStepFocusGuide = STEP_FOCUS_GUIDES[activeStep] || [];
 
   const hasMultipleReports = Object.keys(reports).length > 1;
   const currentReport = reports[viewingPersonaId];
@@ -834,10 +828,7 @@ export default function App() {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="space-y-1">
                 <h1 className="text-xl font-semibold">AI 用户体验评测</h1>
-                <p className="text-sm text-slate-600">
-                  先完成配置，再进入报告。当前步骤 {activeStep}/4：{STEP_TITLES[activeStep - 1]}。
-                </p>
-                <p className="text-xs text-slate-500">{currentStepHint}</p>
+                <p className="text-sm text-slate-600">当前步骤 {activeStep}/4：{STEP_TITLES[activeStep - 1]}</p>
               </div>
               <div className="flex flex-wrap gap-2 text-xs">
                 <button onClick={handleSaveDraft} className="rounded-lg border border-slate-200 px-3 py-2">
@@ -863,10 +854,7 @@ export default function App() {
             <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
               <div className="h-full bg-slate-700 transition-all" style={{ width: `${completionPercent}%` }} />
             </div>
-            <p className="text-xs text-slate-500">
-              配置完成度 {completionPercent}%。
-              {draftSavedAt ? ` 最近草稿保存于 ${new Date(draftSavedAt).toLocaleString()}` : ' 你可以随时保存草稿稍后继续。'}
-            </p>
+            <p className="text-xs text-slate-500">配置完成度 {completionPercent}%</p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
               {completionList.map((item, index) => (
@@ -888,20 +876,20 @@ export default function App() {
                     </span>
                   </div>
                   <div className="font-medium mt-0.5">{item.label}</div>
-                  {item.detail && <div className="mt-1 text-[11px] text-slate-500">{item.detail}</div>}
                 </button>
               ))}
             </div>
 
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <p className="text-xs font-semibold text-slate-700">教程与最佳实践</p>
-              <div className="mt-1 flex flex-wrap gap-3 text-xs">
-                {TUTORIAL_LINKS.map((item) => (
-                  <a key={item.href} href={item.href} target="_blank" rel="noreferrer" className="underline text-slate-600">
-                    {item.label}
-                  </a>
+              <p className="text-xs font-semibold text-slate-700">当前步骤你需要完成</p>
+              <ul className="mt-1 list-disc pl-4 text-xs text-slate-600 space-y-1">
+                {activeStepFocusGuide.map((item) => (
+                  <li key={item}>{item}</li>
                 ))}
-              </div>
+              </ul>
+              {draftSavedAt && (
+                <p className="mt-2 text-[11px] text-slate-500">最近草稿：{new Date(draftSavedAt).toLocaleString()}</p>
+              )}
             </div>
           </header>
 
@@ -1380,8 +1368,9 @@ export default function App() {
                 </button>
               )}
             </div>
-            {!canAnalyze && <p className="text-xs text-slate-500">开始评测前需：{missingGuidance.join('；')}</p>}
-            {!canExportSetupConfig && <p className="text-xs text-slate-500">完成任一配置项后可导出评测配置。</p>}
+            {!canAnalyze && pendingChecklist.length > 0 && (
+              <p className="text-xs text-slate-500">请先完成清单中的待办项，再开始评测。</p>
+            )}
           </div>
         </div>
       ) : (

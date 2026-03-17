@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { EvaluationScenario } from '../types';
 
 interface ScenarioEditorProps {
@@ -13,6 +13,7 @@ interface ScenarioEditorProps {
 
 const INDUSTRY_OPTIONS = ['电商', '金融', '医疗', '教育', '企业服务', '文娱', '政务', '其他'];
 const PRODUCT_OPTIONS = ['移动 App', 'Web 网站', '管理后台', 'SaaS 平台', '小程序', 'IoT 终端', '其他'];
+const CORE_REQUIRED_FIELDS: Array<keyof EvaluationScenario> = ['businessGoal', 'targetUsers', 'keyTasks'];
 
 const QUICK_TEMPLATES: Record<'businessGoal' | 'targetUsers' | 'keyTasks' | 'painPoints' | 'successCriteria', string[]> = {
   businessGoal: [
@@ -99,6 +100,8 @@ export const ScenarioEditor: React.FC<ScenarioEditorProps> = ({
   showAiGuide,
   onDismissAiGuide
 }) => {
+  const [showAdvancedFields, setShowAdvancedFields] = useState(false);
+
   const updateField = (key: keyof EvaluationScenario, value: string) => {
     onChange({
       ...scenario,
@@ -116,9 +119,54 @@ export const ScenarioEditor: React.FC<ScenarioEditorProps> = ({
   };
 
   const isFieldComplete = (key: keyof EvaluationScenario) => Boolean((scenario[key] as string)?.trim());
+  const requiredDone = useMemo(
+    () => CORE_REQUIRED_FIELDS.filter((field) => isFieldComplete(field)).length,
+    [scenario]
+  );
+  const requiredPercent = Math.round((requiredDone / CORE_REQUIRED_FIELDS.length) * 100);
+
+  const toggleTemplate = (
+    field: 'businessGoal' | 'targetUsers' | 'keyTasks' | 'painPoints' | 'successCriteria',
+    template: string
+  ) => {
+    const lines = ((scenario[field] as string) || '')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const exists = lines.includes(template);
+    const nextLines = exists ? lines.filter((line) => line !== template) : [...lines, template];
+    updateField(field, nextLines.join('\n'));
+  };
+
+  const hasTemplate = (
+    field: 'businessGoal' | 'targetUsers' | 'keyTasks' | 'painPoints' | 'successCriteria',
+    template: string
+  ) =>
+    ((scenario[field] as string) || '')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .includes(template);
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-4 space-y-4">
+      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-semibold text-slate-800">步骤 2 操作指引</p>
+          <span className="text-xs text-slate-600">
+            核心字段完成 {requiredDone}/{CORE_REQUIRED_FIELDS.length}
+          </span>
+        </div>
+        <div className="h-1.5 rounded-full bg-slate-200 overflow-hidden">
+          <div className="h-full bg-slate-700 transition-all" style={{ width: `${requiredPercent}%` }} />
+        </div>
+        <ol className="list-decimal pl-4 text-xs text-slate-600 space-y-1">
+          <li>先用下方“推荐模板”快速起草（支持多选示例叠加）。</li>
+          <li>至少补齐：评测目标、目标用户、关键任务流。</li>
+          <li>可点击 “AI 从素材提炼场景” 自动生成后再微调。</li>
+        </ol>
+      </div>
+
       {showAiGuide && (
         <div className="rounded-xl border border-violet-200 bg-violet-50 p-3 space-y-2">
           <p className="text-xs font-semibold text-violet-800">建议先用 AI 快速起草场景</p>
@@ -143,9 +191,7 @@ export const ScenarioEditor: React.FC<ScenarioEditorProps> = ({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold text-slate-800">业务场景与评测目标</h3>
-          <p className="text-xs text-slate-500 mt-1">
-            先定义“在什么业务场景下，要评测什么”，再进入报告阶段，能显著提高评测结果相关性。
-          </p>
+          <p className="text-xs text-slate-500 mt-1">先填写核心字段，其他项可后续补充。</p>
         </div>
         <button
           onClick={onInfer}
@@ -158,7 +204,7 @@ export const ScenarioEditor: React.FC<ScenarioEditorProps> = ({
       </div>
 
       <div className="space-y-2">
-        <p className="text-xs font-medium text-slate-600">AI 推荐模板（可一键填充关键字段）</p>
+        <p className="text-xs font-medium text-slate-600">AI 推荐模板（快速填充）</p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
           {TEMPLATE_PACKS.map((pack) => (
             <button
@@ -217,10 +263,10 @@ export const ScenarioEditor: React.FC<ScenarioEditorProps> = ({
           </select>
         </label>
 
-        {FIELD_CONFIG.map((field) => (
+        {FIELD_CONFIG.filter((field) => CORE_REQUIRED_FIELDS.includes(field.key)).map((field) => (
           <label key={field.key} className={field.rows ? 'md:col-span-2 space-y-1' : 'space-y-1'}>
             <span className="flex items-center justify-between text-xs font-medium text-slate-600">
-              {field.label}
+              {field.label}（必填）
               <span className={isFieldComplete(field.key) ? 'text-emerald-600' : 'text-amber-600'}>
                 {isFieldComplete(field.key) ? '已填写' : '待填写'}
               </span>
@@ -239,17 +285,38 @@ export const ScenarioEditor: React.FC<ScenarioEditorProps> = ({
                   field.key === 'keyTasks' ||
                   field.key === 'painPoints' ||
                   field.key === 'successCriteria') && (
-                  <div className="flex flex-wrap gap-2">
+                  <div className="space-y-1">
+                    <p className="text-[11px] text-slate-500">推荐示例（可多选）</p>
+                    <div className="flex flex-wrap gap-2">
                     {QUICK_TEMPLATES[field.key as keyof typeof QUICK_TEMPLATES].map((template) => (
                       <button
                         type="button"
                         key={template}
-                        onClick={() => updateField(field.key, template)}
-                        className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] text-slate-600"
+                          onClick={() =>
+                            toggleTemplate(
+                              field.key as 'businessGoal' | 'targetUsers' | 'keyTasks' | 'painPoints' | 'successCriteria',
+                              template
+                            )
+                          }
+                        className={`rounded-full border px-2.5 py-1 text-[11px] ${
+                          hasTemplate(
+                            field.key as 'businessGoal' | 'targetUsers' | 'keyTasks' | 'painPoints' | 'successCriteria',
+                            template
+                          )
+                            ? 'border-slate-500 bg-slate-200 text-slate-800'
+                            : 'border-slate-200 bg-slate-50 text-slate-600'
+                        }`}
                       >
+                          {hasTemplate(
+                            field.key as 'businessGoal' | 'targetUsers' | 'keyTasks' | 'painPoints' | 'successCriteria',
+                            template
+                          )
+                            ? '✓ '
+                            : ''}
                         {template}
                       </button>
                     ))}
+                    </div>
                   </div>
                 )}
               </>
@@ -265,23 +332,56 @@ export const ScenarioEditor: React.FC<ScenarioEditorProps> = ({
         ))}
       </div>
 
-      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-        <p className="text-xs font-medium text-slate-700">小贴士</p>
-        <ul className="mt-1 list-disc pl-4 text-[11px] text-slate-600 space-y-1">
-          <li>优先描述“谁在什么情境下做什么任务”，再写痛点，AI 评测结果会更聚焦。</li>
-          <li>
-            首次使用建议阅读
-            <a
-              href="https://www.nngroup.com/articles/ux-research-cheat-sheet/"
-              target="_blank"
-              rel="noreferrer"
-              className="ml-1 underline"
-            >
-              UX Research Cheat Sheet
-            </a>
-            。
-          </li>
-        </ul>
+      <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2">
+        <button
+          onClick={() => setShowAdvancedFields((previous) => !previous)}
+          className="text-xs font-medium text-slate-700 underline"
+        >
+          {showAdvancedFields ? '收起补充信息' : '展开补充信息（可选）'}
+        </button>
+        {showAdvancedFields && (
+          <div className="grid grid-cols-1 gap-3">
+            {FIELD_CONFIG.filter((field) => !CORE_REQUIRED_FIELDS.includes(field.key)).map((field) => (
+              <label key={field.key} className="space-y-1">
+                <span className="flex items-center justify-between text-xs font-medium text-slate-600">
+                  {field.label}（可选）
+                  <span className={isFieldComplete(field.key) ? 'text-emerald-600' : 'text-slate-400'}>
+                    {isFieldComplete(field.key) ? '已填写' : '未填写'}
+                  </span>
+                </span>
+                <textarea
+                  value={scenario[field.key] as string}
+                  onChange={(event) => updateField(field.key, event.target.value)}
+                  rows={field.rows || 2}
+                  placeholder={field.placeholder}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400"
+                />
+                {(field.key === 'painPoints' || field.key === 'successCriteria') && (
+                  <div className="space-y-1">
+                    <p className="text-[11px] text-slate-500">推荐示例（可多选）</p>
+                    <div className="flex flex-wrap gap-2">
+                      {QUICK_TEMPLATES[field.key as 'painPoints' | 'successCriteria'].map((template) => (
+                        <button
+                          key={template}
+                          type="button"
+                          onClick={() => toggleTemplate(field.key as 'painPoints' | 'successCriteria', template)}
+                          className={`rounded-full border px-2.5 py-1 text-[11px] ${
+                            hasTemplate(field.key as 'painPoints' | 'successCriteria', template)
+                              ? 'border-slate-500 bg-slate-200 text-slate-800'
+                              : 'border-slate-200 bg-slate-50 text-slate-600'
+                          }`}
+                        >
+                          {hasTemplate(field.key as 'painPoints' | 'successCriteria', template) ? '✓ ' : ''}
+                          {template}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </label>
+            ))}
+          </div>
+        )}
       </div>
     </section>
   );
