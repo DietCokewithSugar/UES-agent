@@ -139,7 +139,7 @@ const OPENROUTER_IMAGE_MODELS = [
 ];
 
 const STEP_TITLES = ['上传评测素材', '定义业务场景与目标', '选择评测体系', '选择评测角色'];
-const STEP_FOCUS_GUIDES: Record<number, string[]> = {
+const STEP_REQUIRED_ACTIONS: Record<number, string[]> = {
   1: ['选择素材类型（单页/流程/视频）', '上传至少 1 份评测素材'],
   2: ['补齐评测目标、目标用户、关键任务流', '可使用推荐示例多选快速填充'],
   3: ['选择评测体系', '确认模型来源（Google / OpenRouter）'],
@@ -304,7 +304,6 @@ export default function App() {
 
   const pendingChecklist = setupChecklist.filter((item) => !item.done);
   const completedChecklist = setupChecklist.filter((item) => item.done);
-  const completionPercent = Math.round((completionList.filter((item) => item.done).length / completionList.length) * 100);
   const checklistPercent = Math.round((completedChecklist.length / setupChecklist.length) * 100);
 
   const missingGuidance = useMemo(() => {
@@ -326,7 +325,21 @@ export default function App() {
     (activeStep === 1 && uploadComplete) ||
     (activeStep === 2 && scenarioComplete) ||
     (activeStep === 3 && frameworkComplete);
-  const activeStepFocusGuide = STEP_FOCUS_GUIDES[activeStep] || [];
+  const stageStatuses = useMemo(() => {
+    return completionList.map((item, index) => {
+      const stepNumber = index + 1;
+      if (item.done && stepNumber !== activeStep) return 'completed' as const;
+      if (stepNumber === activeStep) return 'current' as const;
+      return 'pending' as const;
+    });
+  }, [activeStep, completionList]);
+  const timelineProgressPercent = Math.round(
+    ((stageStatuses.filter((status) => status === 'completed').length +
+      (stageStatuses.includes('current') ? 0.5 : 0)) /
+      completionList.length) *
+      100
+  );
+  const currentStageTitle = `步骤 ${activeStep} · ${STEP_TITLES[activeStep - 1]}`;
 
   const hasMultipleReports = Object.keys(reports).length > 1;
   const currentReport = reports[viewingPersonaId];
@@ -828,7 +841,7 @@ export default function App() {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="space-y-1">
                 <h1 className="text-xl font-semibold">AI 用户体验评测</h1>
-                <p className="text-sm text-slate-600">当前步骤 {activeStep}/4：{STEP_TITLES[activeStep - 1]}</p>
+                <p className="text-sm text-slate-600">当前状态：{currentStageTitle}</p>
               </div>
               <div className="flex flex-wrap gap-2 text-xs">
                 <button onClick={handleSaveDraft} className="rounded-lg border border-slate-200 px-3 py-2">
@@ -851,45 +864,77 @@ export default function App() {
               </div>
             </div>
 
-            <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
-              <div className="h-full bg-slate-700 transition-all" style={{ width: `${completionPercent}%` }} />
-            </div>
-            <p className="text-xs text-slate-500">配置完成度 {completionPercent}%</p>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-              {completionList.map((item, index) => (
-                <button
-                  key={item.id}
-                  onClick={() => setActiveStep((index + 1) as SetupStep)}
-                  className={`rounded-lg border px-2 py-2 text-left ${
-                    activeStep === index + 1
-                      ? 'border-slate-400 bg-slate-100'
-                      : item.done
-                      ? 'border-emerald-200 bg-emerald-50'
-                      : 'border-slate-200 bg-white'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span>步骤 {index + 1}</span>
-                    <span className={item.done ? 'text-emerald-700' : 'text-amber-600'}>
-                      {item.done ? '已完成' : '待完成'}
-                    </span>
-                  </div>
-                  <div className="font-medium mt-0.5">{item.label}</div>
-                </button>
-              ))}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs text-slate-600">
+                <span>流程进度</span>
+                <span>{timelineProgressPercent}%</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {completionList.map((item, index) => {
+                  const status = stageStatuses[index];
+                  const connectorFill =
+                    status === 'completed' ? 100 : status === 'current' ? 50 : 0;
+                  return (
+                    <React.Fragment key={item.id}>
+                      <button
+                        onClick={() => setActiveStep((index + 1) as SetupStep)}
+                        className="flex min-w-[86px] flex-col items-center gap-1 text-[11px]"
+                      >
+                        {status === 'completed' ? (
+                          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-[11px] text-white">
+                            ✓
+                          </span>
+                        ) : status === 'current' ? (
+                          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+                        ) : (
+                          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border-2 border-slate-300 bg-white" />
+                        )}
+                        <span className={status === 'pending' ? 'text-slate-500' : 'text-slate-800'}>步骤 {index + 1}</span>
+                      </button>
+                      {index < completionList.length - 1 && (
+                        <div className="h-1 flex-1 rounded-full bg-slate-200 overflow-hidden">
+                          <div className="h-full bg-emerald-500 transition-all" style={{ width: `${connectorFill}%` }} />
+                        </div>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </div>
             </div>
 
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <p className="text-xs font-semibold text-slate-700">当前步骤你需要完成</p>
-              <ul className="mt-1 list-disc pl-4 text-xs text-slate-600 space-y-1">
-                {activeStepFocusGuide.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-              {draftSavedAt && (
-                <p className="mt-2 text-[11px] text-slate-500">最近草稿：{new Date(draftSavedAt).toLocaleString()}</p>
-              )}
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-semibold text-slate-700">Shipment Progress</p>
+                <p className="text-[11px] text-slate-500">已完成 {completionList.filter((item) => item.done).length}/4</p>
+              </div>
+              <div className="mt-2 space-y-2">
+                {completionList.map((item, index) => {
+                  const status = stageStatuses[index];
+                  return (
+                    <div key={`timeline-${item.id}`} className="flex gap-2 text-[11px]">
+                      <span className="pt-0.5">
+                        {status === 'completed' ? (
+                          <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500 text-white">✓</span>
+                        ) : status === 'current' ? (
+                          <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+                        ) : (
+                          <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 bg-white" />
+                        )}
+                      </span>
+                      <div className="space-y-0.5">
+                        <p className="text-slate-700">
+                          步骤 {index + 1} · {item.label}{' '}
+                          <span className={status === 'completed' ? 'text-emerald-600' : status === 'current' ? 'text-blue-600' : 'text-slate-400'}>
+                            {status === 'completed' ? '已完成' : status === 'current' ? '进行中' : '待开始'}
+                          </span>
+                        </p>
+                        <p className="text-slate-500">必须动作：{STEP_REQUIRED_ACTIONS[index + 1].join('；')}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {draftSavedAt && <p className="mt-2 text-[11px] text-slate-500">最近草稿：{new Date(draftSavedAt).toLocaleString()}</p>}
             </div>
           </header>
 
