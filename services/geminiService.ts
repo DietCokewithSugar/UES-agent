@@ -146,6 +146,7 @@ const PERSONA_RECOMMENDATIONS_SCHEMA = {
 };
 
 const clampScore = (score: number, min = 0, max = 100) => Math.min(max, Math.max(min, score));
+const hasLatinCharacters = (text: string) => /[A-Za-z]/.test(text);
 
 const buildInputContextPrompt = (input: string | ProcessStep[]): string => {
   if (Array.isArray(input)) {
@@ -224,6 +225,7 @@ ${toFrameworkPrompt(framework)}
 
 问题严重级别必须使用：一级问题、二级问题、三级问题。
 如遇到无法直接观测的数据（如真实留存率、真实转化率），必须在 evidenceNotes 中标注“AI 代理估计”与证据限制。
+所有文本字段必须使用简体中文输出，除品牌名/产品名等不可翻译专有名词外不得使用英文句子。
 
 仅输出 JSON（不要 markdown 代码块），结构如下：
 {
@@ -246,6 +248,7 @@ const buildScenarioInferencePrompt = (hint?: string): string => `
 你是资深体验研究员，请根据输入素材提炼业务场景。
 如果信息不足，请给出合理假设并保持保守。
 ${hint ? `额外提示：${hint}` : ''}
+输出要求：所有字段必须使用简体中文，不得输出英文句子（品牌名/产品名可保留原文）。
 
 仅输出 JSON：
 {
@@ -260,9 +263,26 @@ ${hint ? `额外提示：${hint}` : ''}
 }
 `;
 
-const buildPersonaRecommendationPrompt = (framework: EvaluationFramework, scenario: EvaluationScenario, existingPersonas: Persona[]): string => `
+const buildScenarioLocalizationPrompt = (rawScenario: Partial<EvaluationScenario>): string => `
+你是专业本地化编辑，请将以下场景 JSON 的所有文本统一改写为简体中文。
+要求：
+1) 保留原始语义，不得新增无关信息；
+2) 品牌名/产品名等专有名词可保留原文；
+3) 返回字段必须完整，且仅输出 JSON。
+
+输入 JSON：
+${JSON.stringify(rawScenario, null, 2)}
+`;
+
+const buildPersonaRecommendationPrompt = (
+  framework: EvaluationFramework,
+  scenario: EvaluationScenario,
+  existingPersonas: Persona[],
+  mode: 'balanced' | 'new_only' = 'balanced'
+): string => `
 你是体验评测项目的用户研究专家，请推荐最适合当前评测任务的角色画像。
-目标：从现有角色中优先推荐，也可补充新角色草案。最多返回 4 条。
+目标：${mode === 'new_only' ? '生成全新角色草案（不复用已有角色）' : '从现有角色中优先推荐，也可补充新角色草案'}。最多返回 4 条。
+所有文本字段必须使用简体中文输出。
 
 场景：
 ${toScenarioPrompt(scenario)}
@@ -277,8 +297,7 @@ ${existingPersonas
 
 输出要求：
 - recommendations 每一项必须包含 matchScore(0-100) 与 reasoning。
-- 如果推荐现有角色，填写 existingPersonaId。
-- 如果建议新角色，填写 personaDraft（完整字段）。
+- ${mode === 'new_only' ? '必须返回 2-4 条新角色草案，每条都填写 personaDraft，且不要填写 existingPersonaId。' : '如果推荐现有角色，填写 existingPersonaId；如果建议新角色，填写 personaDraft（完整字段）。'}
 
 仅输出 JSON：
 {
@@ -305,6 +324,54 @@ ${existingPersonas
   ]
 }
 `;
+
+const callOpenRouterPromptJson = async <T>(prompt: string, model: string): Promise<T> => {
+  const apiKey = getOpenRouterApiKey();
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': window.location.origin,
+      'X-Title': 'ETS Agent'
+    },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: 'user', content: [{ type: 'text', text: `${prompt}\n\nIMPORTANT: Return ONLY valid JSON.` }] }],
+      reasoning: { enabled: true },
+      response_format: { type: 'json_object' }
+    })
+  });
+
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(`OpenRouter API Error: ${err.error?.message || response.statusText}`);
+  }
+
+  const result = await response.json();
+  const messageContent = result.choices?.[0]?.message?.content;
+  if (!messageContent) throw new Error('No content received from OpenRouter.');
+  return parseJsonText<T>(messageContent);
+};
+
+const callGeminiPromptJson = async <T>(
+  prompt: string,
+  schema: Record<string, unknown>,
+  model = 'gemini-2.5-flash'
+): Promise<T> => {
+  const ai = getAIClient();
+  const response = await ai.models.generateContent({
+    model,
+    contents: { parts: [{ text: prompt }] },
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: schema
+    }
+  });
+
+  if (!response.text) throw new Error('No response from Gemini.');
+  return parseJsonText<T>(response.text);
+};
 
 const appendInputToOpenRouterMessage = (messagesContent: any[], input: string | ProcessStep[]) => {
   if (Array.isArray(input)) {
@@ -511,7 +578,7 @@ export const inferScenarioFromInput = async (
         )
       : await callGeminiJson<Partial<EvaluationScenario>>(prompt, input, SCENARIO_SCHEMA);
 
-  return {
+  const normalized = {
     industry: raw.industry || '',
     productType: raw.productType || '',
     businessGoal: raw.businessGoal || '',
@@ -519,7 +586,32 @@ export const inferScenarioFromInput = async (
     keyTasks: raw.keyTasks || '',
     painPoints: raw.painPoints || '',
     successCriteria: raw.successCriteria || '',
-    constraints: raw.constraints || '',
+    constraints: raw.constraints || ''
+  };
+
+  const requiresLocalization = Object.values(normalized).some((value) => hasLatinCharacters(value || ''));
+  const localized =
+    requiresLocalization
+      ? apiConfig.provider === 'openrouter'
+        ? await callOpenRouterPromptJson<Partial<EvaluationScenario>>(
+            buildScenarioLocalizationPrompt(normalized),
+            apiConfig.openRouterModel || 'google/gemini-2.5-flash'
+          )
+        : await callGeminiPromptJson<Partial<EvaluationScenario>>(
+            buildScenarioLocalizationPrompt(normalized),
+            SCENARIO_SCHEMA
+          )
+      : normalized;
+
+  return {
+    industry: localized.industry || normalized.industry,
+    productType: localized.productType || normalized.productType,
+    businessGoal: localized.businessGoal || normalized.businessGoal,
+    targetUsers: localized.targetUsers || normalized.targetUsers,
+    keyTasks: localized.keyTasks || normalized.keyTasks,
+    painPoints: localized.painPoints || normalized.painPoints,
+    successCriteria: localized.successCriteria || normalized.successCriteria,
+    constraints: localized.constraints || normalized.constraints,
     source: 'ai_inferred'
   };
 };
@@ -529,15 +621,17 @@ export const recommendPersonas = async ({
   framework,
   scenario,
   existingPersonas,
+  mode = 'balanced',
   apiConfig = { provider: 'google' }
 }: {
   input: string | ProcessStep[];
   framework: EvaluationFramework;
   scenario: EvaluationScenario;
   existingPersonas: Persona[];
+  mode?: 'balanced' | 'new_only';
   apiConfig?: ApiConfig;
 }): Promise<PersonaRecommendation[]> => {
-  const prompt = buildPersonaRecommendationPrompt(framework, scenario, existingPersonas);
+  const prompt = buildPersonaRecommendationPrompt(framework, scenario, existingPersonas, mode);
 
   const raw =
     apiConfig.provider === 'openrouter'
@@ -550,14 +644,36 @@ export const recommendPersonas = async ({
 
   return (raw.recommendations || [])
     .slice(0, 4)
-    .map((recommendation, index) => ({
-      id: `rec-${Date.now()}-${index}`,
-      existingPersonaId:
-        typeof recommendation.existingPersonaId === 'string' ? recommendation.existingPersonaId : undefined,
-      personaDraft: recommendation.personaDraft,
-      matchScore: clampScore(Number(recommendation.matchScore || 0)),
-      reasoning: recommendation.reasoning || '模型未提供推荐理由'
-    }));
+    .map((recommendation, index) => {
+      const normalizedExistingId =
+        mode === 'new_only'
+          ? undefined
+          : typeof recommendation.existingPersonaId === 'string'
+          ? recommendation.existingPersonaId
+          : undefined;
+
+      const normalizedDraft = recommendation.personaDraft
+        ? {
+            ...recommendation.personaDraft,
+            name: recommendation.personaDraft.name || `AI 角色 ${index + 1}`,
+            role:
+              recommendation.personaDraft.role === 'EXPERT'
+                ? 'EXPERT'
+                : recommendation.personaDraft.role === 'USER'
+                ? 'USER'
+                : 'USER'
+          }
+        : undefined;
+
+      return {
+        id: `rec-${Date.now()}-${index}`,
+        existingPersonaId: normalizedExistingId,
+        personaDraft: normalizedDraft,
+        matchScore: clampScore(Number(recommendation.matchScore || 0)),
+        reasoning: recommendation.reasoning || '模型未提供推荐理由'
+      };
+    })
+    .filter((recommendation) => (mode === 'new_only' ? Boolean(recommendation.personaDraft) : true));
 };
 
 export const generateOptimizedDesign = async (
