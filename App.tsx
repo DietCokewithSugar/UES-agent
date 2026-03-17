@@ -188,7 +188,6 @@ export default function App() {
 
   const [scenario, setScenario] = useState<EvaluationScenario>(EMPTY_SCENARIO);
   const [showAiGuide, setShowAiGuide] = useState(true);
-  const [showProgressChecklist, setShowProgressChecklist] = useState(true);
   const [hasStoredDraft, setHasStoredDraft] = useState(false);
   const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
@@ -287,25 +286,6 @@ export default function App() {
       : `已上传 ${processSteps.length} 张流程图`
     : '请先上传素材';
 
-  const setupChecklist = useMemo(
-    () => [
-      { id: 'upload-source', step: 1, label: '上传评测素材', done: uploadComplete },
-      ...SCENARIO_REQUIRED_FIELDS.map((field) => ({
-        id: `scenario-${field}`,
-        step: 2,
-        label: `填写${SCENARIO_FIELD_LABELS[field]}`,
-        done: Boolean(scenario[field].trim())
-      })),
-      { id: 'framework-select', step: 3, label: '选择评测体系', done: frameworkComplete },
-      { id: 'persona-select', step: 4, label: '选择至少 1 个评测角色', done: personaComplete }
-    ],
-    [frameworkComplete, personaComplete, scenario, uploadComplete]
-  );
-
-  const pendingChecklist = setupChecklist.filter((item) => !item.done);
-  const completedChecklist = setupChecklist.filter((item) => item.done);
-  const checklistPercent = Math.round((completedChecklist.length / setupChecklist.length) * 100);
-
   const missingGuidance = useMemo(() => {
     const missing: string[] = [];
     if (!uploadComplete) missing.push('上传素材');
@@ -340,6 +320,7 @@ export default function App() {
       100
   );
   const currentStageTitle = `步骤 ${activeStep} · ${STEP_TITLES[activeStep - 1]}`;
+  const currentRequiredActions = STEP_REQUIRED_ACTIONS[activeStep] || [];
 
   const hasMultipleReports = Object.keys(reports).length > 1;
   const currentReport = reports[viewingPersonaId];
@@ -353,12 +334,6 @@ export default function App() {
     setHasStoredDraft(true);
     setDraftSavedAt(draft.savedAt);
   }, []);
-
-  useEffect(() => {
-    if (pendingChecklist.length === 0) {
-      setShowProgressChecklist(false);
-    }
-  }, [pendingChecklist.length]);
 
   const goToNextStep = () => {
     setActiveStep((previous) => {
@@ -844,6 +819,11 @@ export default function App() {
                 <p className="text-sm text-slate-600">当前状态：{currentStageTitle}</p>
               </div>
               <div className="flex flex-wrap gap-2 text-xs">
+                {canExportSetupConfig && (
+                  <button onClick={exportSetupConfig} className="rounded-lg border border-slate-200 px-3 py-2">
+                    导出评测配置
+                  </button>
+                )}
                 <button onClick={handleSaveDraft} className="rounded-lg border border-slate-200 px-3 py-2">
                   保存草稿
                 </button>
@@ -885,11 +865,14 @@ export default function App() {
                             ✓
                           </span>
                         ) : status === 'current' ? (
-                          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+                          <span className="relative inline-flex h-5 w-5 items-center justify-center">
+                            <span className="absolute h-5 w-5 rounded-full bg-blue-200 animate-pulse" />
+                            <span className="relative h-2.5 w-2.5 rounded-full bg-blue-600" />
+                          </span>
                         ) : (
                           <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border-2 border-slate-300 bg-white" />
                         )}
-                        <span className={status === 'pending' ? 'text-slate-500' : 'text-slate-800'}>步骤 {index + 1}</span>
+                        <span className={status === 'pending' ? 'text-slate-500' : 'text-slate-800'}>{item.label}</span>
                       </button>
                       {index < completionList.length - 1 && (
                         <div className="h-1 flex-1 rounded-full bg-slate-200 overflow-hidden">
@@ -905,34 +888,19 @@ export default function App() {
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-xs font-semibold text-slate-700">Shipment Progress</p>
-                <p className="text-[11px] text-slate-500">已完成 {completionList.filter((item) => item.done).length}/4</p>
+                <p className="text-[11px] text-slate-500">当前步骤</p>
               </div>
-              <div className="mt-2 space-y-2">
-                {completionList.map((item, index) => {
-                  const status = stageStatuses[index];
-                  return (
-                    <div key={`timeline-${item.id}`} className="flex gap-2 text-[11px]">
-                      <span className="pt-0.5">
-                        {status === 'completed' ? (
-                          <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500 text-white">✓</span>
-                        ) : status === 'current' ? (
-                          <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
-                        ) : (
-                          <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 bg-white" />
-                        )}
-                      </span>
-                      <div className="space-y-0.5">
-                        <p className="text-slate-700">
-                          步骤 {index + 1} · {item.label}{' '}
-                          <span className={status === 'completed' ? 'text-emerald-600' : status === 'current' ? 'text-blue-600' : 'text-slate-400'}>
-                            {status === 'completed' ? '已完成' : status === 'current' ? '进行中' : '待开始'}
-                          </span>
-                        </p>
-                        <p className="text-slate-500">必须动作：{STEP_REQUIRED_ACTIONS[index + 1].join('；')}</p>
-                      </div>
-                    </div>
-                  );
-                })}
+              <div className="mt-2 flex gap-2 text-[11px]">
+                <span className="pt-0.5">
+                  <span className="relative inline-flex h-4 w-4 items-center justify-center">
+                    <span className="absolute h-4 w-4 rounded-full bg-blue-200 animate-pulse" />
+                    <span className="relative h-2 w-2 rounded-full bg-blue-600" />
+                  </span>
+                </span>
+                <div className="space-y-0.5">
+                  <p className="text-slate-700">{STEP_TITLES[activeStep - 1]}</p>
+                  <p className="text-slate-500">必须动作：{currentRequiredActions.join('；')}</p>
+                </div>
               </div>
               {draftSavedAt && <p className="mt-2 text-[11px] text-slate-500">最近草稿：{new Date(draftSavedAt).toLocaleString()}</p>}
             </div>
@@ -1341,60 +1309,18 @@ export default function App() {
           )}
 
           <div className="sticky bottom-3 rounded-xl border border-slate-200 bg-white p-4 space-y-3">
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-medium">
-                  前置条件进度：{completedChecklist.length}/{setupChecklist.length}
-                </p>
-                <button
-                  onClick={() => setShowProgressChecklist((previous) => !previous)}
-                  className="text-xs text-slate-500 underline"
-                >
-                  {showProgressChecklist ? '收起清单' : '展开清单'}
-                </button>
-              </div>
-              <div className="h-2 rounded-full bg-slate-200 overflow-hidden">
-                <div className="h-full bg-slate-700 transition-all" style={{ width: `${checklistPercent}%` }} />
-              </div>
-              <p className="text-xs text-slate-500">整体完成度 {checklistPercent}%</p>
-
-              {showProgressChecklist && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                  {setupChecklist.map((item) => (
-                    <label
-                      key={item.id}
-                      className={`flex items-center gap-2 rounded-md border px-2.5 py-2 text-xs ${
-                        item.done ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-600'
-                      }`}
-                    >
-                      <input type="checkbox" checked={item.done} readOnly className="h-3.5 w-3.5" />
-                      <span>
-                        步骤 {item.step} · {item.label}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              )}
-
-              {pendingChecklist.length === 0 && (
-                <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-2 text-xs text-emerald-700">
-                  全部前置条件已完成，点击“开始评测”进入报告阶段。
-                </div>
-              )}
-            </div>
-
             <div className="flex flex-wrap gap-2">
               <button
                 onClick={goToPreviousStep}
                 disabled={activeStep === 1}
-                className="rounded-lg border border-slate-200 px-4 py-2 text-sm disabled:opacity-50"
+                className="rounded-lg border border-slate-200 px-6 py-3 text-base font-semibold disabled:opacity-50"
               >
                 上一步
               </button>
               <button
                 onClick={goToNextStep}
                 disabled={activeStep === 4 || !canGoNext}
-                className="rounded-lg border border-slate-200 px-4 py-2 text-sm disabled:opacity-50"
+                className="rounded-lg border border-slate-200 px-6 py-3 text-base font-semibold disabled:opacity-50"
                 title={!canGoNext && activeStep !== 4 ? '请先完成当前步骤关键配置' : ''}
               >
                 下一步
@@ -1402,20 +1328,12 @@ export default function App() {
               <button
                 onClick={analyze}
                 disabled={!canAnalyze || isAnalyzing}
-                className="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
+                className="rounded-lg bg-slate-900 px-6 py-3 text-base font-semibold text-white disabled:opacity-50"
                 title={!canAnalyze ? `还需完成：${missingGuidance.join('；')}` : ''}
               >
                 {isAnalyzing ? '分析中...' : '开始评测'}
               </button>
-              {canExportSetupConfig && (
-                <button onClick={exportSetupConfig} className="rounded-lg border border-slate-200 px-4 py-2 text-sm">
-                  导出评测配置
-                </button>
-              )}
             </div>
-            {!canAnalyze && pendingChecklist.length > 0 && (
-              <p className="text-xs text-slate-500">请先完成清单中的待办项，再开始评测。</p>
-            )}
           </div>
         </div>
       ) : (
