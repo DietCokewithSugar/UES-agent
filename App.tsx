@@ -188,7 +188,6 @@ export default function App() {
   const [scenario, setScenario] = useState<EvaluationScenario>(EMPTY_SCENARIO);
   const [showAiGuide, setShowAiGuide] = useState(true);
   const [showProgressChecklist, setShowProgressChecklist] = useState(true);
-  const [showConfigOverview, setShowConfigOverview] = useState(false);
   const [hasStoredDraft, setHasStoredDraft] = useState(false);
   const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
@@ -199,6 +198,7 @@ export default function App() {
 
   const [isInferringScenario, setIsInferringScenario] = useState(false);
   const [isRecommending, setIsRecommending] = useState(false);
+  const [isRecommendingNewPersona, setIsRecommendingNewPersona] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -304,6 +304,7 @@ export default function App() {
   const pendingChecklist = setupChecklist.filter((item) => !item.done);
   const completedChecklist = setupChecklist.filter((item) => item.done);
   const completionPercent = Math.round((completionList.filter((item) => item.done).length / completionList.length) * 100);
+  const checklistPercent = Math.round((completedChecklist.length / setupChecklist.length) * 100);
 
   const missingGuidance = useMemo(() => {
     const missing: string[] = [];
@@ -668,6 +669,7 @@ export default function App() {
         framework: selectedFramework,
         scenario,
         existingPersonas: personas,
+        mode: 'balanced',
         apiConfig
       });
       setPersonaRecommendations(recommendations);
@@ -675,6 +677,28 @@ export default function App() {
       setError(err instanceof Error ? err.message : '角色推荐失败');
     } finally {
       setIsRecommending(false);
+    }
+  };
+
+  const fetchNewPersonaRecommendations = async () => {
+    if (!currentInput || !selectedFramework) return;
+    setIsRecommendingNewPersona(true);
+    setError(null);
+    setInfoMessage(null);
+    try {
+      const recommendations = await recommendPersonas({
+        input: currentInput,
+        framework: selectedFramework,
+        scenario,
+        existingPersonas: personas,
+        mode: 'new_only',
+        apiConfig
+      });
+      setPersonaRecommendations(recommendations);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '新角色生成失败');
+    } finally {
+      setIsRecommendingNewPersona(false);
     }
   };
 
@@ -870,15 +894,7 @@ export default function App() {
             </div>
 
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-semibold text-slate-700">教程与最佳实践</p>
-                <button
-                  onClick={() => setShowConfigOverview((previous) => !previous)}
-                  className="text-xs text-slate-600 underline"
-                >
-                  {showConfigOverview ? '收起配置总览' : '展开配置总览'}
-                </button>
-              </div>
+              <p className="text-xs font-semibold text-slate-700">教程与最佳实践</p>
               <div className="mt-1 flex flex-wrap gap-3 text-xs">
                 {TUTORIAL_LINKS.map((item) => (
                   <a key={item.href} href={item.href} target="_blank" rel="noreferrer" className="underline text-slate-600">
@@ -892,29 +908,6 @@ export default function App() {
           {error && <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</div>}
           {infoMessage && <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-700">{infoMessage}</div>}
 
-          {showConfigOverview && (
-            <section className="rounded-xl border border-slate-200 bg-white p-4 space-y-2">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold">配置总览</h2>
-                <p className="text-xs text-slate-500">
-                  已完成 {completedChecklist.length}/{setupChecklist.length} 项
-                </p>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-                {setupChecklist.map((item) => (
-                  <div key={item.id} className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2">
-                    <p className="font-medium text-slate-700">
-                      步骤 {item.step} · {item.label}
-                    </p>
-                    <p className={item.done ? 'text-emerald-700' : 'text-amber-600'}>
-                      {item.done ? '已完成' : '待完成'}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
           <section className={`rounded-xl border bg-white p-4 space-y-3 ${activeStep === 1 ? 'border-slate-400' : 'border-slate-200'}`}>
             <div className="flex items-center justify-between gap-2">
               <div className="space-y-1">
@@ -923,230 +916,272 @@ export default function App() {
                   {uploadComplete ? '素材已就绪' : '请先上传至少 1 份可评测素材'}
                 </p>
               </div>
-              <button onClick={() => clearForMode(uploadMode)} className="text-xs text-slate-500 underline">
-                清空素材
-              </button>
+              {activeStep === 1 ? (
+                <button onClick={() => clearForMode(uploadMode)} className="text-xs text-slate-500 underline">
+                  清空素材
+                </button>
+              ) : (
+                <button onClick={() => setActiveStep(1)} className="text-xs text-slate-500 underline">
+                  展开编辑
+                </button>
+              )}
             </div>
 
-            <div className="grid grid-cols-3 gap-2 text-sm">
-              {(['single', 'flow', 'video'] as UploadMode[]).map((mode) => (
-                <button
-                  key={mode}
-                  onClick={() => clearForMode(mode)}
-                  className={`rounded-lg border px-3 py-2 ${
-                    uploadMode === mode ? 'border-slate-400 bg-slate-100' : 'border-slate-200'
+            {activeStep === 1 ? (
+              <>
+                <div className="grid grid-cols-3 gap-2 text-sm">
+                  {(['single', 'flow', 'video'] as UploadMode[]).map((mode) => (
+                    <button
+                      key={mode}
+                      onClick={() => clearForMode(mode)}
+                      className={`rounded-lg border px-3 py-2 ${
+                        uploadMode === mode ? 'border-slate-400 bg-slate-100' : 'border-slate-200'
+                      }`}
+                    >
+                      {mode === 'single' ? '单页截图' : mode === 'flow' ? '流程截图' : '视频录屏'}
+                    </button>
+                  ))}
+                </div>
+
+                <div
+                  onDrop={handleDropUpload}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    setIsDropActive(true);
+                  }}
+                  onDragLeave={() => setIsDropActive(false)}
+                  className={`rounded-lg border-2 border-dashed p-6 text-center ${
+                    isDropActive ? 'border-slate-500 bg-slate-50' : 'border-slate-300 bg-white'
                   }`}
                 >
-                  {mode === 'single' ? '单页截图' : mode === 'flow' ? '流程截图' : '视频录屏'}
-                </button>
-              ))}
-            </div>
+                  <p className="text-sm font-medium">{uploadMainLabel}</p>
+                  <p className="text-xs text-slate-500 mt-1">支持拖拽文件到此区域，或点击按钮选择文件</p>
+                  {uploadMode === 'single' && (
+                    <>
+                      <button onClick={() => imageInputRef.current?.click()} className="mt-3 rounded-lg border px-4 py-2 text-sm">
+                        选择图片
+                      </button>
+                      <input
+                        ref={imageInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={(event) => handleInputFiles(extractFiles(event.target.files))}
+                        className="hidden"
+                      />
+                    </>
+                  )}
+                  {uploadMode === 'video' && (
+                    <>
+                      <button onClick={() => videoInputRef.current?.click()} className="mt-3 rounded-lg border px-4 py-2 text-sm">
+                        选择视频
+                      </button>
+                      <input
+                        ref={videoInputRef}
+                        type="file"
+                        accept="video/mp4,video/webm,video/quicktime"
+                        onChange={(event) => handleInputFiles(extractFiles(event.target.files))}
+                        className="hidden"
+                      />
+                    </>
+                  )}
+                  {uploadMode === 'flow' && (
+                    <>
+                      <button onClick={() => flowInputRef.current?.click()} className="mt-3 rounded-lg border px-4 py-2 text-sm">
+                        选择流程图片
+                      </button>
+                      <input
+                        ref={flowInputRef}
+                        type="file"
+                        multiple
+                        accept="image/*"
+                        onChange={(event) => handleInputFiles(extractFiles(event.target.files))}
+                        className="hidden"
+                      />
+                    </>
+                  )}
+                </div>
 
-            <div
-              onDrop={handleDropUpload}
-              onDragOver={(event) => {
-                event.preventDefault();
-                setIsDropActive(true);
-              }}
-              onDragLeave={() => setIsDropActive(false)}
-              className={`rounded-lg border-2 border-dashed p-6 text-center ${
-                isDropActive ? 'border-slate-500 bg-slate-50' : 'border-slate-300 bg-white'
-              }`}
-            >
-              <p className="text-sm font-medium">{uploadMainLabel}</p>
-              <p className="text-xs text-slate-500 mt-1">支持拖拽文件到此区域，或点击按钮选择文件</p>
-              {uploadMode === 'single' && (
-                <>
-                  <button onClick={() => imageInputRef.current?.click()} className="mt-3 rounded-lg border px-4 py-2 text-sm">
-                    选择图片
-                  </button>
-                  <input
-                    ref={imageInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={(event) => handleInputFiles(extractFiles(event.target.files))}
-                    className="hidden"
-                  />
-                </>
-              )}
-              {uploadMode === 'video' && (
-                <>
-                  <button onClick={() => videoInputRef.current?.click()} className="mt-3 rounded-lg border px-4 py-2 text-sm">
-                    选择视频
-                  </button>
-                  <input
-                    ref={videoInputRef}
-                    type="file"
-                    accept="video/mp4,video/webm,video/quicktime"
-                    onChange={(event) => handleInputFiles(extractFiles(event.target.files))}
-                    className="hidden"
-                  />
-                </>
-              )}
-              {uploadMode === 'flow' && (
-                <>
-                  <button onClick={() => flowInputRef.current?.click()} className="mt-3 rounded-lg border px-4 py-2 text-sm">
-                    选择流程图片
-                  </button>
-                  <input
-                    ref={flowInputRef}
-                    type="file"
-                    multiple
-                    accept="image/*"
-                    onChange={(event) => handleInputFiles(extractFiles(event.target.files))}
-                    className="hidden"
-                  />
-                </>
-              )}
-            </div>
-
-            {uploadMode === 'single' && image && (
-              <div className="rounded-lg border border-slate-200 p-3 space-y-2">
-                <p className="text-xs text-slate-500">已上传：{singleFileName || '图片文件'}</p>
-                <img src={image} alt="单页截图" className="max-h-56 rounded-md" />
-              </div>
-            )}
-            {uploadMode === 'video' && video && (
-              <div className="rounded-lg border border-slate-200 p-3 space-y-2">
-                <p className="text-xs text-slate-500">已上传：{videoFileName || '视频文件'}</p>
-                <video src={video} controls className="max-h-56 rounded-md" />
-              </div>
-            )}
-            {uploadMode === 'flow' && processSteps.length > 0 && (
-              <div className="rounded-lg border border-slate-200 p-3 space-y-2">
-                <p className="text-xs text-slate-500">已上传：{processSteps.length} 张流程图</p>
-                {processSteps.map((step, index) => (
-                  <div key={step.id} className="rounded-lg border border-slate-100 bg-slate-50 p-2 space-y-2">
-                    <p className="text-xs text-slate-500">
-                      步骤 {index + 1} {step.fileName ? `· ${step.fileName}` : ''}
-                    </p>
-                    <img src={step.image} alt={`步骤${index + 1}`} className="max-h-28 rounded-md" />
-                    <textarea
-                      value={step.description}
-                      onChange={(event) => updateFlowStepDescription(step.id, event.target.value)}
-                      placeholder="补充步骤描述（可选）"
-                      rows={2}
-                      className="w-full rounded-md border border-slate-200 px-2 py-1.5 text-xs"
-                    />
-                    <button onClick={() => removeFlowStep(step.id)} className="text-xs text-rose-600 underline">
-                      删除此步骤
-                    </button>
+                {uploadMode === 'single' && image && (
+                  <div className="rounded-lg border border-slate-200 p-3 space-y-2">
+                    <p className="text-xs text-slate-500">已上传：{singleFileName || '图片文件'}</p>
+                    <img src={image} alt="单页截图" className="max-h-56 rounded-md" />
                   </div>
-                ))}
+                )}
+                {uploadMode === 'video' && video && (
+                  <div className="rounded-lg border border-slate-200 p-3 space-y-2">
+                    <p className="text-xs text-slate-500">已上传：{videoFileName || '视频文件'}</p>
+                    <video src={video} controls className="max-h-56 rounded-md" />
+                  </div>
+                )}
+                {uploadMode === 'flow' && processSteps.length > 0 && (
+                  <div className="rounded-lg border border-slate-200 p-3 space-y-2">
+                    <p className="text-xs text-slate-500">已上传：{processSteps.length} 张流程图</p>
+                    {processSteps.map((step, index) => (
+                      <div key={step.id} className="rounded-lg border border-slate-100 bg-slate-50 p-2 space-y-2">
+                        <p className="text-xs text-slate-500">
+                          步骤 {index + 1} {step.fileName ? `· ${step.fileName}` : ''}
+                        </p>
+                        <img src={step.image} alt={`步骤${index + 1}`} className="max-h-28 rounded-md" />
+                        <textarea
+                          value={step.description}
+                          onChange={(event) => updateFlowStepDescription(step.id, event.target.value)}
+                          placeholder="补充步骤描述（可选）"
+                          rows={2}
+                          className="w-full rounded-md border border-slate-200 px-2 py-1.5 text-xs"
+                        />
+                        <button onClick={() => removeFlowStep(step.id)} className="text-xs text-rose-600 underline">
+                          删除此步骤
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+                当前为折叠状态，点击“展开编辑”可修改上传素材。
               </div>
             )}
           </section>
 
           {activeStep >= 2 && (
             <section className={`rounded-xl border bg-white p-4 ${activeStep === 2 ? 'border-slate-400' : 'border-slate-200'}`}>
-              <div className="mb-3 space-y-1">
-                <h2 className="text-base font-semibold">步骤 2：{STEP_TITLES[1]}</h2>
-                <p className={`text-xs ${scenarioComplete ? 'text-emerald-700' : 'text-amber-600'}`}>
-                  {scenarioComplete
-                    ? '关键场景字段已完成'
-                    : `还需填写：${missingScenarioFields.map((field) => SCENARIO_FIELD_LABELS[field]).join('、')}`}
-                </p>
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <div className="space-y-1">
+                  <h2 className="text-base font-semibold">步骤 2：{STEP_TITLES[1]}</h2>
+                  <p className={`text-xs ${scenarioComplete ? 'text-emerald-700' : 'text-amber-600'}`}>
+                    {scenarioComplete
+                      ? '关键场景字段已完成'
+                      : `还需填写：${missingScenarioFields.map((field) => SCENARIO_FIELD_LABELS[field]).join('、')}`}
+                  </p>
+                </div>
+                {activeStep !== 2 && (
+                  <button onClick={() => setActiveStep(2)} className="text-xs text-slate-500 underline">
+                    展开编辑
+                  </button>
+                )}
               </div>
-              <ScenarioEditor
-                scenario={scenario}
-                onChange={setScenario}
-                onInfer={inferScenario}
-                isInferring={isInferringScenario}
-                canInfer={!!currentInput}
-                showAiGuide={showAiGuide && activeStep === 2}
-                onDismissAiGuide={() => setShowAiGuide(false)}
-              />
+              {activeStep === 2 ? (
+                <ScenarioEditor
+                  scenario={scenario}
+                  onChange={setScenario}
+                  onInfer={inferScenario}
+                  isInferring={isInferringScenario}
+                  canInfer={!!currentInput}
+                  showAiGuide={showAiGuide && activeStep === 2}
+                  onDismissAiGuide={() => setShowAiGuide(false)}
+                />
+              ) : (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+                  当前为折叠状态。已填写内容会保留，点击“展开编辑”可继续补充。
+                </div>
+              )}
             </section>
           )}
 
           {activeStep >= 3 && (
             <section className={`rounded-xl border bg-white p-4 space-y-3 ${activeStep === 3 ? 'border-slate-400' : 'border-slate-200'}`}>
-              <div className="space-y-1">
-                <h2 className="text-base font-semibold">步骤 3：{STEP_TITLES[2]}</h2>
-                <p className={`text-xs ${frameworkComplete ? 'text-emerald-700' : 'text-amber-600'}`}>
-                  {frameworkComplete ? `已选择：${selectedFramework?.name}` : '请选择评测体系后继续'}
-                </p>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
-                <select
-                  value={selectedFrameworkId}
-                  onChange={(event) => setSelectedFrameworkId(event.target.value)}
-                  className="rounded-lg border border-slate-200 px-3 py-2"
-                >
-                  <option value="">请选择评测体系</option>
-                  {frameworks.map((framework) => (
-                    <option key={framework.id} value={framework.id}>
-                      {framework.name}（{framework.source === 'builtin' ? '内置' : '自定义'}）
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={apiConfig.provider}
-                  onChange={(event) =>
-                    setApiConfig((previous) => ({
-                      ...previous,
-                      provider: event.target.value as ApiConfig['provider']
-                    }))
-                  }
-                  className="rounded-lg border border-slate-200 px-3 py-2"
-                >
-                  <option value="google">Google</option>
-                  <option value="openrouter">OpenRouter</option>
-                </select>
-                {apiConfig.provider === 'openrouter' ? (
-                  <select
-                    value={apiConfig.openRouterModel}
-                    onChange={(event) =>
-                      setApiConfig((previous) => ({
-                        ...previous,
-                        openRouterModel: event.target.value
-                      }))
-                    }
-                    className="rounded-lg border border-slate-200 px-3 py-2"
-                  >
-                    {OPENROUTER_TEXT_MODELS.map((model) => (
-                      <option key={model.value} value={model.value}>
-                        {model.label}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <select
-                    value={apiConfig.imageModel}
-                    onChange={(event) =>
-                      setApiConfig((previous) => ({
-                        ...previous,
-                        imageModel: event.target.value
-                      }))
-                    }
-                    className="rounded-lg border border-slate-200 px-3 py-2"
-                  >
-                    {GOOGLE_IMAGE_MODELS.map((model) => (
-                      <option key={model.value} value={model.value}>
-                        {model.label}
-                      </option>
-                    ))}
-                  </select>
+              <div className="flex items-center justify-between gap-2">
+                <div className="space-y-1">
+                  <h2 className="text-base font-semibold">步骤 3：{STEP_TITLES[2]}</h2>
+                  <p className={`text-xs ${frameworkComplete ? 'text-emerald-700' : 'text-amber-600'}`}>
+                    {frameworkComplete ? `已选择：${selectedFramework?.name}` : '请选择评测体系后继续'}
+                  </p>
+                </div>
+                {activeStep !== 3 && (
+                  <button onClick={() => setActiveStep(3)} className="text-xs text-slate-500 underline">
+                    展开编辑
+                  </button>
                 )}
               </div>
-              <p className="text-xs text-slate-500">
-                {selectedFramework ? selectedFramework.description : '请选择一个评测体系，系统将按该体系生成报告。'}
-              </p>
-              <div className="flex flex-wrap gap-2 text-xs">
-                <button onClick={downloadFrameworkTemplate} className="rounded-lg border border-slate-200 px-3 py-2">
-                  下载体系模板
-                </button>
-                <button onClick={() => frameworkImportRef.current?.click()} className="rounded-lg border border-slate-200 px-3 py-2">
-                  导入体系 JSON
-                </button>
-                <input
-                  ref={frameworkImportRef}
-                  type="file"
-                  accept=".json"
-                  onChange={importFramework}
-                  className="hidden"
-                />
-              </div>
+              {activeStep === 3 ? (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
+                    <select
+                      value={selectedFrameworkId}
+                      onChange={(event) => setSelectedFrameworkId(event.target.value)}
+                      className="rounded-lg border border-slate-200 px-3 py-2"
+                    >
+                      <option value="">请选择评测体系</option>
+                      {frameworks.map((framework) => (
+                        <option key={framework.id} value={framework.id}>
+                          {framework.name}（{framework.source === 'builtin' ? '内置' : '自定义'}）
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={apiConfig.provider}
+                      onChange={(event) =>
+                        setApiConfig((previous) => ({
+                          ...previous,
+                          provider: event.target.value as ApiConfig['provider']
+                        }))
+                      }
+                      className="rounded-lg border border-slate-200 px-3 py-2"
+                    >
+                      <option value="google">Google</option>
+                      <option value="openrouter">OpenRouter</option>
+                    </select>
+                    {apiConfig.provider === 'openrouter' ? (
+                      <select
+                        value={apiConfig.openRouterModel}
+                        onChange={(event) =>
+                          setApiConfig((previous) => ({
+                            ...previous,
+                            openRouterModel: event.target.value
+                          }))
+                        }
+                        className="rounded-lg border border-slate-200 px-3 py-2"
+                      >
+                        {OPENROUTER_TEXT_MODELS.map((model) => (
+                          <option key={model.value} value={model.value}>
+                            {model.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <select
+                        value={apiConfig.imageModel}
+                        onChange={(event) =>
+                          setApiConfig((previous) => ({
+                            ...previous,
+                            imageModel: event.target.value
+                          }))
+                        }
+                        className="rounded-lg border border-slate-200 px-3 py-2"
+                      >
+                        {GOOGLE_IMAGE_MODELS.map((model) => (
+                          <option key={model.value} value={model.value}>
+                            {model.label}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    {selectedFramework ? selectedFramework.description : '请选择一个评测体系，系统将按该体系生成报告。'}
+                  </p>
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    <button onClick={downloadFrameworkTemplate} className="rounded-lg border border-slate-200 px-3 py-2">
+                      下载体系模板
+                    </button>
+                    <button onClick={() => frameworkImportRef.current?.click()} className="rounded-lg border border-slate-200 px-3 py-2">
+                      导入体系 JSON
+                    </button>
+                    <input
+                      ref={frameworkImportRef}
+                      type="file"
+                      accept=".json"
+                      onChange={importFramework}
+                      className="hidden"
+                    />
+                  </div>
+                </>
+              ) : (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+                  当前为折叠状态。点击“展开编辑”可更换评测体系与模型。
+                </div>
+              )}
             </section>
           )}
 
@@ -1238,10 +1273,17 @@ export default function App() {
               <div className="flex flex-wrap gap-2">
                 <button
                   onClick={fetchPersonaRecommendations}
-                  disabled={!currentInput || isRecommending}
+                  disabled={!currentInput || isRecommending || isRecommendingNewPersona}
                   className="rounded-lg border border-slate-200 px-3 py-2 text-xs disabled:opacity-50"
                 >
                   {isRecommending ? '推荐中...' : 'AI 推荐角色'}
+                </button>
+                <button
+                  onClick={fetchNewPersonaRecommendations}
+                  disabled={!currentInput || isRecommendingNewPersona || isRecommending}
+                  className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-700 disabled:opacity-50"
+                >
+                  {isRecommendingNewPersona ? '生成中...' : 'AI 生成新角色'}
                 </button>
                 <label className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs">
                   <input
@@ -1266,30 +1308,47 @@ export default function App() {
           )}
 
           <div className="sticky bottom-3 rounded-xl border border-slate-200 bg-white p-4 space-y-3">
-            {pendingChecklist.length > 0 ? (
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium">
+                  前置条件进度：{completedChecklist.length}/{setupChecklist.length}
+                </p>
                 <button
                   onClick={() => setShowProgressChecklist((previous) => !previous)}
-                  className="w-full flex items-center justify-between text-left"
+                  className="text-xs text-slate-500 underline"
                 >
-                  <span className="text-sm font-medium">还需完成 {pendingChecklist.length} 项配置</span>
-                  <span className="text-xs text-slate-500">{showProgressChecklist ? '收起' : '展开'}</span>
+                  {showProgressChecklist ? '收起清单' : '展开清单'}
                 </button>
-                {showProgressChecklist && (
-                  <div className="mt-2 space-y-1">
-                    {pendingChecklist.map((item) => (
-                      <p key={item.id} className="text-xs text-amber-700">
-                        步骤 {item.step}：{item.label}
-                      </p>
-                    ))}
-                  </div>
-                )}
               </div>
-            ) : (
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
-                全部前置条件已完成，点击“开始评测”进入报告阶段。
+              <div className="h-2 rounded-full bg-slate-200 overflow-hidden">
+                <div className="h-full bg-slate-700 transition-all" style={{ width: `${checklistPercent}%` }} />
               </div>
-            )}
+              <p className="text-xs text-slate-500">整体完成度 {checklistPercent}%</p>
+
+              {showProgressChecklist && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {setupChecklist.map((item) => (
+                    <label
+                      key={item.id}
+                      className={`flex items-center gap-2 rounded-md border px-2.5 py-2 text-xs ${
+                        item.done ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-600'
+                      }`}
+                    >
+                      <input type="checkbox" checked={item.done} readOnly className="h-3.5 w-3.5" />
+                      <span>
+                        步骤 {item.step} · {item.label}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+
+              {pendingChecklist.length === 0 && (
+                <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-2 text-xs text-emerald-700">
+                  全部前置条件已完成，点击“开始评测”进入报告阶段。
+                </div>
+              )}
+            </div>
 
             <div className="flex flex-wrap gap-2">
               <button

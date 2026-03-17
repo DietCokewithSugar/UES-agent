@@ -17,7 +17,7 @@ export const PersonaRecommendations: React.FC<PersonaRecommendationsProps> = ({
   if (recommendations.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-xs text-slate-500">
-        暂无 AI 推荐角色。你可以先完善业务场景再点击“AI 推荐角色”。
+        暂无 AI 推荐角色。你可以先完善业务场景，再点击“AI 推荐角色”或“AI 生成新角色”。
       </div>
     );
   }
@@ -36,6 +36,13 @@ export const PersonaRecommendations: React.FC<PersonaRecommendationsProps> = ({
                 <div className="flex items-center gap-2">
                   <span className="text-xs rounded-full bg-violet-100 px-2 py-0.5 text-violet-700 font-semibold">
                     匹配度 {item.matchScore}
+                  </span>
+                  <span
+                    className={`text-[11px] rounded-full px-2 py-0.5 font-semibold ${
+                      existingPersona ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'
+                    }`}
+                  >
+                    {existingPersona ? '复用已有角色' : 'AI 新角色'}
                   </span>
                   <span className="text-sm font-semibold text-slate-800">
                     {existingPersona?.name || item.personaDraft?.name || '新角色建议'}
