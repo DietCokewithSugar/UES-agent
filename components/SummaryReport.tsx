@@ -98,8 +98,13 @@ export const SummaryReport: React.FC<SummaryReportProps> = ({ reports, personas 
 
   const getHeatmapColor = (score: number) => {
     const clamped = Math.max(0, Math.min(100, score));
-    const lightness = 95 - (clamped / 100) * 47;
-    return `hsl(257 80% ${lightness}%)`;
+    const start = { r: 220, g: 252, b: 231 }; // light green
+    const end = { r: 22, g: 101, b: 52 }; // dark green
+    const ratio = clamped / 100;
+    const r = Math.round(start.r + (end.r - start.r) * ratio);
+    const g = Math.round(start.g + (end.g - start.g) * ratio);
+    const b = Math.round(start.b + (end.b - start.b) * ratio);
+    return `rgb(${r} ${g} ${b})`;
   };
 
   const renderExperienceModule = (
@@ -183,11 +188,11 @@ export const SummaryReport: React.FC<SummaryReportProps> = ({ reports, personas 
             <h3 className="text-sm font-semibold text-slate-800">角色 × ETS 维度得分热力图</h3>
             <div className="flex items-center gap-2 text-[11px] text-slate-500">
               <span>低分</span>
-              <div className="h-2 w-20 rounded-full bg-gradient-to-r from-violet-100 to-violet-700" />
+              <div className="h-2 w-24 rounded-full bg-gradient-to-r from-green-100 via-green-300 to-green-800" />
               <span>高分</span>
             </div>
           </div>
-          <p className="mt-1 text-xs text-slate-500">颜色越深分数越高，浅色区域表示体验短板。</p>
+          <p className="mt-1 text-xs text-slate-500">颜色从浅绿色到深绿色，颜色越深分数越高，浅色区域表示体验短板。</p>
 
           <div className="mt-3 overflow-x-auto">
             <table className="min-w-[860px] border-separate border-spacing-1">
@@ -221,7 +226,7 @@ export const SummaryReport: React.FC<SummaryReportProps> = ({ reports, personas 
                           className="rounded-md px-3 py-2 text-center text-xs font-semibold"
                           style={{
                             backgroundColor: getHeatmapColor(score),
-                            color: score >= 70 ? '#ffffff' : '#1e293b'
+                            color: score >= 60 ? '#ffffff' : '#14532d'
                           }}
                         >
                           {score}
@@ -233,6 +238,22 @@ export const SummaryReport: React.FC<SummaryReportProps> = ({ reports, personas 
               </tbody>
             </table>
           </div>
+
+          <div className="mt-4 border-t border-slate-100 pt-3">
+            <p className="text-xs font-medium text-slate-600">维度平均得分排名（已融合到热力图）</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {dimensionRanking.map((item, index) => (
+                <div
+                  key={`rank-${item.dimension}`}
+                  className="inline-flex items-center gap-1 rounded-full border border-green-200 bg-green-50 px-2.5 py-1 text-[11px] text-green-800"
+                >
+                  <span className="font-semibold">#{index + 1}</span>
+                  <span>{item.dimension}</span>
+                  <span className="font-semibold">{item.avg}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </section>
       )}
 
@@ -243,19 +264,21 @@ export const SummaryReport: React.FC<SummaryReportProps> = ({ reports, personas 
         </section>
       )}
 
-      <section className="rounded-xl border border-slate-200 bg-white p-4">
-        <h3 className="text-sm font-semibold text-slate-800 mb-3">维度平均得分排名</h3>
-        <div className="space-y-2">
-          {dimensionRanking.map((item) => (
-            <div key={item.dimension} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
-              <span className="text-sm text-slate-700">{item.dimension}</span>
-              <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-700">
-                {item.avg}
-              </span>
-            </div>
-          ))}
-        </div>
-      </section>
+      {!isEtsReport && (
+        <section className="rounded-xl border border-slate-200 bg-white p-4">
+          <h3 className="text-sm font-semibold text-slate-800 mb-3">维度平均得分排名</h3>
+          <div className="space-y-2">
+            {dimensionRanking.map((item) => (
+              <div key={item.dimension} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
+                <span className="text-sm text-slate-700">{item.dimension}</span>
+                <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-700">
+                  {item.avg}
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="rounded-xl border border-slate-200 bg-white p-4">
         <h3 className="text-sm font-semibold text-slate-800 mb-3">角色差异概览</h3>
