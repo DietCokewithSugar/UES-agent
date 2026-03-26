@@ -1384,7 +1384,7 @@ export default function App() {
 
               <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
                 {personas.map((persona) => (
-                  <label key={persona.id} className="block rounded-lg border border-slate-200 bg-slate-50 p-2">
+                  <div key={persona.id} className="block rounded-lg border border-slate-200 bg-slate-50 p-2">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-start gap-2">
                         <input
@@ -1421,7 +1421,7 @@ export default function App() {
                         </button>
                       </div>
                     </div>
-                  </label>
+                  </div>
                 ))}
               </div>
 
