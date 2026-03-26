@@ -2,6 +2,7 @@ import React from 'react';
 import { FrameworkReport, EvaluationFramework, ProcessStep } from '../types';
 import { FrameworkChart } from './charts/FrameworkChart';
 import { FrameworkSections } from './report/FrameworkSections';
+import { AiDisclaimer } from './report/AiDisclaimer';
 
 interface ReportViewProps {
   report: FrameworkReport;
@@ -150,6 +151,8 @@ export const ReportView: React.FC<ReportViewProps> = ({
           )}
         </section>
       )}
+
+      <AiDisclaimer />
     </div>
   );
 };
