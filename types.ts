@@ -11,15 +11,7 @@ export enum EvaluationModel {
   CUSTOM = 'CUSTOM'
 }
 
-export interface PersonaAttributes {
-  age: string;
-  techSavviness: string; // e.g., 'Low', 'Medium', 'High' or Chinese equivalents
-  domainKnowledge: string; // e.g., 'Novice', 'Intermediate', 'Expert'
-  goals: string;
-  environment: string; // e.g., "Noisy office", "Quiet home"
-  frustrationTolerance: string; // e.g., 'Low', 'Medium', 'High'
-  deviceHabits: string; // e.g., "Mobile first", "Mouse heavy"
-}
+export type PersonaAttributes = Record<string, string>;
 
 export interface Persona {
   id: string;

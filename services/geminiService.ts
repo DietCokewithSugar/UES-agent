@@ -178,19 +178,21 @@ const toScenarioPrompt = (scenario?: EvaluationScenario): string => {
 `;
 };
 
-const toPersonaPrompt = (persona: Persona): string => `
+const toPersonaPrompt = (persona: Persona): string => {
+  const attributeLines = Object.entries(persona.attributes || {})
+    .map(([key, value]) => [key.trim(), (value || '').trim()] as const)
+    .filter(([key, value]) => key && value)
+    .map(([key, value]) => `- ${key}: ${value}`)
+    .join('\n');
+
+  return `
 角色画像：
 - 角色类型: ${persona.role}
 - 姓名: ${persona.name}
 - 描述: ${persona.description}
-- 年龄: ${persona.attributes.age}
-- 科技熟练度: ${persona.attributes.techSavviness}
-- 领域知识: ${persona.attributes.domainKnowledge}
-- 目标: ${persona.attributes.goals}
-- 环境: ${persona.attributes.environment}
-- 挫折容忍度: ${persona.attributes.frustrationTolerance}
-- 设备习惯: ${persona.attributes.deviceHabits}
+${attributeLines || '- 暂无补充角色维度'}
 `;
+};
 
 const toFrameworkPrompt = (framework: EvaluationFramework): string => {
   const dimensions = framework.dimensions

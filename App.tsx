@@ -15,6 +15,7 @@ import {
 import { FRAMEWORK_PRESETS } from './config/frameworkPresets';
 import { CUSTOM_FRAMEWORK_TEMPLATE, parseFrameworkJson } from './utils/frameworkSchema';
 import { clearSetupDraft, loadSetupDraft, saveSetupDraft } from './utils/draftStorage';
+import { loadPersonas, savePersonas } from './utils/personaStorage';
 import {
   analyzeDesign,
   generateOptimizedDesign,
@@ -38,13 +39,13 @@ const DEFAULT_PERSONAS: Persona[] = [
     role: UserRole.USER,
     description: '科技素养较低，关注简单、安全、可见反馈。',
     attributes: {
-      age: '65+',
-      techSavviness: '低',
-      domainKnowledge: '新手',
-      goals: '无障碍完成核心任务',
-      environment: '家庭环境',
-      frustrationTolerance: '低',
-      deviceHabits: '大字号、慢速操作'
+      年龄: '65+',
+      科技熟练度: '低',
+      领域知识: '新手',
+      核心目标: '无障碍完成核心任务',
+      使用环境: '家庭环境',
+      挫折容忍度: '低',
+      设备习惯: '大字号、慢速操作'
     }
   },
   {
@@ -53,13 +54,13 @@ const DEFAULT_PERSONAS: Persona[] = [
     role: UserRole.USER,
     description: '追求高效率、低阻力，偏好快捷路径。',
     attributes: {
-      age: '22-35',
-      techSavviness: '高',
-      domainKnowledge: '中高',
-      goals: '快速完成任务',
-      environment: '移动办公',
-      frustrationTolerance: '中',
-      deviceHabits: '移动优先、快速滑动'
+      年龄: '22-35',
+      科技熟练度: '高',
+      领域知识: '中高',
+      核心目标: '快速完成任务',
+      使用环境: '移动办公',
+      挫折容忍度: '中',
+      设备习惯: '移动优先、快速滑动'
     }
   },
   {
@@ -68,13 +69,13 @@ const DEFAULT_PERSONAS: Persona[] = [
     role: UserRole.EXPERT,
     description: '从规范、可用性和一致性审查整体体验。',
     attributes: {
-      age: '30-45',
-      techSavviness: '高',
-      domainKnowledge: '专家',
-      goals: '识别系统性体验缺陷',
-      environment: '设计评审环境',
-      frustrationTolerance: '中',
-      deviceHabits: '细节审查'
+      年龄: '30-45',
+      科技熟练度: '高',
+      领域知识: '专家',
+      核心目标: '识别系统性体验缺陷',
+      使用环境: '设计评审环境',
+      挫折容忍度: '中',
+      设备习惯: '细节审查'
     }
   },
   {
@@ -83,13 +84,13 @@ const DEFAULT_PERSONAS: Persona[] = [
     role: UserRole.EXPERT,
     description: '关注业务闭环、转化路径、异常流程覆盖。',
     attributes: {
-      age: '28-40',
-      techSavviness: '高',
-      domainKnowledge: '业务专家',
-      goals: '验证业务目标是否被体验支撑',
-      environment: '办公室',
-      frustrationTolerance: '中',
-      deviceHabits: '关注流程状态'
+      年龄: '28-40',
+      科技熟练度: '高',
+      领域知识: '业务专家',
+      核心目标: '验证业务目标是否被体验支撑',
+      使用环境: '办公室',
+      挫折容忍度: '中',
+      设备习惯: '关注流程状态'
     }
   }
 ];
@@ -98,15 +99,25 @@ const EMPTY_PERSONA: Omit<Persona, 'id'> = {
   name: '',
   role: UserRole.USER,
   description: '',
-  attributes: {
-    age: '',
-    techSavviness: '',
-    domainKnowledge: '',
-    goals: '',
-    environment: '',
-    frustrationTolerance: '',
-    deviceHabits: ''
-  }
+  attributes: {}
+};
+
+interface PersonaAttributeRow {
+  id: string;
+  key: string;
+  value: string;
+}
+
+const createAttributeRow = (key = '', value = ''): PersonaAttributeRow => ({
+  id: `attr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  key,
+  value
+});
+
+const attributesToRows = (attributes: Record<string, string>): PersonaAttributeRow[] => {
+  const entries = Object.entries(attributes || {});
+  if (!entries.length) return [createAttributeRow()];
+  return entries.map(([key, value]) => createAttributeRow(key, value));
 };
 
 const EMPTY_SCENARIO: EvaluationScenario = {
@@ -169,10 +180,13 @@ export default function App() {
   const [pageMode, setPageMode] = useState<PageMode>('setup');
   const [activeStep, setActiveStep] = useState<SetupStep>(1);
 
-  const [personas, setPersonas] = useState<Persona[]>(DEFAULT_PERSONAS);
+  const [personas, setPersonas] = useState<Persona[]>(() => loadPersonas(DEFAULT_PERSONAS));
   const [selectedPersonaIds, setSelectedPersonaIds] = useState<string[]>([]);
   const [personaDraft, setPersonaDraft] = useState<Omit<Persona, 'id'>>(EMPTY_PERSONA);
-  const [showPersonaForm, setShowPersonaForm] = useState(false);
+  const [personaDraftRows, setPersonaDraftRows] = useState<PersonaAttributeRow[]>([createAttributeRow()]);
+  const [personaModalOpen, setPersonaModalOpen] = useState(false);
+  const [personaModalMode, setPersonaModalMode] = useState<'create' | 'edit'>('create');
+  const [editingPersonaId, setEditingPersonaId] = useState<string | null>(null);
   const [personaRecommendations, setPersonaRecommendations] = useState<PersonaRecommendation[]>([]);
 
   const [frameworks, setFrameworks] = useState<EvaluationFramework[]>(FRAMEWORK_PRESETS);
@@ -334,6 +348,27 @@ export default function App() {
     setHasStoredDraft(true);
     setDraftSavedAt(draft.savedAt);
   }, []);
+
+  useEffect(() => {
+    const saveResult = savePersonas(personas);
+    if (saveResult.ok === false) {
+      console.warn('persona cache save failed:', saveResult.error);
+    }
+  }, [personas]);
+
+  useEffect(() => {
+    const validPersonaIds = new Set(personas.map((persona) => persona.id));
+    setSelectedPersonaIds((previous) => {
+      const next = previous.filter((id) => validPersonaIds.has(id));
+      return next.length === previous.length ? previous : next;
+    });
+  }, [personas]);
+
+  useEffect(() => {
+    if (personas.some((persona) => persona.id === viewingPersonaId)) return;
+    if (!personas.length) return;
+    setViewingPersonaId(personas[0].id);
+  }, [personas, viewingPersonaId]);
 
   const goToNextStep = () => {
     setActiveStep((previous) => {
@@ -534,18 +569,129 @@ export default function App() {
     });
   };
 
-  const savePersonaDraft = () => {
-    if (!personaDraft.name.trim()) return;
-    const id = `persona-${Date.now()}`;
-    setPersonas((previous) => [...previous, { ...personaDraft, id }]);
-    setSelectedPersonaIds((previous) => [...new Set([...previous, id])]);
+  const normalizeAttributesInput = (rows: PersonaAttributeRow[]) =>
+    rows.reduce<Record<string, string>>((acc, row) => {
+      const key = row.key.trim();
+      if (!key) return acc;
+      acc[key] = row.value.trim();
+      return acc;
+    }, {});
+
+  const normalizeImportedAttributes = (attributes: unknown): Record<string, string> => {
+    if (!attributes || typeof attributes !== 'object' || Array.isArray(attributes)) return {};
+
+    return Object.entries(attributes as Record<string, unknown>).reduce<Record<string, string>>(
+      (acc, [key, value]) => {
+        const normalizedKey = key.trim();
+        if (!normalizedKey) return acc;
+        acc[normalizedKey] = typeof value === 'string' ? value : value == null ? '' : String(value);
+        return acc;
+      },
+      {}
+    );
+  };
+
+  const updatePersonaDraftField = (key: keyof Omit<Persona, 'id' | 'attributes'>, value: string) => {
+    setPersonaDraft((previous) => ({
+      ...previous,
+      [key]: key === 'role' ? (value as UserRole) : value
+    }));
+  };
+
+  const updatePersonaAttributeRow = (rowId: string, key: 'key' | 'value', value: string) => {
+    setPersonaDraftRows((previous) =>
+      previous.map((row) => (row.id === rowId ? { ...row, [key]: value } : row))
+    );
+  };
+
+  const addPersonaAttributeRow = () => {
+    setPersonaDraftRows((previous) => [...previous, createAttributeRow()]);
+  };
+
+  const removePersonaAttributeRow = (rowId: string) => {
+    setPersonaDraftRows((previous) => {
+      if (previous.length <= 1) {
+        return [{ ...previous[0], key: '', value: '' }];
+      }
+      return previous.filter((row) => row.id !== rowId);
+    });
+  };
+
+  const closePersonaModal = () => {
+    setPersonaModalOpen(false);
+    setEditingPersonaId(null);
     setPersonaDraft(EMPTY_PERSONA);
-    setShowPersonaForm(false);
+    setPersonaDraftRows([createAttributeRow()]);
+  };
+
+  const openCreatePersonaModal = () => {
+    setPersonaModalMode('create');
+    setEditingPersonaId(null);
+    setPersonaDraft(EMPTY_PERSONA);
+    setPersonaDraftRows([createAttributeRow()]);
+    setPersonaModalOpen(true);
+  };
+
+  const openEditPersonaModal = (persona: Persona) => {
+    setPersonaModalMode('edit');
+    setEditingPersonaId(persona.id);
+    setPersonaDraft({
+      name: persona.name,
+      role: persona.role,
+      description: persona.description,
+      attributes: { ...persona.attributes }
+    });
+    setPersonaDraftRows(attributesToRows(persona.attributes));
+    setPersonaModalOpen(true);
+  };
+
+  const getRoleLabel = (role: UserRole) =>
+    role === UserRole.EXPERT ? '专家评审' : '普通用户';
+
+  const upsertPersona = () => {
+    const normalizedName = personaDraft.name.trim();
+    const normalizedDescription = personaDraft.description.trim();
+    if (!normalizedName || !normalizedDescription || !personaDraft.role) {
+      setError('角色名称、角色描述、角色类型为必填项。');
+      return;
+    }
+
+    const payload: Omit<Persona, 'id'> = {
+      name: normalizedName,
+      description: normalizedDescription,
+      role: personaDraft.role,
+      attributes: normalizeAttributesInput(personaDraftRows)
+    };
+
+    if (personaModalMode === 'edit' && editingPersonaId) {
+      setPersonas((previous) =>
+        previous.map((persona) => (persona.id === editingPersonaId ? { ...persona, ...payload } : persona))
+      );
+      setInfoMessage(`角色「${normalizedName}」已更新。`);
+      setError(null);
+      closePersonaModal();
+      return;
+    }
+
+    const id = `persona-${Date.now()}`;
+    setPersonas((previous) => [...previous, { ...payload, id }]);
+    setSelectedPersonaIds((previous) => [...new Set([...previous, id])]);
+    setInfoMessage(`角色「${normalizedName}」已创建并加入评测。`);
+    setError(null);
+    closePersonaModal();
   };
 
   const createPersonaFromRecommendation = (draft: Omit<Persona, 'id'>) => {
     const id = `persona-${Date.now()}`;
-    setPersonas((previous) => [...previous, { ...draft, id }]);
+    const normalizedPersona: Persona = {
+      ...draft,
+      id,
+      name: draft.name?.trim() || `AI 角色 ${id.slice(-4)}`,
+      description: draft.description?.trim() || 'AI 推荐角色',
+      role: draft.role === UserRole.EXPERT ? UserRole.EXPERT : UserRole.USER,
+      attributes: normalizeImportedAttributes(draft.attributes)
+    };
+    setPersonas((previous) => [...previous, normalizedPersona]);
     setSelectedPersonaIds((previous) => [...new Set([...previous, id])]);
   };
 
@@ -579,11 +725,32 @@ export default function App() {
     const reader = new FileReader();
     reader.onload = (loadEvent) => {
       try {
-        const parsed = JSON.parse(loadEvent.target?.result as string) as Omit<Persona, 'id'>;
-        if (!parsed.name || !parsed.role || !parsed.attributes) throw new Error('角色文件缺少必要字段');
+        const parsed = JSON.parse(loadEvent.target?.result as string) as Partial<Omit<Persona, 'id'>>;
+        const normalizedName = typeof parsed.name === 'string' ? parsed.name.trim() : '';
+        const normalizedDescription =
+          typeof parsed.description === 'string' ? parsed.description.trim() : '';
+        if (parsed.role !== UserRole.USER && parsed.role !== UserRole.EXPERT) {
+          throw new Error('角色文件缺少必要字段：角色分类（USER 或 EXPERT）。');
+        }
+        const normalizedRole = parsed.role;
+        if (!normalizedName || !normalizedDescription) {
+          throw new Error('角色文件缺少必要字段：角色名称、角色描述。');
+        }
+
         const id = `persona-${Date.now()}`;
-        setPersonas((previous) => [...previous, { ...parsed, id }]);
+        setPersonas((previous) => [
+          ...previous,
+          {
+            id,
+            name: normalizedName,
+            description: normalizedDescription,
+            role: normalizedRole,
+            attributes: normalizeImportedAttributes(parsed.attributes)
+          }
+        ]);
         setSelectedPersonaIds((previous) => [...new Set([...previous, id])]);
+        setInfoMessage(`角色「${normalizedName}」导入成功。`);
+        setError(null);
       } catch (err) {
         alert(err instanceof Error ? err.message : '角色导入失败');
       }
@@ -1207,7 +1374,7 @@ export default function App() {
                     className="hidden"
                   />
                   <button
-                    onClick={() => setShowPersonaForm((previous) => !previous)}
+                    onClick={openCreatePersonaModal}
                     className="rounded-lg border border-slate-200 px-3 py-2 text-xs"
                   >
                     新建角色
@@ -1229,47 +1396,34 @@ export default function App() {
                         <div>
                           <p className="text-sm font-medium">{persona.name}</p>
                           <p className="text-xs text-slate-500">{persona.description}</p>
+                          <p className="mt-1 text-[11px] text-slate-400">角色分类：{getRoleLabel(persona.role)}</p>
+                          {!!Object.keys(persona.attributes || {}).length && (
+                            <p className="mt-1 text-[11px] text-slate-400">
+                              维度：{Object.keys(persona.attributes).join(' / ')}
+                            </p>
+                          )}
                         </div>
                       </div>
-                      <button onClick={() => exportPersona(persona)} className="text-xs text-slate-500 underline">
-                        导出
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openEditPersonaModal(persona)}
+                          className="text-xs text-slate-500 underline"
+                        >
+                          查看/修改
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => exportPersona(persona)}
+                          className="text-xs text-slate-500 underline"
+                        >
+                          导出
+                        </button>
+                      </div>
                     </div>
                   </label>
                 ))}
               </div>
-
-              {showPersonaForm && (
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
-                  <input
-                    value={personaDraft.name}
-                    onChange={(event) => setPersonaDraft((previous) => ({ ...previous, name: event.target.value }))}
-                    placeholder="角色名称"
-                    className="w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm"
-                  />
-                  <input
-                    value={personaDraft.description}
-                    onChange={(event) =>
-                      setPersonaDraft((previous) => ({ ...previous, description: event.target.value }))
-                    }
-                    placeholder="角色描述"
-                    className="w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm"
-                  />
-                  <select
-                    value={personaDraft.role}
-                    onChange={(event) =>
-                      setPersonaDraft((previous) => ({ ...previous, role: event.target.value as UserRole }))
-                    }
-                    className="w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm"
-                  >
-                    <option value={UserRole.USER}>普通用户</option>
-                    <option value={UserRole.EXPERT}>专家评审</option>
-                  </select>
-                  <button onClick={savePersonaDraft} className="rounded-md border border-slate-300 px-3 py-1.5 text-xs">
-                    保存角色
-                  </button>
-                </div>
-              )}
 
               <div className="flex flex-wrap gap-2">
                 <button
@@ -1306,6 +1460,112 @@ export default function App() {
                 onCreateFromDraft={createPersonaFromRecommendation}
               />
             </section>
+          )}
+
+          {personaModalOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 px-4">
+              <div className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white shadow-2xl">
+                <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-800">
+                      {personaModalMode === 'create' ? '新建评测角色' : '查看/修改评测角色'}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      角色名称、角色描述、角色分类为必填；其余角色维度可灵活增删改。
+                    </p>
+                  </div>
+                  <button onClick={closePersonaModal} className="text-xs text-slate-500 underline">
+                    关闭
+                  </button>
+                </div>
+
+                <div className="max-h-[70vh] overflow-y-auto space-y-4 px-4 py-4">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <label className="space-y-1 md:col-span-2">
+                      <span className="text-xs font-medium text-slate-600">角色名称（必填）</span>
+                      <input
+                        value={personaDraft.name}
+                        onChange={(event) => updatePersonaDraftField('name', event.target.value)}
+                        placeholder="例如：银发新手用户"
+                        className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+                      />
+                    </label>
+
+                    <label className="space-y-1 md:col-span-2">
+                      <span className="text-xs font-medium text-slate-600">角色描述（必填）</span>
+                      <textarea
+                        value={personaDraft.description}
+                        onChange={(event) => updatePersonaDraftField('description', event.target.value)}
+                        placeholder="该描述将用于拼接到最终 AI 提示词中，请尽量具体。"
+                        rows={3}
+                        className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+                      />
+                    </label>
+
+                    <label className="space-y-1 md:col-span-2">
+                      <span className="text-xs font-medium text-slate-600">角色分类（必填）</span>
+                      <select
+                        value={personaDraft.role}
+                        onChange={(event) => updatePersonaDraftField('role', event.target.value)}
+                        className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+                      >
+                        <option value={UserRole.USER}>普通用户</option>
+                        <option value={UserRole.EXPERT}>专家评审</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold text-slate-700">角色维度（可选，支持动态扩展）</p>
+                      <button onClick={addPersonaAttributeRow} className="text-xs text-slate-600 underline">
+                        + 新增维度
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {personaDraftRows.map((row, index) => (
+                        <div key={row.id} className="grid grid-cols-1 gap-2 md:grid-cols-[1fr_1fr_auto]">
+                          <input
+                            value={row.key}
+                            onChange={(event) => updatePersonaAttributeRow(row.id, 'key', event.target.value)}
+                            placeholder="维度名称（如：科技熟练度）"
+                            className="rounded-md border border-slate-200 px-3 py-2 text-sm"
+                          />
+                          <input
+                            value={row.value}
+                            onChange={(event) => updatePersonaAttributeRow(row.id, 'value', event.target.value)}
+                            placeholder="维度描述（如：低）"
+                            className="rounded-md border border-slate-200 px-3 py-2 text-sm"
+                          />
+                          <button
+                            onClick={() => removePersonaAttributeRow(row.id)}
+                            disabled={personaDraftRows.length === 1 && index === 0 && !row.key.trim() && !row.value.trim()}
+                            className="rounded-md border border-slate-300 px-3 py-2 text-xs text-slate-600 disabled:opacity-40"
+                          >
+                            删除
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-4 py-3">
+                  <button
+                    onClick={closePersonaModal}
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-xs"
+                  >
+                    取消
+                  </button>
+                  <button
+                    onClick={upsertPersona}
+                    className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white"
+                  >
+                    {personaModalMode === 'create' ? '创建并加入评测' : '保存修改'}
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
 
           <div className="sticky bottom-3 rounded-xl border border-slate-200 bg-white p-4 space-y-3">
