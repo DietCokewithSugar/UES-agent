@@ -1,4 +1,5 @@
 import { EvaluationFramework, EvaluationModel } from '../types';
+import { DESIGN_QUALITY_CHECKLIST_ITEMS } from './designQualityChecklist';
 
 export const FRAMEWORK_PRESETS: EvaluationFramework[] = [
   {
@@ -24,6 +25,35 @@ export const FRAMEWORK_PRESETS: EvaluationFramework[] = [
       { id: 'ets-roadmap', title: '优化路线图', type: 'list' }
     ],
     promptGuidelines: `严格按 ETS 8 维审计。系统性能不可臆测毫秒延迟，基于可见证据评估。`
+  },
+  {
+    id: 'design-quality-checklist',
+    name: '设计质量自查表',
+    source: 'builtin',
+    description:
+      '基于 UI 设计规范自查清单进行设计质量评估，覆盖需求、信息架构、流程、布局、控件、输入、品牌、交付、创新与一致性。',
+    modelType: EvaluationModel.CUSTOM,
+    scoreRange: { min: 0, max: 100 },
+    visualization: { primaryChart: 'cards' },
+    dimensions: [
+      { id: 'dq-1', name: '需求分析', definition: '目标、用户与设计目标是否清晰并可验证。' },
+      { id: 'dq-2', name: '信息架构', definition: '信息组织与导航入口是否清晰高效。' },
+      { id: 'dq-3', name: '任务流程', definition: '正向、逆向、异常与多状态流程是否完整可控。' },
+      { id: 'dq-4', name: '界面布局', definition: '布局重点、首屏可见性、可访问性与适配是否合理。' },
+      { id: 'dq-5', name: '控件状态', definition: '控件选择、默认值、极值、空态与加载策略是否规范。' },
+      { id: 'dq-6', name: '输入反馈', definition: '输入方式、键盘策略、级联联动与反馈机制是否高效。' },
+      { id: 'dq-7', name: '品牌风格', definition: '品牌调性、风格一致性、趋势匹配与表达准确性是否达标。' },
+      { id: 'dq-8', name: '设计交付', definition: '素材、合规、标注、切图与规范文档是否完善。' },
+      { id: 'dq-9', name: '设计创新', definition: '多媒体、竞品优势、规范创新与智能化设计机会是否充分。' },
+      { id: 'dq-10', name: '一致性与检测', definition: '跨功能一致性与工具检测流程是否闭环。' }
+    ],
+    checklistItems: DESIGN_QUALITY_CHECKLIST_ITEMS,
+    reportSections: [
+      { id: 'dq-risk', title: '未通过项归因与风险', type: 'list' },
+      { id: 'dq-priority', title: '整改优先级建议', type: 'list' }
+    ],
+    promptGuidelines:
+      '按“设计质量自查表”逐条输出 pass/fail 和一句原因，结论应可追溯到页面证据，不得臆测不存在的信息。'
   },
   {
     id: 'heart',
