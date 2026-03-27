@@ -1,6 +1,7 @@
-import React, { useMemo } from 'react';
-import { FrameworkReport, Persona } from '../types';
+import React, { useMemo, useState } from 'react';
+import { ChecklistResult, FrameworkReport, Persona } from '../types';
 import { AiDisclaimer } from './report/AiDisclaimer';
+import { ChecklistStatusBadge } from './report/ChecklistStatusBadge';
 
 interface SummaryReportProps {
   reports: Record<string, FrameworkReport>;
@@ -8,6 +9,8 @@ interface SummaryReportProps {
 }
 
 export const SummaryReport: React.FC<SummaryReportProps> = ({ reports, personas }) => {
+  const [activeChecklistAnchor, setActiveChecklistAnchor] = useState<string | null>(null);
+
   const entries = useMemo(
     () =>
       Object.entries(reports)
@@ -87,6 +90,72 @@ export const SummaryReport: React.FC<SummaryReportProps> = ({ reports, personas 
     () => entries.reduce((sum, entry) => sum + entry.report.issues.length, 0),
     [entries]
   );
+
+  const hasChecklistSummary = useMemo(
+    () => entries.length > 0 && entries.every((entry) => (entry.report.checklistResults || []).length > 0),
+    [entries]
+  );
+
+  const checklistTemplate = useMemo(() => {
+    if (!hasChecklistSummary || !entries.length) return [];
+    return entries[0].report.checklistResults || [];
+  }, [entries, hasChecklistSummary]);
+
+  const checklistRows = useMemo(() => {
+    if (!hasChecklistSummary) return [];
+    return checklistTemplate.map((templateItem) => {
+      const roleResults = entries.map((entry) => {
+        const matched = (entry.report.checklistResults || []).find(
+          (result) => result.itemId === templateItem.itemId
+        );
+        return {
+          personaId: entry.personaId,
+          personaName: entry.personaName,
+          result:
+            matched ||
+            ({
+              itemId: templateItem.itemId,
+              status: 'pass',
+              reason: '暂无说明',
+              category: templateItem.category,
+              checkpoint: templateItem.checkpoint,
+              item: templateItem.item,
+              description: templateItem.description,
+              scope: templateItem.scope
+            } satisfies ChecklistResult)
+        };
+      });
+
+      return {
+        itemId: templateItem.itemId,
+        category: templateItem.category || '',
+        checkpoint: templateItem.checkpoint || '',
+        item: templateItem.item || '',
+        description: templateItem.description || '',
+        scope: templateItem.scope || '交互/视觉',
+        roleResults
+      };
+    });
+  }, [checklistTemplate, entries, hasChecklistSummary]);
+
+  const checklistFailures = useMemo(() => {
+    if (!hasChecklistSummary) return [];
+    return checklistRows
+      .map((row) => {
+        const failedRoles = row.roleResults.filter((roleResult) => roleResult.result.status === 'fail');
+        if (!failedRoles.length) return null;
+        return {
+          id: `failure-${row.itemId}`,
+          row,
+          failedRoles
+        };
+      })
+      .filter(Boolean) as Array<{
+      id: string;
+      row: (typeof checklistRows)[number];
+      failedRoles: Array<(typeof checklistRows)[number]['roleResults'][number]>;
+    }>;
+  }, [checklistRows, hasChecklistSummary]);
 
   const sharedSuggestions = useMemo(
     () =>
@@ -257,6 +326,106 @@ export const SummaryReport: React.FC<SummaryReportProps> = ({ reports, personas 
         </section>
       )}
 
+      {hasChecklistSummary && checklistRows.length > 0 && (
+        <section className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+          <h3 className="text-sm font-semibold text-slate-800">设计质量自查表（多角色对比）</h3>
+          <p className="text-xs text-slate-500">
+            每个角色列仅展示状态徽标；点击“不通过”可定位到下方未通过项说明。
+          </p>
+
+          <div className="overflow-x-auto">
+            <table className="min-w-[1280px] border-separate border-spacing-1">
+              <thead>
+                <tr>
+                  <th className="rounded-md bg-slate-100 px-2 py-2 text-left text-xs font-semibold text-slate-700">检查点</th>
+                  <th className="rounded-md bg-slate-100 px-2 py-2 text-left text-xs font-semibold text-slate-700">检查项</th>
+                  <th className="rounded-md bg-slate-100 px-2 py-2 text-left text-xs font-semibold text-slate-700">具体说明</th>
+                  <th className="rounded-md bg-slate-100 px-2 py-2 text-left text-xs font-semibold text-slate-700">适用范围</th>
+                  {entries.map((entry) => (
+                    <th
+                      key={`persona-col-${entry.personaId}`}
+                      className="rounded-md bg-slate-100 px-2 py-2 text-xs font-semibold text-slate-700"
+                    >
+                      {entry.personaName}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {checklistRows.map((row) => (
+                  <tr key={row.itemId}>
+                    <td className="rounded-md bg-white px-2 py-2 text-xs text-slate-700">{row.checkpoint}</td>
+                    <td className="rounded-md bg-white px-2 py-2 text-xs text-slate-700">{row.item}</td>
+                    <td className="rounded-md bg-white px-2 py-2 text-xs text-slate-600">{row.description}</td>
+                    <td className="rounded-md bg-white px-2 py-2 text-xs text-slate-600">{row.scope}</td>
+                    {row.roleResults.map((roleResult) => {
+                      const anchorId = `failure-${row.itemId}`;
+                      const isFail = roleResult.result.status === 'fail';
+                      return (
+                        <td
+                          key={`${row.itemId}-${roleResult.personaId}`}
+                          className="rounded-md bg-white px-2 py-2 text-center"
+                        >
+                          <ChecklistStatusBadge
+                            status={roleResult.result.status}
+                            onClick={
+                              isFail
+                                ? () => {
+                                    setActiveChecklistAnchor(anchorId);
+                                    const target = document.getElementById(anchorId);
+                                    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                    window.setTimeout(() => {
+                                      setActiveChecklistAnchor((current) =>
+                                        current === anchorId ? null : current
+                                      );
+                                    }, 1800);
+                                  }
+                                : undefined
+                            }
+                          />
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="border-t border-slate-100 pt-3">
+            <h4 className="text-xs font-semibold text-slate-700">未通过项说明</h4>
+            {checklistFailures.length ? (
+              <div className="mt-2 space-y-2">
+                {checklistFailures.map((failure) => (
+                  <div
+                    id={failure.id}
+                    key={failure.id}
+                    className={`rounded-lg border p-3 transition ${
+                      activeChecklistAnchor === failure.id
+                        ? 'border-rose-300 bg-rose-50'
+                        : 'border-slate-200 bg-slate-50'
+                    }`}
+                  >
+                    <p className="text-xs font-semibold text-slate-700">
+                      {failure.row.checkpoint} · {failure.row.item}
+                    </p>
+                    <ul className="mt-1 list-disc pl-4 text-xs text-slate-600 space-y-1">
+                      {failure.failedRoles.map((failedRole) => (
+                        <li key={`${failure.id}-${failedRole.personaId}`}>
+                          {failedRole.personaName}：{failedRole.result.reason}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-2 text-xs text-emerald-700">所有检查项均已通过。</p>
+            )}
+          </div>
+        </section>
+      )}
+
       {(experienceHighlight || experienceShortfall) && (
         <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {renderExperienceModule('体验亮点', 'highlight', experienceHighlight)}
@@ -280,32 +449,36 @@ export const SummaryReport: React.FC<SummaryReportProps> = ({ reports, personas 
         </section>
       )}
 
-      <section className="rounded-xl border border-slate-200 bg-white p-4">
-        <h3 className="text-sm font-semibold text-slate-800 mb-3">角色差异概览</h3>
-        <div className="space-y-2">
-          {entries.map((entry) => (
-            <div key={entry.personaName} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-slate-700">{entry.personaName}</span>
-                <span className="text-xs text-slate-500">总分 {entry.report.overallScore}</span>
+      {!hasChecklistSummary && (
+        <section className="rounded-xl border border-slate-200 bg-white p-4">
+          <h3 className="text-sm font-semibold text-slate-800 mb-3">角色差异概览</h3>
+          <div className="space-y-2">
+            {entries.map((entry) => (
+              <div key={entry.personaName} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold text-slate-700">{entry.personaName}</span>
+                  <span className="text-xs text-slate-500">总分 {entry.report.overallScore}</span>
+                </div>
+                <p className="text-xs text-slate-600 mt-1">{entry.report.executiveSummary}</p>
               </div>
-              <p className="text-xs text-slate-600 mt-1">{entry.report.executiveSummary}</p>
-            </div>
-          ))}
-        </div>
-      </section>
+            ))}
+          </div>
+        </section>
+      )}
 
-      <section className="rounded-xl border border-slate-200 bg-white p-4">
-        <h3 className="text-sm font-semibold text-slate-800 mb-3">建议汇总</h3>
-        <div className="space-y-2">
-          {sharedSuggestions.map((item, index) => (
-            <div key={`${item.personaName}-${index}`} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
-              <p className="text-xs text-violet-700 font-semibold mb-1">{item.personaName}</p>
-              <p className="text-sm text-slate-700">{item.suggestion}</p>
-            </div>
-          ))}
-        </div>
-      </section>
+      {!hasChecklistSummary && (
+        <section className="rounded-xl border border-slate-200 bg-white p-4">
+          <h3 className="text-sm font-semibold text-slate-800 mb-3">建议汇总</h3>
+          <div className="space-y-2">
+            {sharedSuggestions.map((item, index) => (
+              <div key={`${item.personaName}-${index}`} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+                <p className="text-xs text-violet-700 font-semibold mb-1">{item.personaName}</p>
+                <p className="text-sm text-slate-700">{item.suggestion}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <AiDisclaimer />
     </div>

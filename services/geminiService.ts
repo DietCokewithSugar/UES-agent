@@ -2,6 +2,7 @@ import { GoogleGenAI, Type } from '@google/genai';
 import { getFrameworkById } from '../config/frameworkPresets';
 import {
   ApiConfig,
+  ChecklistResult,
   EvaluationFramework,
   EvaluationModel,
   EvaluationScenario,
@@ -83,6 +84,18 @@ const REPORT_SCHEMA = {
           contentList: { type: Type.ARRAY, items: { type: Type.STRING } }
         },
         required: ['id', 'title', 'type']
+      }
+    },
+    checklistResults: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          itemId: { type: Type.STRING },
+          status: { type: Type.STRING },
+          reason: { type: Type.STRING }
+        },
+        required: ['itemId', 'status', 'reason']
       }
     }
   },
@@ -217,6 +230,25 @@ ${sectionPrompt || '- 暂无预设动态模块'}
 `;
 };
 
+const toChecklistPrompt = (framework: EvaluationFramework): string => {
+  if (!framework.checklistItems?.length) return '';
+
+  return `
+设计质量自查表（必须逐条输出结果）：
+${framework.checklistItems
+  .map(
+    (item) =>
+      `- itemId:${item.id} | 分类:${item.category} | 检查点:${item.checkpoint} | 检查项:${item.item} | 说明:${item.description} | 适用范围:${item.scope}`
+  )
+  .join('\n')}
+
+请在 checklistResults 中逐条输出：
+- itemId：对应上面的 itemId（必须一一对应，不得遗漏）
+- status：pass 或 fail
+- reason：一句简体中文原因（不超过 40 字）
+`;
+};
+
 const buildReportPrompt = (framework: EvaluationFramework, persona: Persona, input: string | ProcessStep[], scenario?: EvaluationScenario): string => `
 你是一个世界级 AI 用户体验评测架构师。你需要按指定评测体系输出结构化评测报告。
 
@@ -224,6 +256,7 @@ ${buildInputContextPrompt(input)}
 ${toScenarioPrompt(scenario)}
 ${toPersonaPrompt(persona)}
 ${toFrameworkPrompt(framework)}
+${toChecklistPrompt(framework)}
 
 问题严重级别必须使用：一级问题、二级问题、三级问题。
 如遇到无法直接观测的数据（如真实留存率、真实转化率），必须在 evidenceNotes 中标注“AI 代理估计”与证据限制。
@@ -242,6 +275,9 @@ ${toFrameworkPrompt(framework)}
   "optimizationSuggestions": [""],
   "dynamicSections": [
     {"id":"", "title":"", "type":"text|list|tags", "contentText":"", "contentList":[""]}
+  ],
+  "checklistResults": [
+    {"itemId":"", "status":"pass|fail", "reason":""}
   ]
 }
 `;
@@ -520,6 +556,23 @@ const normalizeReport = (raw: Partial<FrameworkReport>, framework: EvaluationFra
     })
     .filter(Boolean) as FrameworkReport['dynamicSections'];
 
+  const checklistMap = new Map((raw.checklistResults || []).map((item) => [item.itemId, item]));
+  const checklistResults: ChecklistResult[] = (framework.checklistItems || []).map((item) => {
+    const matched = checklistMap.get(item.id);
+    const rawStatus = matched?.status;
+    const status = rawStatus === 'pass' ? 'pass' : rawStatus === 'fail' ? 'fail' : 'pass';
+    return {
+      itemId: item.id,
+      status,
+      reason: matched?.reason?.trim() || '暂无说明',
+      category: item.category,
+      checkpoint: item.checkpoint,
+      item: item.item,
+      description: item.description,
+      scope: item.scope
+    };
+  });
+
   return {
     frameworkId: framework.id,
     frameworkName: framework.name,
@@ -538,7 +591,8 @@ const normalizeReport = (raw: Partial<FrameworkReport>, framework: EvaluationFra
     scenarioSummary: raw.scenarioSummary || '',
     evidenceNotes: raw.evidenceNotes || [],
     confidence: typeof raw.confidence === 'number' ? clampScore(raw.confidence) : 75,
-    dynamicSections
+    dynamicSections,
+    checklistResults
   };
 };
 

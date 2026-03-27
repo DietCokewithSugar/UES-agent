@@ -31,6 +31,28 @@ export interface FrameworkDimension {
   weight?: number;
 }
 
+export interface ChecklistItemDefinition {
+  id: string;
+  category: string;
+  checkpoint: string;
+  item: string;
+  description: string;
+  scope: '交互' | '视觉' | '交互/视觉';
+}
+
+export type ChecklistStatus = 'pass' | 'fail';
+
+export interface ChecklistResult {
+  itemId: string;
+  status: ChecklistStatus;
+  reason: string;
+  category?: string;
+  checkpoint?: string;
+  item?: string;
+  description?: string;
+  scope?: ChecklistItemDefinition['scope'];
+}
+
 export interface FrameworkSectionTemplate {
   id: string;
   title: string;
@@ -54,6 +76,7 @@ export interface EvaluationFramework {
   };
   promptGuidelines: string;
   reportSections?: FrameworkSectionTemplate[];
+  checklistItems?: ChecklistItemDefinition[];
 }
 
 export interface EvaluationScenario {
@@ -102,6 +125,7 @@ export interface FrameworkReport {
   evidenceNotes?: string[];
   confidence?: number; // 0-100
   dynamicSections?: ReportSectionData[];
+  checklistResults?: ChecklistResult[];
 }
 
 // Backward compatibility

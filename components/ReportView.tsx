@@ -3,6 +3,7 @@ import { FrameworkReport, EvaluationFramework, ProcessStep } from '../types';
 import { FrameworkChart } from './charts/FrameworkChart';
 import { FrameworkSections } from './report/FrameworkSections';
 import { AiDisclaimer } from './report/AiDisclaimer';
+import { ChecklistStatusBadge } from './report/ChecklistStatusBadge';
 
 interface ReportViewProps {
   report: FrameworkReport;
@@ -28,6 +29,7 @@ export const ReportView: React.FC<ReportViewProps> = ({
   isGeneratingImage
 }) => {
   const isVideo = originalImage?.startsWith('data:video');
+  const hasChecklist = (framework.checklistItems?.length || 0) > 0 && (report.checklistResults?.length || 0) > 0;
 
   return (
     <div className="space-y-6">
@@ -58,10 +60,12 @@ export const ReportView: React.FC<ReportViewProps> = ({
           <p className="text-xs text-violet-600 mt-1">置信度：{report.confidence ?? 0}%</p>
         </div>
 
-        <div className="md:col-span-2 rounded-xl border border-slate-200 bg-white p-4">
-          <h3 className="text-sm font-semibold text-slate-800 mb-3">维度可视化</h3>
-          <FrameworkChart framework={framework} data={report.dimensionScores} />
-        </div>
+        {!hasChecklist && (
+          <div className="md:col-span-2 rounded-xl border border-slate-200 bg-white p-4">
+            <h3 className="text-sm font-semibold text-slate-800 mb-3">维度可视化</h3>
+            <FrameworkChart framework={framework} data={report.dimensionScores} />
+          </div>
+        )}
       </section>
 
       <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -82,22 +86,57 @@ export const ReportView: React.FC<ReportViewProps> = ({
         </section>
       )}
 
-      <section className="rounded-xl border border-slate-200 bg-white p-4">
-        <h3 className="text-sm font-semibold text-slate-800">维度详解</h3>
-        <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-          {report.dimensionScores.map((dimension) => (
-            <div key={dimension.dimension} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-slate-700">{dimension.dimension}</span>
-                <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-700">
-                  {dimension.score}
-                </span>
+      {hasChecklist ? (
+        <section className="rounded-xl border border-slate-200 bg-white p-4">
+          <h3 className="text-sm font-semibold text-slate-800">设计质量自查表结果</h3>
+          <p className="mt-1 text-xs text-slate-500">每一项展示 AI 判定状态与一句原因，便于逐条复核。</p>
+          <div className="mt-3 overflow-x-auto">
+            <table className="min-w-[1120px] border-separate border-spacing-1">
+              <thead>
+                <tr>
+                  <th className="rounded-md bg-slate-100 px-2 py-2 text-left text-xs font-semibold text-slate-700">检查点</th>
+                  <th className="rounded-md bg-slate-100 px-2 py-2 text-left text-xs font-semibold text-slate-700">检查项</th>
+                  <th className="rounded-md bg-slate-100 px-2 py-2 text-left text-xs font-semibold text-slate-700">具体说明</th>
+                  <th className="rounded-md bg-slate-100 px-2 py-2 text-left text-xs font-semibold text-slate-700">适用范围</th>
+                  <th className="rounded-md bg-slate-100 px-2 py-2 text-left text-xs font-semibold text-slate-700">状态</th>
+                  <th className="rounded-md bg-slate-100 px-2 py-2 text-left text-xs font-semibold text-slate-700">原因</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(report.checklistResults || []).map((result) => (
+                  <tr key={result.itemId}>
+                    <td className="rounded-md bg-white px-2 py-2 text-xs text-slate-700">{result.checkpoint || result.itemId}</td>
+                    <td className="rounded-md bg-white px-2 py-2 text-xs text-slate-700">{result.item || '-'}</td>
+                    <td className="rounded-md bg-white px-2 py-2 text-xs text-slate-600">{result.description || '-'}</td>
+                    <td className="rounded-md bg-white px-2 py-2 text-xs text-slate-600">{result.scope || '-'}</td>
+                    <td className="rounded-md bg-white px-2 py-2 text-xs text-slate-700">
+                      <ChecklistStatusBadge status={result.status} />
+                    </td>
+                    <td className="rounded-md bg-white px-2 py-2 text-xs text-slate-600">{result.reason}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : (
+        <section className="rounded-xl border border-slate-200 bg-white p-4">
+          <h3 className="text-sm font-semibold text-slate-800">维度详解</h3>
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+            {report.dimensionScores.map((dimension) => (
+              <div key={dimension.dimension} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold text-slate-700">{dimension.dimension}</span>
+                  <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-700">
+                    {dimension.score}
+                  </span>
+                </div>
+                <p className="text-sm text-slate-600 mt-2">{dimension.comment}</p>
               </div>
-              <p className="text-sm text-slate-600 mt-2">{dimension.comment}</p>
-            </div>
-          ))}
-        </div>
-      </section>
+            ))}
+          </div>
+        </section>
+      )}
 
       {!!report.dynamicSections?.length && <FrameworkSections sections={report.dynamicSections} />}
 
