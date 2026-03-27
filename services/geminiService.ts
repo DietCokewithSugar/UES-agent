@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { getFrameworkById } from '../config/frameworkPresets';
 import {
+  ABComparisonReport,
   ApiConfig,
   ChecklistResult,
   EvaluationFramework,
@@ -9,7 +10,8 @@ import {
   FrameworkReport,
   Persona,
   PersonaRecommendation,
-  ProcessStep
+  ProcessStep,
+  UserRole
 } from '../types';
 
 const getAIClient = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -152,6 +154,36 @@ const PERSONA_RECOMMENDATIONS_SCHEMA = {
           }
         },
         required: ['matchScore', 'reasoning']
+      }
+    }
+  },
+  required: ['recommendations']
+};
+
+const PERSONA_EXTRACTION_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    recommendations: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          matchScore: { type: Type.NUMBER },
+          reasoning: { type: Type.STRING },
+          personaDraft: {
+            type: Type.OBJECT,
+            properties: {
+              name: { type: Type.STRING },
+              role: { type: Type.STRING },
+              description: { type: Type.STRING },
+              attributes: {
+                type: Type.OBJECT
+              }
+            },
+            required: ['name', 'role', 'description', 'attributes']
+          }
+        },
+        required: ['matchScore', 'reasoning', 'personaDraft']
       }
     }
   },
@@ -362,6 +394,98 @@ ${existingPersonas
   ]
 }
 `;
+
+const buildPersonaExtractionPrompt = (): string => `
+你是资深用户研究员，请从提供的文档内容中提取“评测角色画像”。
+要求：
+1) 可以提取多个角色（0-8 个）；
+2) 每个角色必须包含：name、role、description、attributes；
+3) role 只能是 USER 或 EXPERT；
+4) attributes 是灵活维度键值对，尽量提取与行为、目标、能力、场景有关的信息；
+5) 所有文本必须使用简体中文；
+6) 若文档中没有足够信息，返回空数组 recommendations。
+
+仅输出 JSON：
+{
+  "recommendations": [
+    {
+      "matchScore": 85,
+      "reasoning": "提取来源说明",
+      "personaDraft": {
+        "name": "角色名称",
+        "role": "USER|EXPERT",
+        "description": "角色描述",
+        "attributes": {
+          "维度A": "值A",
+          "维度B": "值B"
+        }
+      }
+    }
+  ]
+}
+`;
+
+const normalizeDimensionComparisons = (
+  reportA: FrameworkReport,
+  reportB: FrameworkReport
+) => {
+  const mapA = new Map(reportA.dimensionScores.map((item) => [item.dimension, item]));
+  const mapB = new Map(reportB.dimensionScores.map((item) => [item.dimension, item]));
+  const dimensions = Array.from(new Set([...mapA.keys(), ...mapB.keys()]));
+
+  return dimensions.map((dimension) => {
+    const scoreA = mapA.get(dimension)?.score ?? 0;
+    const scoreB = mapB.get(dimension)?.score ?? 0;
+    const diff = scoreA - scoreB;
+    const winner: ABComparisonReport['winner'] = diff > 0 ? 'A' : diff < 0 ? 'B' : 'TIE';
+    const insight =
+      winner === 'TIE'
+        ? `${dimension}维度表现接近，两方案差异不明显。`
+        : winner === 'A'
+        ? `${dimension}维度 A 方案更优，优势约 ${Math.abs(diff)} 分。`
+        : `${dimension}维度 B 方案更优，优势约 ${Math.abs(diff)} 分。`;
+
+    return {
+      dimension,
+      scoreA,
+      scoreB,
+      diff,
+      winner,
+      insight
+    };
+  });
+};
+
+const normalizePersonaDraft = (
+  rawDraft: any,
+  index: number
+): Omit<Persona, 'id'> => {
+  const attributes =
+    rawDraft?.attributes && typeof rawDraft.attributes === 'object' && !Array.isArray(rawDraft.attributes)
+      ? Object.entries(rawDraft.attributes as Record<string, unknown>).reduce<Record<string, string>>(
+          (acc, [key, value]) => {
+            const normalizedKey = key.trim();
+            if (!normalizedKey) return acc;
+            acc[normalizedKey] = typeof value === 'string' ? value : value == null ? '' : String(value);
+            return acc;
+          },
+          {}
+        )
+      : {};
+
+  return {
+    name:
+      typeof rawDraft?.name === 'string' && rawDraft.name.trim()
+        ? rawDraft.name.trim()
+        : `AI 角色 ${index + 1}`,
+    description:
+      typeof rawDraft?.description === 'string' && rawDraft.description.trim()
+        ? rawDraft.description.trim()
+        : 'AI 提取角色',
+    role: rawDraft?.role === UserRole.EXPERT ? UserRole.EXPERT : UserRole.USER,
+    attributes
+  };
+};
 
 const callOpenRouterPromptJson = async <T>(prompt: string, model: string): Promise<T> => {
   const apiKey = getOpenRouterApiKey();
@@ -714,10 +838,10 @@ export const recommendPersonas = async ({
             name: recommendation.personaDraft.name || `AI 角色 ${index + 1}`,
             role:
               recommendation.personaDraft.role === 'EXPERT'
-                ? 'EXPERT'
+                ? UserRole.EXPERT
                 : recommendation.personaDraft.role === 'USER'
-                ? 'USER'
-                : 'USER'
+                ? UserRole.USER
+                : UserRole.USER
           }
         : undefined;
 
@@ -730,6 +854,110 @@ export const recommendPersonas = async ({
       };
     })
     .filter((recommendation) => (mode === 'new_only' ? Boolean(recommendation.personaDraft) : true));
+};
+
+export const extractPersonasFromText = async (
+  text: string,
+  apiConfig: ApiConfig = { provider: 'google' }
+): Promise<PersonaRecommendation[]> => {
+  if (!text.trim()) return [];
+  const prompt = `${buildPersonaExtractionPrompt()}\n\n文档内容如下：\n${text.slice(0, 20000)}`;
+
+  const raw =
+    apiConfig.provider === 'openrouter'
+      ? await callOpenRouterPromptJson<{ recommendations?: any[] }>(
+          prompt,
+          apiConfig.openRouterModel || 'google/gemini-2.5-flash'
+        )
+      : await callGeminiPromptJson<{ recommendations?: any[] }>(
+          prompt,
+          PERSONA_EXTRACTION_SCHEMA
+        );
+
+  return (raw.recommendations || [])
+    .slice(0, 8)
+    .map((recommendation, index) => {
+      const normalizedDraft = recommendation.personaDraft
+        ? {
+            ...recommendation.personaDraft,
+            name: recommendation.personaDraft.name || `文档角色 ${index + 1}`,
+            role:
+              recommendation.personaDraft.role === 'EXPERT'
+                ? UserRole.EXPERT
+                : recommendation.personaDraft.role === 'USER'
+                ? UserRole.USER
+                : UserRole.USER,
+            description: recommendation.personaDraft.description || '基于文档自动提取的角色',
+            attributes:
+              recommendation.personaDraft.attributes &&
+              typeof recommendation.personaDraft.attributes === 'object'
+                ? recommendation.personaDraft.attributes
+                : {}
+          }
+        : undefined;
+
+      return {
+        id: `extract-rec-${Date.now()}-${index}`,
+        personaDraft: normalizedDraft,
+        matchScore: clampScore(Number(recommendation.matchScore || 80)),
+        reasoning: recommendation.reasoning || '基于上传文档自动提取'
+      };
+    })
+    .filter((recommendation) => Boolean(recommendation.personaDraft));
+};
+
+export const compareABReports = ({
+  reportA,
+  reportB,
+  personaId,
+  frameworkId,
+  frameworkName,
+  comparabilityNote
+}: {
+  reportA: FrameworkReport;
+  reportB: FrameworkReport;
+  personaId: string;
+  frameworkId: string;
+  frameworkName: string;
+  comparabilityNote?: string;
+}): ABComparisonReport => {
+  const dimensionComparisons = normalizeDimensionComparisons(reportA, reportB);
+  const winner: ABComparisonReport['winner'] =
+    reportA.overallScore > reportB.overallScore
+      ? 'A'
+      : reportA.overallScore < reportB.overallScore
+      ? 'B'
+      : 'TIE';
+
+  const summary =
+    winner === 'TIE'
+      ? `A/B 两方案综合评分接近（A:${reportA.overallScore}，B:${reportB.overallScore}），建议结合业务目标继续验证。`
+      : winner === 'A'
+      ? `A 方案综合表现更优（A:${reportA.overallScore}，B:${reportB.overallScore}），建议优先采用 A。`
+      : `B 方案综合表现更优（A:${reportA.overallScore}，B:${reportB.overallScore}），建议优先采用 B。`;
+
+  const betterReport = winner === 'A' ? reportA : winner === 'B' ? reportB : null;
+  const betterOptionAnswer =
+    winner === 'TIE'
+      ? '两方案综合结果接近，建议以关键业务指标（转化率、任务完成时长、投诉率）进行线上验证后再决策。'
+      : `更优方案（${winner}）潜在效果：${betterReport?.executiveSummary || '整体体验更稳定，预计可提升任务完成率与用户满意度。'} ${
+          betterReport?.personaPerspective || ''
+        }`.trim();
+
+  return {
+    personaId,
+    frameworkId,
+    frameworkName,
+    winner,
+    overallScoreA: reportA.overallScore,
+    overallScoreB: reportB.overallScore,
+    comparabilityNote,
+    summary,
+    betterOptionAnswer,
+    dimensionComparisons,
+    reportA,
+    reportB
+  };
 };
 
 export const generateOptimizedDesign = async (
