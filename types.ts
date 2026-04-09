@@ -128,6 +128,32 @@ export interface FrameworkReport {
   checklistResults?: ChecklistResult[];
 }
 
+export type ABComparisonWinner = 'A' | 'B' | 'TIE';
+
+export interface ABComparisonDimension {
+  dimension: string;
+  scoreA: number;
+  scoreB: number;
+  diff: number;
+  winner: ABComparisonWinner;
+  insight: string;
+}
+
+export interface ABComparisonReport {
+  personaId: string;
+  frameworkId: string;
+  frameworkName: string;
+  winner: ABComparisonWinner;
+  overallScoreA: number;
+  overallScoreB: number;
+  comparabilityNote?: string;
+  summary: string;
+  betterOptionAnswer: string;
+  dimensionComparisons: ABComparisonDimension[];
+  reportA: FrameworkReport;
+  reportB: FrameworkReport;
+}
+
 // Backward compatibility
 export type ETSReport = FrameworkReport;
 
