@@ -1464,7 +1464,12 @@ export default function App() {
       <div className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
         <div className="mx-auto flex w-full max-w-6xl items-center justify-end gap-2 px-4 py-2 md:px-6">
           <button
-            onClick={() => setIsApiConfigPanelOpen(true)}
+            onClick={() => {
+              if (pageMode !== 'setup') {
+                setPageMode('setup');
+              }
+              setIsApiConfigPanelOpen(true);
+            }}
             className="inline-flex items-center rounded-md border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
           >
             API 配置
