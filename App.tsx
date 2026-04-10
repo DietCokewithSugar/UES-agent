@@ -23,9 +23,15 @@ import {
   extractPersonasFromText,
   generateOptimizedDesign,
   inferScenarioFromInput,
-  recommendPersonas
+  recommendPersonas,
+  testApiConfig
 } from './services/geminiService';
 import { extractTextFromFile } from './utils/documentTextExtractor';
+import {
+  clearApiConfigCookie,
+  loadApiConfigFromCookie,
+  saveApiConfigToCookie
+} from './utils/apiConfigStorage';
 import { ReportView } from './components/ReportView';
 import { SummaryReport } from './components/SummaryReport';
 import { ScenarioEditor } from './components/ScenarioEditor';
@@ -139,29 +145,50 @@ const EMPTY_SCENARIO: EvaluationScenario = {
   source: 'manual'
 };
 
+const GITHUB_REPO_URL = 'https://github.com/DietCokewithSugar/UES-agent';
+
+const PROVIDER_OPTIONS = [
+  { value: 'google', label: 'Google 官方 API' },
+  { value: 'openrouter', label: 'OpenRouter（聚合厂商）' }
+] as const;
+
+const GOOGLE_TEXT_MODELS = [
+  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash（Google）' },
+  { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro（Google）' },
+  { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash（Google）' }
+];
+
 const OPENROUTER_TEXT_MODELS = [
-  { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
-  { value: 'bytedance-seed/seed-1.6-flash', label: 'Seed 1.6 Flash' },
-  { value: 'z-ai/glm-4.6v', label: 'GLM-4.6V' }
+  { value: 'openai/gpt-4.1', label: 'GPT-4.1（OpenAI）' },
+  { value: 'anthropic/claude-3.7-sonnet', label: 'Claude 3.7 Sonnet（Anthropic）' },
+  { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash（Google）' },
+  { value: 'qwen/qwen2.5-vl-72b-instruct', label: 'Qwen2.5 VL 72B（阿里）' }
 ];
 
 const GOOGLE_IMAGE_MODELS = [
-  { value: 'google/gemini-3-pro-image-preview', label: 'Gemini 3 Pro Image' },
-  { value: 'google/gemini-3-pro-preview', label: 'Gemini 3 Pro Preview' }
+  { value: 'gemini-2.0-flash-preview-image-generation', label: 'Gemini 2.0 Flash Image（Google）' },
+  { value: 'gemini-2.5-flash-image-preview', label: 'Gemini 2.5 Flash Image（Google）' }
 ];
 
 const OPENROUTER_IMAGE_MODELS = [
-  { value: 'google/gemini-3-pro-image-preview', label: 'Gemini 3 Pro Image' },
-  { value: 'google/gemini-2.5-flash-image', label: 'Gemini 2.5 Flash Image' },
-  { value: 'openai/gpt-5-image', label: 'GPT-5 Image' }
+  { value: 'openai/gpt-image-1', label: 'GPT Image 1（OpenAI）' },
+  { value: 'google/gemini-2.5-flash-image-preview', label: 'Gemini 2.5 Flash Image（Google）' },
+  { value: 'qwen/qwen2.5-vl-72b-instruct', label: 'Qwen2.5 VL（阿里）' }
 ];
 
 const STEP_TITLES = ['上传评测素材', '定义业务场景与目标', '选择评测体系', '选择评测角色'];
 const STEP_REQUIRED_ACTIONS: Record<number, string[]> = {
   1: ['选择素材类型（单页/流程/视频）', '上传至少 1 份评测素材'],
   2: ['补齐评测目标、目标用户、关键任务流', '可使用推荐示例多选快速填充'],
-  3: ['选择评测体系', '确认模型来源（Google / OpenRouter）'],
+  3: ['选择评测体系', '填写 API Key 并测试可用性', '保存 API Key 到浏览器 Cookie（可选）'],
   4: ['至少勾选 1 个评测角色', '可使用 AI 推荐或 AI 新建角色']
+};
+
+const pickGoogleImageModel = (provider: ApiConfig['provider'], currentImageModel?: string) => {
+  const candidateModels = provider === 'openrouter' ? OPENROUTER_IMAGE_MODELS : GOOGLE_IMAGE_MODELS;
+  if (!currentImageModel) return candidateModels[0].value;
+  if (candidateModels.some((item) => item.value === currentImageModel)) return currentImageModel;
+  return candidateModels[0].value;
 };
 const SCENARIO_REQUIRED_FIELDS: Array<keyof EvaluationScenario> = [
   'businessGoal',
@@ -250,9 +277,14 @@ export default function App() {
 
   const [apiConfig, setApiConfig] = useState<ApiConfig>({
     provider: 'google',
-    openRouterModel: 'google/gemini-2.5-flash',
-    imageModel: 'google/gemini-3-pro-image-preview'
+    googleModel: GOOGLE_TEXT_MODELS[0].value,
+    openRouterModel: OPENROUTER_TEXT_MODELS[0].value,
+    imageModel: GOOGLE_IMAGE_MODELS[0].value,
+    googleApiKey: '',
+    openRouterApiKey: ''
   });
+  const [apiConfigStatus, setApiConfigStatus] = useState<string | null>(null);
+  const [isTestingApiConfig, setIsTestingApiConfig] = useState(false);
 
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
@@ -418,11 +450,60 @@ export default function App() {
   const getFrameworkForReport = (report: FrameworkReport) =>
     frameworks.find((framework) => framework.id === report.frameworkId) || FRAMEWORK_PRESETS[0];
 
+  const isApiReadyForProvider = useMemo(() => {
+    if (apiConfig.provider === 'google') {
+      return Boolean(apiConfig.googleApiKey?.trim() && apiConfig.googleModel?.trim());
+    }
+    return Boolean(apiConfig.openRouterApiKey?.trim() && apiConfig.openRouterModel?.trim());
+  }, [apiConfig]);
+
+  const currentTextModel =
+    apiConfig.provider === 'google'
+      ? apiConfig.googleModel || GOOGLE_TEXT_MODELS[0].value
+      : apiConfig.openRouterModel || OPENROUTER_TEXT_MODELS[0].value;
+  const currentImageModel =
+    apiConfig.imageModel ||
+    (apiConfig.provider === 'google'
+      ? GOOGLE_IMAGE_MODELS[0].value
+      : OPENROUTER_IMAGE_MODELS[0].value);
+  const activeTextModels =
+    apiConfig.provider === 'google' ? GOOGLE_TEXT_MODELS : OPENROUTER_TEXT_MODELS;
+  const activeImageModels =
+    apiConfig.provider === 'google' ? GOOGLE_IMAGE_MODELS : OPENROUTER_IMAGE_MODELS;
+  const currentApiKey =
+    apiConfig.provider === 'google'
+      ? apiConfig.googleApiKey || ''
+      : apiConfig.openRouterApiKey || '';
+
   useEffect(() => {
     const draft = loadSetupDraft();
     if (!draft) return;
     setHasStoredDraft(true);
     setDraftSavedAt(draft.savedAt);
+  }, []);
+
+  useEffect(() => {
+    const storedConfig = loadApiConfigFromCookie();
+    if (!storedConfig) return;
+
+    const provider = storedConfig.provider === 'openrouter' ? 'openrouter' : 'google';
+    setApiConfig({
+      provider,
+      googleModel:
+        GOOGLE_TEXT_MODELS.find((item) => item.value === storedConfig.googleModel)?.value ||
+        GOOGLE_TEXT_MODELS[0].value,
+      openRouterModel:
+        OPENROUTER_TEXT_MODELS.find((item) => item.value === storedConfig.openRouterModel)?.value ||
+        OPENROUTER_TEXT_MODELS[0].value,
+      imageModel:
+        (provider === 'openrouter'
+          ? OPENROUTER_IMAGE_MODELS.find((item) => item.value === storedConfig.imageModel)?.value
+          : GOOGLE_IMAGE_MODELS.find((item) => item.value === storedConfig.imageModel)?.value) ||
+        (provider === 'openrouter' ? OPENROUTER_IMAGE_MODELS[0].value : GOOGLE_IMAGE_MODELS[0].value),
+      googleApiKey: storedConfig.googleApiKey || '',
+      openRouterApiKey: storedConfig.openRouterApiKey || ''
+    });
+    setApiConfigStatus('已从浏览器 Cookie 恢复 API 配置。');
   }, []);
 
   useEffect(() => {
@@ -445,6 +526,68 @@ export default function App() {
     if (!personas.length) return;
     setViewingPersonaId(personas[0].id);
   }, [personas, viewingPersonaId]);
+
+  const handleApiProviderChange = (provider: ApiConfig['provider']) => {
+    setApiConfig((previous) => {
+      const fallbackImageModel =
+        provider === 'google' ? GOOGLE_IMAGE_MODELS[0].value : OPENROUTER_IMAGE_MODELS[0].value;
+      const modelInProvider =
+        provider === 'google'
+          ? GOOGLE_IMAGE_MODELS.some((item) => item.value === previous.imageModel)
+          : OPENROUTER_IMAGE_MODELS.some((item) => item.value === previous.imageModel);
+      return {
+        ...previous,
+        provider,
+        imageModel: modelInProvider ? previous.imageModel : fallbackImageModel
+      };
+    });
+    setApiConfigStatus(null);
+  };
+
+  const handleSaveApiConfig = () => {
+    const result = saveApiConfigToCookie(apiConfig);
+    if (result.ok) {
+      setApiConfigStatus('API 配置已保存到浏览器 Cookie，仅保存在你的本地浏览器。');
+      return;
+    }
+    setError(result.error);
+  };
+
+  const handleClearApiConfig = () => {
+    clearApiConfigCookie();
+    setApiConfig((previous) => ({
+      ...previous,
+      googleApiKey: '',
+      openRouterApiKey: ''
+    }));
+    setApiConfigStatus('本地 API 配置 Cookie 已清除。');
+  };
+
+  const handleTestApiConfig = async () => {
+    setIsTestingApiConfig(true);
+    setError(null);
+    setApiConfigStatus(null);
+    try {
+      await testApiConfig(apiConfig);
+      setApiConfigStatus('API Key 测试通过，当前模型可正常调用。');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'API Key 测试失败';
+      setApiConfigStatus(`测试失败：${message}`);
+    } finally {
+      setIsTestingApiConfig(false);
+    }
+  };
+
+  const handleStartEvaluation = () => {
+    if (!isApiReadyForProvider) {
+      setPageMode('setup');
+      setActiveStep(3);
+      setError('开始评测前，请先在步骤 3 配置并测试 API Key。');
+      return;
+    }
+    setError(null);
+    setPageMode('setup');
+  };
 
   const goToNextStep = () => {
     setActiveStep((previous) => {
@@ -1148,15 +1291,10 @@ export default function App() {
     if (!selectedFramework || selectedPersonas.length === 0) return;
     if (uploadConfigMode === 'standard' && !analyzeInputStandard) return;
     if (uploadConfigMode === 'ab_test' && (!analyzeInputA || !analyzeInputB)) return;
-    if (apiConfig.provider === 'google') {
-      try {
-        if (window.aistudio) {
-          const hasKey = await window.aistudio.hasSelectedApiKey();
-          if (!hasKey) await window.aistudio.openSelectKey();
-        }
-      } catch (keyError) {
-        console.warn('API key check failed', keyError);
-      }
+    if (!isApiReadyForProvider) {
+      setError('请先在步骤 3 填写并测试 API Key，再开始评测。');
+      setActiveStep(3);
+      return;
     }
 
     setIsAnalyzing(true);
@@ -1311,12 +1449,25 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
+      <div className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
+        <div className="mx-auto flex w-full max-w-6xl items-center justify-end px-4 py-2 md:px-6">
+          <a
+            href={GITHUB_REPO_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center rounded-md border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+          >
+            GitHub 仓库
+          </a>
+        </div>
+      </div>
       {pageMode === 'landing' ? (
         <LandingPage
           hasStoredDraft={hasStoredDraft}
           draftSavedAt={draftSavedAt}
-          onStartEvaluation={() => setPageMode('setup')}
+          onStartEvaluation={handleStartEvaluation}
           onRestoreDraft={handleRestoreDraft}
+          githubRepoUrl={GITHUB_REPO_URL}
         />
       ) : pageMode === 'setup' ? (
         <div className="mx-auto max-w-4xl p-4 md:p-6 pb-28 space-y-4">
@@ -1799,7 +1950,7 @@ export default function App() {
               </div>
               {activeStep === 3 ? (
                 <>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
+                  <div className="grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
                     <select
                       value={selectedFrameworkId}
                       onChange={(event) => setSelectedFrameworkId(event.target.value)}
@@ -1815,54 +1966,115 @@ export default function App() {
                     <select
                       value={apiConfig.provider}
                       onChange={(event) =>
+                        handleApiProviderChange(event.target.value as ApiConfig['provider'])
+                      }
+                      className="rounded-lg border border-slate-200 px-3 py-2"
+                    >
+                      {PROVIDER_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
+                    <select
+                      value={currentTextModel}
+                      onChange={(event) =>
+                        setApiConfig((previous) =>
+                          previous.provider === 'google'
+                            ? { ...previous, googleModel: event.target.value }
+                            : { ...previous, openRouterModel: event.target.value }
+                        )
+                      }
+                      className="rounded-lg border border-slate-200 px-3 py-2"
+                    >
+                      {activeTextModels.map((model) => (
+                        <option key={model.value} value={model.value}>
+                          {model.label}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={currentImageModel}
+                      onChange={(event) =>
                         setApiConfig((previous) => ({
                           ...previous,
-                          provider: event.target.value as ApiConfig['provider']
+                          imageModel: event.target.value
                         }))
                       }
                       className="rounded-lg border border-slate-200 px-3 py-2"
                     >
-                      <option value="google">Google</option>
-                      <option value="openrouter">OpenRouter</option>
+                      {activeImageModels.map((model) => (
+                        <option key={model.value} value={model.value}>
+                          {model.label}
+                        </option>
+                      ))}
                     </select>
-                    {apiConfig.provider === 'openrouter' ? (
-                      <select
-                        value={apiConfig.openRouterModel}
+                  </div>
+                  <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <label className="space-y-1">
+                      <span className="text-xs font-medium text-slate-700">
+                        {apiConfig.provider === 'google' ? 'Google API Key' : 'OpenRouter API Key'}
+                      </span>
+                      <input
+                        type="password"
+                        value={currentApiKey}
                         onChange={(event) =>
-                          setApiConfig((previous) => ({
-                            ...previous,
-                            openRouterModel: event.target.value
-                          }))
+                          setApiConfig((previous) =>
+                            previous.provider === 'google'
+                              ? { ...previous, googleApiKey: event.target.value }
+                              : { ...previous, openRouterApiKey: event.target.value }
+                          )
                         }
-                        className="rounded-lg border border-slate-200 px-3 py-2"
-                      >
-                        {OPENROUTER_TEXT_MODELS.map((model) => (
-                          <option key={model.value} value={model.value}>
-                            {model.label}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <select
-                        value={apiConfig.imageModel}
-                        onChange={(event) =>
-                          setApiConfig((previous) => ({
-                            ...previous,
-                            imageModel: event.target.value
-                          }))
+                        placeholder={
+                          apiConfig.provider === 'google'
+                            ? '请输入 Google API Key'
+                            : '请输入 OpenRouter API Key'
                         }
-                        className="rounded-lg border border-slate-200 px-3 py-2"
+                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                      />
+                    </label>
+                    <p className="text-[11px] text-slate-500">
+                      我们不会收集你的 API Key。点击保存后仅会存储在你的浏览器 Cookie 中。
+                    </p>
+                    <div className="flex flex-wrap gap-2 text-xs">
+                      <button
+                        onClick={handleTestApiConfig}
+                        disabled={isTestingApiConfig || !currentApiKey.trim()}
+                        className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-700 disabled:opacity-50"
                       >
-                        {GOOGLE_IMAGE_MODELS.map((model) => (
-                          <option key={model.value} value={model.value}>
-                            {model.label}
-                          </option>
-                        ))}
-                      </select>
+                        {isTestingApiConfig ? '测试中...' : 'Test API Key'}
+                      </button>
+                      <button
+                        onClick={handleSaveApiConfig}
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-2"
+                      >
+                        保存到浏览器 Cookie
+                      </button>
+                      <button
+                        onClick={handleClearApiConfig}
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-2"
+                      >
+                        清除本地 Key
+                      </button>
+                    </div>
+                    {apiConfigStatus && (
+                      <p
+                        className={`text-xs ${
+                          apiConfigStatus.includes('失败') ? 'text-rose-600' : 'text-emerald-700'
+                        }`}
+                      >
+                        {apiConfigStatus}
+                      </p>
                     )}
                   </div>
                   <p className="text-xs text-slate-500">
-                    {selectedFramework ? selectedFramework.description : '请选择一个评测体系，系统将按该体系生成报告。'}
+                    {selectedFramework
+                      ? `${selectedFramework.description}；当前模型来源：${
+                          apiConfig.provider === 'google' ? 'Google 官方 API' : 'OpenRouter 聚合平台'
+                        }`
+                      : '请选择一个评测体系，系统将按该体系生成报告。'}
                   </p>
                   <div className="flex flex-wrap gap-2 text-xs">
                     <button onClick={downloadFrameworkTemplate} className="rounded-lg border border-slate-200 px-3 py-2">

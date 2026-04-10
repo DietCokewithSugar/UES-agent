@@ -5,6 +5,7 @@ interface LandingPageProps {
   draftSavedAt: string | null;
   onStartEvaluation: () => void;
   onRestoreDraft: () => void;
+  githubRepoUrl: string;
 }
 
 const FEATURES = [
@@ -45,7 +46,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   hasStoredDraft,
   draftSavedAt,
   onStartEvaluation,
-  onRestoreDraft
+  onRestoreDraft,
+  githubRepoUrl
 }) => {
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 md:px-6 md:py-10 space-y-6">
@@ -67,6 +69,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           >
             开始评测
           </button>
+          <a
+            href={githubRepoUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-lg border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-700"
+          >
+            GitHub 仓库
+          </a>
           <button
             onClick={onRestoreDraft}
             disabled={!hasStoredDraft}
