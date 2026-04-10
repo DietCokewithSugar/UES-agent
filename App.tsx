@@ -32,6 +32,7 @@ import { ScenarioEditor } from './components/ScenarioEditor';
 import { PersonaRecommendations } from './components/PersonaRecommendations';
 import { ABReportView } from './components/ABReportView';
 import { ABSummaryReport } from './components/ABSummaryReport';
+import { LandingPage } from './components/LandingPage';
 
 const saveFile = (data: Blob | string, filename: string) => {
   const save = (FileSaver as any).saveAs || (FileSaver as any).default || FileSaver;
@@ -178,13 +179,13 @@ const SCENARIO_FIELD_LABELS: Record<keyof EvaluationScenario, string> = {
   constraints: '约束条件',
   source: '来源'
 };
-type PageMode = 'setup' | 'report';
+type PageMode = 'landing' | 'setup' | 'report';
 type SetupStep = 1 | 2 | 3 | 4;
 type UploadMode = 'single' | 'flow' | 'video';
 type UploadConfigMode = 'standard' | 'ab_test';
 
 export default function App() {
-  const [pageMode, setPageMode] = useState<PageMode>('setup');
+  const [pageMode, setPageMode] = useState<PageMode>('landing');
   const [activeStep, setActiveStep] = useState<SetupStep>(1);
 
   const [personas, setPersonas] = useState<Persona[]>(() => loadPersonas(DEFAULT_PERSONAS));
@@ -1310,13 +1311,28 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
-      {pageMode === 'setup' ? (
+      {pageMode === 'landing' ? (
+        <LandingPage
+          hasStoredDraft={hasStoredDraft}
+          draftSavedAt={draftSavedAt}
+          onStartEvaluation={() => setPageMode('setup')}
+          onRestoreDraft={handleRestoreDraft}
+        />
+      ) : pageMode === 'setup' ? (
         <div className="mx-auto max-w-4xl p-4 md:p-6 pb-28 space-y-4">
           <header className="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="space-y-1">
-                <h1 className="text-xl font-semibold">AI 用户体验评测</h1>
-                <p className="text-sm text-slate-600">当前状态：{currentStageTitle}</p>
+              <div className="space-y-2">
+                <div className="space-y-1">
+                  <h1 className="text-xl font-semibold">AI 用户体验评测</h1>
+                  <p className="text-sm text-slate-600">当前状态：{currentStageTitle}</p>
+                </div>
+                <button
+                  onClick={() => setPageMode('landing')}
+                  className="inline-flex w-fit items-center rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  返回首页
+                </button>
               </div>
               <div className="flex flex-wrap gap-2 text-xs">
                 {canExportSetupConfig && (
@@ -2195,9 +2211,14 @@ export default function App() {
               <h1 className="text-lg font-semibold">评测报告</h1>
               <p className="text-sm text-slate-500">已完成配置，当前处于报告查看阶段。</p>
             </div>
-            <button onClick={() => setPageMode('setup')} className="rounded-lg border border-slate-200 px-4 py-2 text-sm">
-              返回配置
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={() => setPageMode('landing')} className="rounded-lg border border-slate-200 px-4 py-2 text-sm">
+                返回首页
+              </button>
+              <button onClick={() => setPageMode('setup')} className="rounded-lg border border-slate-200 px-4 py-2 text-sm">
+                返回配置
+              </button>
+            </div>
           </header>
 
           <div className="rounded-xl border border-slate-200 bg-white p-3 flex flex-wrap items-center justify-between gap-2">
