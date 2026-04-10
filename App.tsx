@@ -550,7 +550,9 @@ export default function App() {
       setApiConfigStatus('API 配置已保存到浏览器 Cookie，仅保存在你的本地浏览器。');
       return;
     }
-    setError(result.error);
+    if ('error' in result) {
+      setError(result.error);
+    }
   };
 
   const handleClearApiConfig = () => {
