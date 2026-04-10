@@ -169,8 +169,11 @@ export type ApiProvider = 'google' | 'openrouter';
 
 export interface ApiConfig {
   provider: ApiProvider;
+  googleModel?: string;
   openRouterModel?: string;
-  imageModel?: string; // New field for image generation model
+  imageModel?: string;
+  googleApiKey?: string;
+  openRouterApiKey?: string;
 }
 
 export interface ProcessStep {

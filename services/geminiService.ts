@@ -14,15 +14,38 @@ import {
   UserRole
 } from '../types';
 
-const getAIClient = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
+const GOOGLE_DEFAULT_MODEL = 'gemini-2.5-flash';
+const OPENROUTER_DEFAULT_MODEL = 'google/gemini-2.5-flash';
+const GOOGLE_DEFAULT_IMAGE_MODEL = 'gemini-2.0-flash-preview-image-generation';
+const OPENROUTER_DEFAULT_IMAGE_MODEL = 'openai/gpt-image-1';
 
-const getOpenRouterApiKey = (): string => {
-  const key = process.env.OPENROUTER_API_KEY;
+const getGoogleApiKey = (apiConfig?: ApiConfig): string => {
+  const key = apiConfig?.googleApiKey?.trim() || process.env.GEMINI_API_KEY || process.env.API_KEY;
   if (!key) {
-    throw new Error('OpenRouter API Key 未配置。请在 .env.local 文件中添加 OPENROUTER_API_KEY。');
+    throw new Error('Google API Key 未配置，请先在页面中填写并测试。');
   }
   return key;
 };
+
+const getAIClient = (apiConfig?: ApiConfig) => new GoogleGenAI({ apiKey: getGoogleApiKey(apiConfig) });
+
+const getOpenRouterApiKey = (apiConfig?: ApiConfig): string => {
+  const key = apiConfig?.openRouterApiKey?.trim() || process.env.OPENROUTER_API_KEY;
+  if (!key) {
+    throw new Error('OpenRouter API Key 未配置，请先在页面中填写并测试。');
+  }
+  return key;
+};
+
+const getGoogleTextModel = (apiConfig?: ApiConfig): string =>
+  apiConfig?.googleModel || GOOGLE_DEFAULT_MODEL;
+
+const getOpenRouterTextModel = (apiConfig?: ApiConfig): string =>
+  apiConfig?.openRouterModel || OPENROUTER_DEFAULT_MODEL;
+
+const getImageModel = (apiConfig?: ApiConfig): string =>
+  apiConfig?.imageModel ||
+  (apiConfig?.provider === 'openrouter' ? OPENROUTER_DEFAULT_IMAGE_MODEL : GOOGLE_DEFAULT_IMAGE_MODEL);
 
 const DEFAULT_SCENARIO: EvaluationScenario = {
   industry: '',
@@ -487,8 +510,12 @@ const normalizePersonaDraft = (
   };
 };
 
-const callOpenRouterPromptJson = async <T>(prompt: string, model: string): Promise<T> => {
-  const apiKey = getOpenRouterApiKey();
+const callOpenRouterPromptJson = async <T>(
+  prompt: string,
+  model: string,
+  apiConfig?: ApiConfig
+): Promise<T> => {
+  const apiKey = getOpenRouterApiKey(apiConfig);
   const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -519,9 +546,10 @@ const callOpenRouterPromptJson = async <T>(prompt: string, model: string): Promi
 const callGeminiPromptJson = async <T>(
   prompt: string,
   schema: Record<string, unknown>,
-  model = 'gemini-2.5-flash'
+  model = GOOGLE_DEFAULT_MODEL,
+  apiConfig?: ApiConfig
 ): Promise<T> => {
-  const ai = getAIClient();
+  const ai = getAIClient(apiConfig);
   const response = await ai.models.generateContent({
     model,
     contents: { parts: [{ text: prompt }] },
@@ -562,9 +590,10 @@ const parseJsonText = <T>(content: string): T => {
 const callOpenRouterJson = async <T>(
   prompt: string,
   input: string | ProcessStep[],
-  model: string
+  model: string,
+  apiConfig?: ApiConfig
 ): Promise<T> => {
-  const apiKey = getOpenRouterApiKey();
+  const apiKey = getOpenRouterApiKey(apiConfig);
   const messagesContent: any[] = [{ type: 'text', text: `${prompt}\n\nIMPORTANT: Return ONLY valid JSON.` }];
   appendInputToOpenRouterMessage(messagesContent, input);
 
@@ -599,9 +628,10 @@ const callGeminiJson = async <T>(
   prompt: string,
   input: string | ProcessStep[],
   schema: Record<string, unknown>,
-  model = 'gemini-2.5-flash'
+  model = GOOGLE_DEFAULT_MODEL,
+  apiConfig?: ApiConfig
 ): Promise<T> => {
-  const ai = getAIClient();
+  const ai = getAIClient(apiConfig);
   const parts: any[] = [{ text: prompt }];
 
   if (Array.isArray(input)) {
@@ -735,9 +765,16 @@ export const analyzeDesign = async (
       ? await callOpenRouterJson<Partial<FrameworkReport>>(
           prompt,
           input,
-          apiConfig.openRouterModel || 'google/gemini-2.5-flash'
+          getOpenRouterTextModel(apiConfig),
+          apiConfig
         )
-      : await callGeminiJson<Partial<FrameworkReport>>(prompt, input, REPORT_SCHEMA);
+      : await callGeminiJson<Partial<FrameworkReport>>(
+          prompt,
+          input,
+          REPORT_SCHEMA,
+          getGoogleTextModel(apiConfig),
+          apiConfig
+        );
 
   return normalizeReport(rawReport, framework);
 };
@@ -754,9 +791,16 @@ export const inferScenarioFromInput = async (
       ? await callOpenRouterJson<Partial<EvaluationScenario>>(
           prompt,
           input,
-          apiConfig.openRouterModel || 'google/gemini-2.5-flash'
+          getOpenRouterTextModel(apiConfig),
+          apiConfig
         )
-      : await callGeminiJson<Partial<EvaluationScenario>>(prompt, input, SCENARIO_SCHEMA);
+      : await callGeminiJson<Partial<EvaluationScenario>>(
+          prompt,
+          input,
+          SCENARIO_SCHEMA,
+          getGoogleTextModel(apiConfig),
+          apiConfig
+        );
 
   const normalized = {
     industry: raw.industry || '',
@@ -775,11 +819,14 @@ export const inferScenarioFromInput = async (
       ? apiConfig.provider === 'openrouter'
         ? await callOpenRouterPromptJson<Partial<EvaluationScenario>>(
             buildScenarioLocalizationPrompt(normalized),
-            apiConfig.openRouterModel || 'google/gemini-2.5-flash'
+            getOpenRouterTextModel(apiConfig),
+            apiConfig
           )
         : await callGeminiPromptJson<Partial<EvaluationScenario>>(
             buildScenarioLocalizationPrompt(normalized),
-            SCENARIO_SCHEMA
+            SCENARIO_SCHEMA,
+            getGoogleTextModel(apiConfig),
+            apiConfig
           )
       : normalized;
 
@@ -818,9 +865,16 @@ export const recommendPersonas = async ({
       ? await callOpenRouterJson<{ recommendations?: any[] }>(
           prompt,
           input,
-          apiConfig.openRouterModel || 'google/gemini-2.5-flash'
+          getOpenRouterTextModel(apiConfig),
+          apiConfig
         )
-      : await callGeminiJson<{ recommendations?: any[] }>(prompt, input, PERSONA_RECOMMENDATIONS_SCHEMA);
+      : await callGeminiJson<{ recommendations?: any[] }>(
+          prompt,
+          input,
+          PERSONA_RECOMMENDATIONS_SCHEMA,
+          getGoogleTextModel(apiConfig),
+          apiConfig
+        );
 
   return (raw.recommendations || [])
     .slice(0, 4)
@@ -867,11 +921,14 @@ export const extractPersonasFromText = async (
     apiConfig.provider === 'openrouter'
       ? await callOpenRouterPromptJson<{ recommendations?: any[] }>(
           prompt,
-          apiConfig.openRouterModel || 'google/gemini-2.5-flash'
+          getOpenRouterTextModel(apiConfig),
+          apiConfig
         )
       : await callGeminiPromptJson<{ recommendations?: any[] }>(
           prompt,
-          PERSONA_EXTRACTION_SCHEMA
+          PERSONA_EXTRACTION_SCHEMA,
+          getGoogleTextModel(apiConfig),
+          apiConfig
         );
 
   return (raw.recommendations || [])
@@ -967,7 +1024,7 @@ export const generateOptimizedDesign = async (
   apiConfig: ApiConfig = { provider: 'google' }
 ): Promise<string> => {
   const cleanBase64 = originalImageBase64.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, '');
-  const imageModel = apiConfig.imageModel || 'google/gemini-3-pro-preview';
+  const imageModel = getImageModel(apiConfig);
 
   const criticalIssues = report.issues
     .filter((issue) => ['一级问题', '二级问题', '严重', '高'].includes(issue.severity))
@@ -993,7 +1050,7 @@ ${suggestions || '- 暂无建议'}
 `;
 
   if (apiConfig.provider === 'openrouter') {
-    const openRouterKey = getOpenRouterApiKey();
+    const openRouterKey = getOpenRouterApiKey(apiConfig);
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -1028,7 +1085,7 @@ ${suggestions || '- 暂无建议'}
     return imageUrl;
   }
 
-  const ai = getAIClient();
+  const ai = getAIClient(apiConfig);
   const response = await ai.models.generateContent({
     model: imageModel,
     contents: {
@@ -1050,4 +1107,39 @@ ${suggestions || '- 暂无建议'}
   }
 
   throw new Error(`No image generated by ${imageModel}.`);
+};
+
+export const testApiConfig = async (apiConfig: ApiConfig): Promise<void> => {
+  if (apiConfig.provider === 'openrouter') {
+    const key = getOpenRouterApiKey(apiConfig);
+    const model = getOpenRouterTextModel(apiConfig);
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${key}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': window.location.origin,
+        'X-Title': 'ETS Agent'
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'Reply with OK only.' }] }],
+        max_tokens: 5
+      })
+    });
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(`OpenRouter 测试失败：${err.error?.message || response.statusText}`);
+    }
+    return;
+  }
+
+  const ai = getAIClient(apiConfig);
+  const response = await ai.models.generateContent({
+    model: getGoogleTextModel(apiConfig),
+    contents: { parts: [{ text: 'Reply with OK only.' }] }
+  });
+  if (!response.text) {
+    throw new Error('Google API 测试失败：未收到模型响应。');
+  }
 };
