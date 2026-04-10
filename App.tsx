@@ -180,7 +180,7 @@ const STEP_TITLES = ['上传评测素材', '定义业务场景与目标', '选�
 const STEP_REQUIRED_ACTIONS: Record<number, string[]> = {
   1: ['选择素材类型（单页/流程/视频）', '上传至少 1 份评测素材'],
   2: ['补齐评测目标、目标用户、关键任务流', '可使用推荐示例多选快速填充'],
-  3: ['选择评测体系', '填写 API Key 并测试可用性', '保存 API Key 到浏览器 Cookie（可选）'],
+  3: ['选择评测体系（评测维度）', '可选：导入自定义体系 JSON'],
   4: ['至少勾选 1 个评测角色', '可使用 AI 推荐或 AI 新建角色']
 };
 
@@ -285,6 +285,7 @@ export default function App() {
   });
   const [apiConfigStatus, setApiConfigStatus] = useState<string | null>(null);
   const [isTestingApiConfig, setIsTestingApiConfig] = useState(false);
+  const [isApiConfigPanelOpen, setIsApiConfigPanelOpen] = useState(false);
 
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
@@ -474,6 +475,11 @@ export default function App() {
     apiConfig.provider === 'google'
       ? apiConfig.googleApiKey || ''
       : apiConfig.openRouterApiKey || '';
+  const isCurrentApiKeyReady = currentApiKey.trim().length > 0;
+  const isApiConfigPanelValid =
+    apiConfig.provider === 'google'
+      ? Boolean((apiConfig.googleApiKey || '').trim())
+      : Boolean((apiConfig.openRouterApiKey || '').trim());
 
   useEffect(() => {
     const draft = loadSetupDraft();
@@ -583,12 +589,16 @@ export default function App() {
   const handleStartEvaluation = () => {
     if (!isApiReadyForProvider) {
       setPageMode('setup');
-      setActiveStep(3);
-      setError('开始评测前，请先在步骤 3 配置并测试 API Key。');
+      setIsApiConfigPanelOpen(true);
+      setError('开始评测前，请先点击右上角“API 配置”填写并测试 API Key。');
       return;
     }
     setError(null);
     setPageMode('setup');
+  };
+
+  const handleCloseApiConfigPanel = () => {
+    setIsApiConfigPanelOpen(false);
   };
 
   const goToNextStep = () => {
@@ -1294,8 +1304,8 @@ export default function App() {
     if (uploadConfigMode === 'standard' && !analyzeInputStandard) return;
     if (uploadConfigMode === 'ab_test' && (!analyzeInputA || !analyzeInputB)) return;
     if (!isApiReadyForProvider) {
-      setError('请先在步骤 3 填写并测试 API Key，再开始评测。');
-      setActiveStep(3);
+      setError('请先点击右上角“API 配置”填写并测试 API Key，再开始评测。');
+      setIsApiConfigPanelOpen(true);
       return;
     }
 
@@ -1452,7 +1462,13 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
       <div className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-end px-4 py-2 md:px-6">
+        <div className="mx-auto flex w-full max-w-6xl items-center justify-end gap-2 px-4 py-2 md:px-6">
+          <button
+            onClick={() => setIsApiConfigPanelOpen(true)}
+            className="inline-flex items-center rounded-md border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+          >
+            API 配置
+          </button>
           <a
             href={GITHUB_REPO_URL}
             target="_blank"
@@ -1952,131 +1968,24 @@ export default function App() {
               </div>
               {activeStep === 3 ? (
                 <>
-                  <div className="grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
+                  <div className="grid grid-cols-1 gap-2 text-sm">
                     <select
                       value={selectedFrameworkId}
                       onChange={(event) => setSelectedFrameworkId(event.target.value)}
                       className="rounded-lg border border-slate-200 px-3 py-2"
                     >
-                      <option value="">请选择评测体系</option>
+                      <option value="">请选择评测体系（评测维度）</option>
                       {frameworks.map((framework) => (
                         <option key={framework.id} value={framework.id}>
                           {framework.name}（{framework.source === 'builtin' ? '内置' : '自定义'}）
                         </option>
                       ))}
                     </select>
-                    <select
-                      value={apiConfig.provider}
-                      onChange={(event) =>
-                        handleApiProviderChange(event.target.value as ApiConfig['provider'])
-                      }
-                      className="rounded-lg border border-slate-200 px-3 py-2"
-                    >
-                      {PROVIDER_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
-                    <select
-                      value={currentTextModel}
-                      onChange={(event) =>
-                        setApiConfig((previous) =>
-                          previous.provider === 'google'
-                            ? { ...previous, googleModel: event.target.value }
-                            : { ...previous, openRouterModel: event.target.value }
-                        )
-                      }
-                      className="rounded-lg border border-slate-200 px-3 py-2"
-                    >
-                      {activeTextModels.map((model) => (
-                        <option key={model.value} value={model.value}>
-                          {model.label}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      value={currentImageModel}
-                      onChange={(event) =>
-                        setApiConfig((previous) => ({
-                          ...previous,
-                          imageModel: event.target.value
-                        }))
-                      }
-                      className="rounded-lg border border-slate-200 px-3 py-2"
-                    >
-                      {activeImageModels.map((model) => (
-                        <option key={model.value} value={model.value}>
-                          {model.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                    <label className="space-y-1">
-                      <span className="text-xs font-medium text-slate-700">
-                        {apiConfig.provider === 'google' ? 'Google API Key' : 'OpenRouter API Key'}
-                      </span>
-                      <input
-                        type="password"
-                        value={currentApiKey}
-                        onChange={(event) =>
-                          setApiConfig((previous) =>
-                            previous.provider === 'google'
-                              ? { ...previous, googleApiKey: event.target.value }
-                              : { ...previous, openRouterApiKey: event.target.value }
-                          )
-                        }
-                        placeholder={
-                          apiConfig.provider === 'google'
-                            ? '请输入 Google API Key'
-                            : '请输入 OpenRouter API Key'
-                        }
-                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                      />
-                    </label>
-                    <p className="text-[11px] text-slate-500">
-                      我们不会收集你的 API Key。点击保存后仅会存储在你的浏览器 Cookie 中。
-                    </p>
-                    <div className="flex flex-wrap gap-2 text-xs">
-                      <button
-                        onClick={handleTestApiConfig}
-                        disabled={isTestingApiConfig || !currentApiKey.trim()}
-                        className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-700 disabled:opacity-50"
-                      >
-                        {isTestingApiConfig ? '测试中...' : 'Test API Key'}
-                      </button>
-                      <button
-                        onClick={handleSaveApiConfig}
-                        className="rounded-lg border border-slate-200 bg-white px-3 py-2"
-                      >
-                        保存到浏览器 Cookie
-                      </button>
-                      <button
-                        onClick={handleClearApiConfig}
-                        className="rounded-lg border border-slate-200 bg-white px-3 py-2"
-                      >
-                        清除本地 Key
-                      </button>
-                    </div>
-                    {apiConfigStatus && (
-                      <p
-                        className={`text-xs ${
-                          apiConfigStatus.includes('失败') ? 'text-rose-600' : 'text-emerald-700'
-                        }`}
-                      >
-                        {apiConfigStatus}
-                      </p>
-                    )}
                   </div>
                   <p className="text-xs text-slate-500">
                     {selectedFramework
-                      ? `${selectedFramework.description}；当前模型来源：${
-                          apiConfig.provider === 'google' ? 'Google 官方 API' : 'OpenRouter 聚合平台'
-                        }`
-                      : '请选择一个评测体系，系统将按该体系生成报告。'}
+                      ? `${selectedFramework.description}。模型与 API Key 请通过右上角“API 配置”设置。`
+                      : '请选择一个评测体系，系统将按该体系生成报告。模型与 API Key 在右上角配置。'}
                   </p>
                   <div className="flex flex-wrap gap-2 text-xs">
                     <button onClick={downloadFrameworkTemplate} className="rounded-lg border border-slate-200 px-3 py-2">
@@ -2096,7 +2005,7 @@ export default function App() {
                 </>
               ) : (
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
-                  当前为折叠状态。点击“展开编辑”可更换评测体系与模型。
+                  当前为折叠状态。点击“展开编辑”可更换评测体系（评测维度）。
                 </div>
               )}
             </section>
@@ -2284,8 +2193,143 @@ export default function App() {
             </section>
           )}
 
+          {isApiConfigPanelOpen && (
+            <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/45 px-4">
+              <div className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white shadow-2xl">
+                <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-800">API 配置</p>
+                    <p className="text-xs text-slate-500">
+                      选择模型并配置 API Key。我们不会收集你的 API Key，仅会保存到你的浏览器 Cookie（你主动保存时）。
+                    </p>
+                  </div>
+                  <button onClick={handleCloseApiConfigPanel} className="text-xs text-slate-500 underline">
+                    关闭
+                  </button>
+                </div>
+                <div className="max-h-[70vh] space-y-3 overflow-y-auto px-4 py-4">
+                  <div className="grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
+                    <select
+                      value={apiConfig.provider}
+                      onChange={(event) =>
+                        handleApiProviderChange(event.target.value as ApiConfig['provider'])
+                      }
+                      className="rounded-lg border border-slate-200 px-3 py-2"
+                    >
+                      {PROVIDER_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={currentTextModel}
+                      onChange={(event) =>
+                        setApiConfig((previous) =>
+                          previous.provider === 'google'
+                            ? { ...previous, googleModel: event.target.value }
+                            : { ...previous, openRouterModel: event.target.value }
+                        )
+                      }
+                      className="rounded-lg border border-slate-200 px-3 py-2"
+                    >
+                      {activeTextModels.map((model) => (
+                        <option key={model.value} value={model.value}>
+                          {model.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 text-sm">
+                    <select
+                      value={currentImageModel}
+                      onChange={(event) =>
+                        setApiConfig((previous) => ({
+                          ...previous,
+                          imageModel: event.target.value
+                        }))
+                      }
+                      className="rounded-lg border border-slate-200 px-3 py-2"
+                    >
+                      {activeImageModels.map((model) => (
+                        <option key={model.value} value={model.value}>
+                          {model.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <label className="space-y-1">
+                      <span className="text-xs font-medium text-slate-700">
+                        {apiConfig.provider === 'google' ? 'Google API Key' : 'OpenRouter API Key'}
+                      </span>
+                      <input
+                        type="password"
+                        value={currentApiKey}
+                        onChange={(event) =>
+                          setApiConfig((previous) =>
+                            previous.provider === 'google'
+                              ? { ...previous, googleApiKey: event.target.value }
+                              : { ...previous, openRouterApiKey: event.target.value }
+                          )
+                        }
+                        placeholder={
+                          apiConfig.provider === 'google'
+                            ? '请输入 Google API Key'
+                            : '请输入 OpenRouter API Key'
+                        }
+                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                      />
+                    </label>
+                    <p className="text-[11px] text-slate-500">
+                      网站不会收集你的 API Key。仅在你点击“保存到浏览器 Cookie”后，才会保存在你本地浏览器中。
+                    </p>
+                    <div className="flex flex-wrap gap-2 text-xs">
+                      <button
+                        onClick={handleTestApiConfig}
+                        disabled={isTestingApiConfig || !currentApiKey.trim()}
+                        className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-700 disabled:opacity-50"
+                      >
+                        {isTestingApiConfig ? '测试中...' : 'Test API Key'}
+                      </button>
+                      <button
+                        onClick={handleSaveApiConfig}
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-2"
+                      >
+                        保存到浏览器 Cookie
+                      </button>
+                      <button
+                        onClick={handleClearApiConfig}
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-2"
+                      >
+                        清除本地 Key
+                      </button>
+                    </div>
+                    {apiConfigStatus && (
+                      <p
+                        className={`text-xs ${
+                          apiConfigStatus.includes('失败') ? 'text-rose-600' : 'text-emerald-700'
+                        }`}
+                      >
+                        {apiConfigStatus}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-4 py-3">
+                  <button
+                    onClick={handleCloseApiConfigPanel}
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-xs"
+                  >
+                    完成
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {personaModalOpen && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 px-4">
+            <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/45 px-4">
               <div className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white shadow-2xl">
                 <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
                   <div>
