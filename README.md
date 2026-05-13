@@ -23,6 +23,13 @@
   - 支持当前报告 PNG 导出与批量 ZIP 导出
   - 可选生成“AI 优化效果图”（视频模式下禁用）
 
+- **AI 体验伙伴（新）**
+  - 由 DeepSeek 驱动，引导非专业人员完成一次完整的用户研究设计
+  - 四步对话流程：收集需求 → 转化研究问题 → 推荐研究方案 → 生成执行指南
+  - 每个阶段当 AI 理解存在歧义时，会给出 A/B/C 三个方向 + "D 自行填写 / 跳过校准" 选项，降低偏差
+  - 自动生成访谈/调研提纲、用户配额、筛选标准、执行注意事项与 CSV 记录模板
+  - 完成线下调研后可继续上传访谈记录（.txt/.md/.csv/.docx/.pdf），由 AI 输出结构化研究报告
+
 ---
 
 ## 本地运行
@@ -40,9 +47,13 @@ npm install
 ```bash
 GEMINI_API_KEY=your_gemini_key
 OPENROUTER_API_KEY=your_openrouter_key
+DEEPSEEK_API_KEY=your_deepseek_key
+# 可选，默认 https://api.deepseek.com
+DEEPSEEK_API_BASE_URL=https://api.deepseek.com
 ```
 
 > 仅使用 Google Provider 时，`OPENROUTER_API_KEY` 可留空。
+> `DEEPSEEK_API_KEY` 仅用于"AI 体验伙伴"功能，未配置时其他评测功能不受影响。
 
 ### 3) 启动开发环境
 

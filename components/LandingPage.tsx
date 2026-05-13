@@ -5,6 +5,7 @@ interface LandingPageProps {
   draftSavedAt: string | null;
   onStartEvaluation: () => void;
   onRestoreDraft: () => void;
+  onStartCompanion: () => void;
 }
 
 const FEATURES = [
@@ -45,7 +46,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   hasStoredDraft,
   draftSavedAt,
   onStartEvaluation,
-  onRestoreDraft
+  onRestoreDraft,
+  onStartCompanion
 }) => {
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 md:px-6 md:py-10 space-y-6">
@@ -81,6 +83,38 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             检测到本地草稿：{new Date(draftSavedAt).toLocaleString()}
           </p>
         )}
+      </section>
+
+      <section className="rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 via-white to-indigo-50 p-6 md:p-7 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-3 max-w-2xl">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-violet-300 bg-white px-3 py-1 text-xs font-semibold text-violet-700">
+              <span className="inline-flex h-1.5 w-1.5 rounded-full bg-violet-500" />
+              新功能 · 由 DeepSeek 驱动
+            </span>
+            <h2 className="text-xl md:text-2xl font-semibold tracking-tight text-slate-900">
+              AI 体验伙伴 — 帮非专业人员设计一次完整的用户研究
+            </h2>
+            <p className="text-sm md:text-base text-slate-600 leading-7">
+              从需求澄清、转化研究问题、推荐研究方法，到生成可执行的访谈/调研指南与记录模板，再到访谈结果分析。AI 会通过单选式校准帮你避免"理解偏差"，全程对话引导。
+            </p>
+            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-600 leading-6">
+              <li>· 把"业务问题"翻译成"研究问题"</li>
+              <li>· 推荐方法 / 样本 / 周期</li>
+              <li>· 生成提纲、配额与记录模板</li>
+              <li>· 上传访谈结果，AI 输出研究报告</li>
+            </ul>
+          </div>
+          <div className="flex flex-col items-end gap-2">
+            <button
+              onClick={onStartCompanion}
+              className="rounded-lg bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-violet-700"
+            >
+              进入 AI 体验伙伴
+            </button>
+            <span className="text-[11px] text-slate-500">需要在 .env.local 配置 DEEPSEEK_API_KEY</span>
+          </div>
+        </div>
       </section>
 
       <section className="grid grid-cols-1 gap-3 md:grid-cols-2">

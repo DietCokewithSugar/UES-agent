@@ -17,6 +17,8 @@ ETS Agent is a client-side React SPA (Vite + TypeScript) for AI-powered product 
 Configured in `.env.local` at the project root. Vite injects them at build/dev time:
 - `GEMINI_API_KEY` — required for Google Gemini AI provider.
 - `OPENROUTER_API_KEY` — optional, for OpenRouter AI provider.
+- `DEEPSEEK_API_KEY` — required for the "AI 体验伙伴" (AI Experience Companion) feature.
+- `DEEPSEEK_API_BASE_URL` — optional override, defaults to `https://api.deepseek.com`.
 
 ### Caveats
 
