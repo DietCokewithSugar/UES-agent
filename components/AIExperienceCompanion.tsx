@@ -268,6 +268,7 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   const [analysisReport, setAnalysisReport] = useState<ResultAnalysisReport | null>(null);
+  const [showGuideInStage5, setShowGuideInStage5] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const ctx: StageContext = useMemo(
@@ -725,118 +726,120 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
       }
     );
 
+  const renderGuideBody = (result: ExecutionGuideResult) => (
+    <div className="space-y-3">
+      <SectionCard title="一、用户招募">
+        <p>
+          <span className="text-xs font-semibold text-slate-500">样本规模：</span>
+          {result.recruitment.totalSample} 人
+        </p>
+        <p>{result.recruitment.summary}</p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+          {result.recruitment.quotas.map((q, idx) => (
+            <div
+              key={idx}
+              className="rounded-lg border border-slate-200 bg-slate-50 p-3"
+            >
+              <div className="text-xs font-semibold text-slate-700">
+                配额维度：{q.dimension}
+              </div>
+              <ul className="mt-2 space-y-1 text-sm">
+                {q.buckets.map((b, i) => (
+                  <li key={i}>
+                    {b.label}：{b.count} 人
+                    {b.note ? (
+                      <span className="text-xs text-slate-500"> · {b.note}</span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+        {result.recruitment.screeningCriteria?.length > 0 && (
+          <div>
+            <div className="text-xs font-semibold text-slate-500">筛选标准</div>
+            <ul className="mt-1 list-disc pl-5 space-y-1">
+              {result.recruitment.screeningCriteria.map((s, i) => (
+                <li key={i}>{s}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </SectionCard>
+      <SectionCard title="二、访谈/调研提纲">
+        {result.outline.sections.map((s, i) => (
+          <div key={i} className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-semibold text-slate-900">{s.name}</div>
+              <div className="text-xs text-slate-500">{s.duration}</div>
+            </div>
+            <ol className="list-decimal pl-5 space-y-2 text-sm">
+              {s.questions.map((q, j) => (
+                <li key={j}>
+                  <div>
+                    <span className="text-xs text-slate-500">[{q.topic}] </span>
+                    {q.question}
+                  </div>
+                  {q.followUps && q.followUps.length > 0 && (
+                    <ul className="mt-1 list-disc pl-5 text-xs text-slate-600 space-y-0.5">
+                      {q.followUps.map((f, k) => (
+                        <li key={k}>追问：{f}</li>
+                      ))}
+                    </ul>
+                  )}
+                </li>
+              ))}
+            </ol>
+          </div>
+        ))}
+      </SectionCard>
+      <SectionCard title="三、执行注意事项">
+        <ul className="list-disc pl-5 space-y-1">
+          {result.cautions.map((c, i) => (
+            <li key={i}>{c}</li>
+          ))}
+        </ul>
+      </SectionCard>
+      {result.recordTemplateColumns?.length > 0 && (
+        <SectionCard title="四、记录模板">
+          <p>建议使用如下字段记录访谈/调研结果（可直接下载 CSV 表格）：</p>
+          <div className="flex flex-wrap gap-1">
+            {result.recordTemplateColumns.map((c, i) => (
+              <span
+                key={i}
+                className="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-xs"
+              >
+                {c}
+              </span>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-2 pt-2">
+            <button
+              onClick={() => {
+                const sample = result.recordTemplateColumns.map(c => `示例-${c}`);
+                downloadCsv(
+                  'research-record-template.csv',
+                  result.recordTemplateColumns,
+                  sample
+                );
+              }}
+              className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs text-white"
+            >
+              下载记录模板（CSV）
+            </button>
+          </div>
+        </SectionCard>
+      )}
+    </div>
+  );
+
   const renderStage4 = () =>
     renderClarifyOrResult<ExecutionGuideResult>(
       egState,
       'executionGuide',
       () => startStage4(),
-      result => (
-        <div className="space-y-3">
-          <SectionCard title="一、用户招募">
-            <p>
-              <span className="text-xs font-semibold text-slate-500">样本规模：</span>
-              {result.recruitment.totalSample} 人
-            </p>
-            <p>{result.recruitment.summary}</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {result.recruitment.quotas.map((q, idx) => (
-                <div
-                  key={idx}
-                  className="rounded-lg border border-slate-200 bg-slate-50 p-3"
-                >
-                  <div className="text-xs font-semibold text-slate-700">
-                    配额维度：{q.dimension}
-                  </div>
-                  <ul className="mt-2 space-y-1 text-sm">
-                    {q.buckets.map((b, i) => (
-                      <li key={i}>
-                        {b.label}：{b.count} 人
-                        {b.note ? (
-                          <span className="text-xs text-slate-500"> · {b.note}</span>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
-            {result.recruitment.screeningCriteria?.length > 0 && (
-              <div>
-                <div className="text-xs font-semibold text-slate-500">筛选标准</div>
-                <ul className="mt-1 list-disc pl-5 space-y-1">
-                  {result.recruitment.screeningCriteria.map((s, i) => (
-                    <li key={i}>{s}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </SectionCard>
-          <SectionCard title="二、访谈/调研提纲">
-            {result.outline.sections.map((s, i) => (
-              <div key={i} className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="text-sm font-semibold text-slate-900">{s.name}</div>
-                  <div className="text-xs text-slate-500">{s.duration}</div>
-                </div>
-                <ol className="list-decimal pl-5 space-y-2 text-sm">
-                  {s.questions.map((q, j) => (
-                    <li key={j}>
-                      <div>
-                        <span className="text-xs text-slate-500">[{q.topic}] </span>
-                        {q.question}
-                      </div>
-                      {q.followUps && q.followUps.length > 0 && (
-                        <ul className="mt-1 list-disc pl-5 text-xs text-slate-600 space-y-0.5">
-                          {q.followUps.map((f, k) => (
-                            <li key={k}>追问：{f}</li>
-                          ))}
-                        </ul>
-                      )}
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            ))}
-          </SectionCard>
-          <SectionCard title="三、执行注意事项">
-            <ul className="list-disc pl-5 space-y-1">
-              {result.cautions.map((c, i) => (
-                <li key={i}>{c}</li>
-              ))}
-            </ul>
-          </SectionCard>
-          {result.recordTemplateColumns?.length > 0 && (
-            <SectionCard title="四、记录模板">
-              <p>建议使用如下字段记录访谈/调研结果（可直接下载 CSV 表格）：</p>
-              <div className="flex flex-wrap gap-1">
-                {result.recordTemplateColumns.map((c, i) => (
-                  <span
-                    key={i}
-                    className="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-xs"
-                  >
-                    {c}
-                  </span>
-                ))}
-              </div>
-              <div className="flex flex-wrap gap-2 pt-2">
-                <button
-                  onClick={() => {
-                    const sample = result.recordTemplateColumns.map(c => `示例-${c}`);
-                    downloadCsv(
-                      'research-record-template.csv',
-                      result.recordTemplateColumns,
-                      sample
-                    );
-                  }}
-                  className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs text-white"
-                >
-                  下载记录模板（CSV）
-                </button>
-              </div>
-            </SectionCard>
-          )}
-        </div>
-      ),
+      result => renderGuideBody(result),
       () => {
         if (!egState.result) return;
         setConfirmedGuide(egState.result);
@@ -853,22 +856,60 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
         现在执行指南已经就绪。完成线下访谈/调研后，把记录文件上传给我，我会基于研究问题与方案进行结构化分析，整理出关键发现、痛点、机会点和下一步建议。
       </Bubble>
       {confirmedGuide && (
-        <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-2">
-          <div className="text-sm font-semibold text-slate-900">资料下载</div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={downloadOutline}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs"
-            >
-              下载执行指南（Markdown）
-            </button>
-            <button
-              onClick={downloadRecordTemplate}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs"
-            >
-              下载记录模板（CSV）
-            </button>
-          </div>
+        <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setShowGuideInStage5(v => !v)}
+            className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50"
+            aria-expanded={showGuideInStage5}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <span
+                className={`inline-flex h-5 w-5 items-center justify-center rounded-md bg-slate-100 text-slate-600 text-xs transition-transform ${
+                  showGuideInStage5 ? 'rotate-90' : ''
+                }`}
+                aria-hidden
+              >
+                ▶
+              </span>
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-slate-900">
+                  查看完整执行指南（含访谈提纲与记录模板下载）
+                </div>
+                <div className="text-[11px] text-slate-500 truncate">
+                  在这里再次核对招募配额、提纲与记录字段，并下载 CSV 记录模板，按模板填写后再上传，能让 AI 分析更准确。
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <span
+                onClick={e => {
+                  e.stopPropagation();
+                  downloadOutline();
+                }}
+                role="button"
+                tabIndex={0}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    downloadOutline();
+                  }
+                }}
+                className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] text-slate-700 hover:bg-slate-100"
+              >
+                下载 Markdown
+              </span>
+              <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">
+                {showGuideInStage5 ? '收起' : '展开'}
+              </span>
+            </div>
+          </button>
+          {showGuideInStage5 && (
+            <div className="border-t border-slate-200 bg-slate-50 p-4">
+              {renderGuideBody(confirmedGuide)}
+            </div>
+          )}
         </div>
       )}
       <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
