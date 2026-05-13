@@ -33,6 +33,7 @@ import { PersonaRecommendations } from './components/PersonaRecommendations';
 import { ABReportView } from './components/ABReportView';
 import { ABSummaryReport } from './components/ABSummaryReport';
 import { LandingPage } from './components/LandingPage';
+import { AIExperienceCompanion } from './components/AIExperienceCompanion';
 
 const saveFile = (data: Blob | string, filename: string) => {
   const save = (FileSaver as any).saveAs || (FileSaver as any).default || FileSaver;
@@ -179,7 +180,7 @@ const SCENARIO_FIELD_LABELS: Record<keyof EvaluationScenario, string> = {
   constraints: '约束条件',
   source: '来源'
 };
-type PageMode = 'landing' | 'setup' | 'report';
+type PageMode = 'landing' | 'setup' | 'report' | 'companion';
 type SetupStep = 1 | 2 | 3 | 4;
 type UploadMode = 'single' | 'flow' | 'video';
 type UploadConfigMode = 'standard' | 'ab_test';
@@ -1317,7 +1318,10 @@ export default function App() {
           draftSavedAt={draftSavedAt}
           onStartEvaluation={() => setPageMode('setup')}
           onRestoreDraft={handleRestoreDraft}
+          onStartCompanion={() => setPageMode('companion')}
         />
+      ) : pageMode === 'companion' ? (
+        <AIExperienceCompanion onBack={() => setPageMode('landing')} />
       ) : pageMode === 'setup' ? (
         <div className="mx-auto max-w-4xl p-4 md:p-6 pb-28 space-y-4">
           <header className="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
