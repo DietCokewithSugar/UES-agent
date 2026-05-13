@@ -11,6 +11,7 @@ import {
   isDeepSeekConfigured,
   ResearchPlanResult,
   ResearchQuestionResult,
+  ResearchSubPlan,
   ResultAnalysisReport,
   StageContext,
   StageKind
@@ -99,86 +100,113 @@ const SectionCard: React.FC<{ title: string; children: React.ReactNode }> = ({ t
   </div>
 );
 
-const ClarifyPanel = <T,>(props: {
+const ClarifyPanel: React.FC<{
   question: string;
   options: ClarifyOption[];
-  onChoose: (chosen: ClarifyOption) => void;
-  onCustom: (text: string) => void;
+  onSubmit: (selected: ClarifyOption[], customText: string) => void;
   onSkip: () => void;
   pending: boolean;
-}) => {
+}> = (props) => {
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [customText, setCustomText] = useState('');
-  const [showCustom, setShowCustom] = useState(false);
+
+  const toggle = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selected = props.options.filter(o => selectedIds.has(o.id));
+  const canSubmit = (selected.length > 0 || customText.trim().length > 0) && !props.pending;
 
   return (
     <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 space-y-3">
       <div className="flex items-center gap-2 text-sm font-semibold text-amber-900">
         <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-amber-400 text-[11px] text-white">?</span>
-        我需要先和你校准一下方向
+        我需要先和你校准一下方向（可多选）
       </div>
       <p className="text-sm text-amber-900">{props.question}</p>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-        {props.options.map(opt => (
-          <button
-            key={opt.id}
-            disabled={props.pending}
-            onClick={() => props.onChoose(opt)}
-            className="text-left rounded-lg border border-amber-200 bg-white p-3 hover:border-amber-400 hover:shadow-sm disabled:opacity-50"
-          >
-            <div className="text-xs font-semibold text-amber-700">选项 {opt.id}</div>
-            <div className="mt-1 text-sm font-semibold text-slate-900">{opt.title}</div>
-            <div className="mt-1 text-xs text-slate-600 leading-5">{opt.description}</div>
-          </button>
-        ))}
+        {props.options.map(opt => {
+          const checked = selectedIds.has(opt.id);
+          return (
+            <button
+              key={opt.id}
+              type="button"
+              disabled={props.pending}
+              onClick={() => toggle(opt.id)}
+              aria-pressed={checked}
+              className={`text-left rounded-lg p-3 transition-colors disabled:opacity-50 ${
+                checked
+                  ? 'border-2 border-amber-500 bg-amber-100/70 shadow-sm'
+                  : 'border border-amber-200 bg-white hover:border-amber-400 hover:shadow-sm'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-semibold text-amber-700">选项 {opt.id}</div>
+                <span
+                  className={`inline-flex h-4 w-4 items-center justify-center rounded border ${
+                    checked
+                      ? 'border-amber-500 bg-amber-500 text-white'
+                      : 'border-slate-300 bg-white text-transparent'
+                  }`}
+                  aria-hidden
+                >
+                  ✓
+                </span>
+              </div>
+              <div className="mt-1 text-sm font-semibold text-slate-900">{opt.title}</div>
+              <div className="mt-1 text-xs text-slate-600 leading-5">{opt.description}</div>
+            </button>
+          );
+        })}
       </div>
-      <div className="space-y-2">
-        {!showCustom ? (
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => setShowCustom(true)}
-              disabled={props.pending}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs"
-            >
-              D. 我自己来描述
-            </button>
-            <button
-              onClick={props.onSkip}
-              disabled={props.pending}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs"
-            >
-              跳过校准，按 AI 自己的理解继续
-            </button>
-          </div>
-        ) : (
-          <div className="rounded-lg border border-slate-300 bg-white p-3 space-y-2">
-            <textarea
-              className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-              rows={3}
-              value={customText}
-              placeholder="请用一两句话告诉我你的真实方向…"
-              onChange={e => setCustomText(e.target.value)}
-            />
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => {
-                  setShowCustom(false);
-                  setCustomText('');
-                }}
-                className="rounded-md border border-slate-300 px-3 py-1.5 text-xs"
-                disabled={props.pending}
-              >
-                取消
-              </button>
-              <button
-                disabled={!customText.trim() || props.pending}
-                onClick={() => props.onCustom(customText.trim())}
-                className="rounded-md bg-slate-900 px-3 py-1.5 text-xs text-white disabled:opacity-50"
-              >
-                提交
-              </button>
-            </div>
-          </div>
-        )}
+
+      <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-1">
+        <label className="text-xs font-semibold text-slate-600">
+          D. 也想自己补充几句（可选，可与 A/B/C 同时使用）
+        </label>
+        <textarea
+          className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+          rows={2}
+          value={customText}
+          placeholder="例如：我们更关心新用户首次使用场景，老用户暂不在范围内…"
+          onChange={e => setCustomText(e.target.value)}
+          disabled={props.pending}
+        />
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-[11px] text-amber-800">
+          {selected.length > 0
+            ? `已选择 ${selected.length} 项：${selected.map(s => s.id).join(' / ')}${
+                customText.trim() ? ' + 自定义补充' : ''
+              }`
+            : customText.trim()
+            ? '仅使用自定义补充'
+            : '至少勾选一个选项，或在 D 中填写自定义内容'}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={props.onSkip}
+            disabled={props.pending}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs"
+          >
+            跳过校准
+          </button>
+          <button
+            type="button"
+            disabled={!canSubmit}
+            onClick={() => props.onSubmit(selected, customText.trim())}
+            className="rounded-lg bg-slate-900 px-4 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+          >
+            提交所选方向
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -253,15 +281,18 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
     options: [],
     pending: false
   });
-  const [egState, setEgState] = useState<ClarifyState<ExecutionGuideResult>>({
-    question: '',
-    options: [],
-    pending: false
-  });
+  // 步骤4 改为按子方案多 tab：state 为数组
+  const [stage4Plans, setStage4Plans] = useState<ResearchSubPlan[]>([]);
+  const [stage4UseFocus, setStage4UseFocus] = useState<boolean>(false);
+  const [egStates, setEgStates] = useState<ClarifyState<ExecutionGuideResult>[]>([]);
+  const [activeGuideIdx, setActiveGuideIdx] = useState<number>(0);
 
   const [confirmedResearchQuestion, setConfirmedResearchQuestion] = useState<string | undefined>(undefined);
   const [confirmedResearchPlan, setConfirmedResearchPlan] = useState<ResearchPlanResult | undefined>(undefined);
-  const [confirmedGuide, setConfirmedGuide] = useState<ExecutionGuideResult | undefined>(undefined);
+  // 步骤5 现在可能有多个执行指南（来自多个子方案）
+  const [confirmedGuides, setConfirmedGuides] = useState<ExecutionGuideResult[]>([]);
+  const [confirmedGuidePlans, setConfirmedGuidePlans] = useState<ResearchSubPlan[]>([]);
+  const [activeConfirmedGuideIdx, setActiveConfirmedGuideIdx] = useState<number>(0);
 
   // 结果分析
   const [uploadingFiles, setUploadingFiles] = useState<{ name: string; content: string }[]>([]);
@@ -342,13 +373,104 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
     );
   };
 
-  const startStage4 = async (overrideFeedback?: string) => {
+  /**
+   * 根据已确认的研究方案，确定步骤 4 要分别生成多少份执行指南。
+   * 组合方案 (mixed 且 subPlans>1) → 每个子方法一份；
+   * 单方案 → 一份（不向 AI 强制 focusedPlan，保持原行为）。
+   */
+  const deriveStage4Plans = (
+    plan?: ResearchPlanResult
+  ): { plans: ResearchSubPlan[]; useFocus: boolean } => {
+    if (!plan) return { plans: [], useFocus: false };
+    const subs = (plan.subPlans || []).filter(s => s && s.method);
+    if (subs.length > 1) {
+      return { plans: subs, useFocus: true };
+    }
+    const single: ResearchSubPlan = {
+      method: plan.method,
+      methodCategory:
+        plan.methodCategory === 'mixed'
+          ? 'other'
+          : (plan.methodCategory as Exclude<typeof plan.methodCategory, 'mixed'>),
+      sample: plan.sample,
+      duration: plan.duration,
+      purpose: '该研究的核心方法'
+    };
+    return { plans: [single], useFocus: false };
+  };
+
+  /** 为步骤 4 的第 idx 个子方案生成执行指南，写入 egStates[idx] */
+  const loadGuideForIndex = async (
+    idx: number,
+    plans: ResearchSubPlan[],
+    useFocus: boolean,
+    overrideFeedback?: string
+  ) => {
+    if (idx < 0 || idx >= plans.length) return;
+    setEgStates(prev => {
+      const next = [...prev];
+      next[idx] = {
+        question: '',
+        options: [],
+        pending: true,
+        error: undefined,
+        result: undefined
+      };
+      return next;
+    });
+    try {
+      const resp = await generateExecutionGuide(
+        { ...ctx, feedback: overrideFeedback },
+        useFocus ? plans[idx] : undefined
+      );
+      setEgStates(prev => {
+        const next = [...prev];
+        if (resp.kind === 'clarify') {
+          next[idx] = {
+            question: resp.clarification.question,
+            options: resp.clarification.options,
+            pending: false,
+            result: undefined
+          };
+        } else {
+          next[idx] = {
+            question: '',
+            options: [],
+            pending: false,
+            result: resp.result
+          };
+        }
+        return next;
+      });
+    } catch (err) {
+      setEgStates(prev => {
+        const next = [...prev];
+        next[idx] = {
+          question: '',
+          options: [],
+          pending: false,
+          error: (err as Error).message || '请求失败'
+        };
+        return next;
+      });
+    }
+  };
+
+  const startStage4 = async () => {
     setStage(4);
-    await runStage<ExecutionGuideResult>(
-      'executionGuide',
-      () => generateExecutionGuide({ ...ctx, feedback: overrideFeedback }),
-      setEgState
-    );
+    const { plans, useFocus } = deriveStage4Plans(confirmedResearchPlan || rpState.result);
+    setStage4Plans(plans);
+    setStage4UseFocus(useFocus);
+    setActiveGuideIdx(0);
+    const initialStates: ClarifyState<ExecutionGuideResult>[] = plans.map(() => ({
+      question: '',
+      options: [],
+      pending: false
+    }));
+    setEgStates(initialStates);
+    if (plans.length > 0) {
+      await loadGuideForIndex(0, plans, useFocus);
+    }
   };
 
   const submitNeeds = async () => {
@@ -363,22 +485,25 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
     await startStage2();
   };
 
-  const handleClarifyChoose = async (
+  const handleClarifySubmit = async (
     stageKind: StageKind,
-    chosen: ClarifyOption,
+    selected: ClarifyOption[],
+    customText: string,
     next: () => Promise<void>
   ) => {
-    const summary = `用户选择了【${chosen.id}】${chosen.title}：${chosen.description}`;
-    setClarifications(prev => [...prev, { stage: stageKind, summary }]);
-    await next();
-  };
-
-  const handleClarifyCustom = async (
-    stageKind: StageKind,
-    text: string,
-    next: () => Promise<void>
-  ) => {
-    const summary = `用户自行补充：${text}`;
+    const parts: string[] = [];
+    if (selected.length > 0) {
+      parts.push(
+        `用户同时选择了 ${selected.length} 个方向：` +
+          selected
+            .map(s => `【${s.id}】${s.title}（${s.description}）`)
+            .join('；')
+      );
+    }
+    if (customText.trim()) {
+      parts.push(`用户补充：${customText.trim()}`);
+    }
+    const summary = parts.length > 0 ? parts.join(' / ') : '用户提交了空校准';
     setClarifications(prev => [...prev, { stage: stageKind, summary }]);
     await next();
   };
@@ -439,42 +564,64 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
     }
   };
 
-  const downloadRecordTemplate = () => {
-    const cols = confirmedGuide?.recordTemplateColumns;
+  const slugifyForFilename = (s: string): string =>
+    s
+      .replace(/[\s\\/:*?"<>|]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 60) || 'guide';
+
+  const downloadRecordTemplateFor = (
+    guide: ExecutionGuideResult,
+    plan?: ResearchSubPlan
+  ) => {
+    const cols = guide.recordTemplateColumns;
     if (!cols || cols.length === 0) {
-      alert('暂无可用的记录模板字段。');
+      alert('该子方案暂无可用的记录模板字段。');
       return;
     }
     const sample = cols.map(c => `示例-${c}`);
-    downloadCsv('research-record-template.csv', cols, sample);
+    const fname = plan
+      ? `record-template-${slugifyForFilename(plan.method)}.csv`
+      : 'research-record-template.csv';
+    downloadCsv(fname, cols, sample);
   };
 
-  const downloadOutline = () => {
-    if (!confirmedGuide) return;
+  const buildOutlineMarkdownFor = (
+    guide: ExecutionGuideResult,
+    plan?: ResearchSubPlan
+  ): string => {
     const lines: string[] = [];
-    lines.push(`# 研究执行指南`);
+    lines.push(`# 研究执行指南${plan ? `：${plan.method}` : ''}`);
     lines.push('');
     if (confirmedResearchQuestion) lines.push(`研究问题：${confirmedResearchQuestion}`);
     if (confirmedResearchPlan) {
-      lines.push(`研究方法：${confirmedResearchPlan.method}`);
-      lines.push(`样本：${confirmedResearchPlan.sample}`);
-      lines.push(`周期：${confirmedResearchPlan.duration}`);
+      lines.push(`整体方案：${confirmedResearchPlan.method}`);
+      lines.push(`整体样本：${confirmedResearchPlan.sample}`);
+      lines.push(`整体周期：${confirmedResearchPlan.duration}`);
+    }
+    if (plan) {
+      lines.push('');
+      lines.push(`当前子方法：${plan.method}（${plan.methodCategory}）`);
+      lines.push(`子方法样本：${plan.sample}`);
+      lines.push(`子方法周期：${plan.duration}`);
+      lines.push(`子方法目的：${plan.purpose}`);
     }
     lines.push('');
     lines.push(`## 一、用户招募`);
-    lines.push(`样本规模：${confirmedGuide.recruitment.totalSample}`);
-    lines.push(confirmedGuide.recruitment.summary);
-    confirmedGuide.recruitment.quotas.forEach(q => {
+    lines.push(`样本规模：${guide.recruitment.totalSample}`);
+    lines.push(guide.recruitment.summary);
+    guide.recruitment.quotas.forEach(q => {
       lines.push(`- ${q.dimension}`);
       q.buckets.forEach(b => {
         lines.push(`  - ${b.label}：${b.count} 人${b.note ? `（${b.note}）` : ''}`);
       });
     });
     lines.push('筛选标准：');
-    confirmedGuide.recruitment.screeningCriteria.forEach(s => lines.push(`- ${s}`));
+    guide.recruitment.screeningCriteria.forEach(s => lines.push(`- ${s}`));
     lines.push('');
     lines.push(`## 二、访谈/调研提纲`);
-    confirmedGuide.outline.sections.forEach(s => {
+    guide.outline.sections.forEach(s => {
       lines.push(`### ${s.name}（${s.duration}）`);
       s.questions.forEach((q, idx) => {
         lines.push(`${idx + 1}. [${q.topic}] ${q.question}`);
@@ -483,10 +630,39 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
     });
     lines.push('');
     lines.push(`## 三、执行注意事项`);
-    confirmedGuide.cautions.forEach(c => lines.push(`- ${c}`));
+    guide.cautions.forEach(c => lines.push(`- ${c}`));
+    lines.push('');
+    lines.push(`## 四、记录模板字段`);
+    guide.recordTemplateColumns.forEach(c => lines.push(`- ${c}`));
+    return lines.join('\n');
+  };
+
+  const downloadOutlineFor = (
+    guide: ExecutionGuideResult,
+    plan?: ResearchSubPlan
+  ) => {
+    const md = buildOutlineMarkdownFor(guide, plan);
+    const fname = plan
+      ? `execution-guide-${slugifyForFilename(plan.method)}.md`
+      : 'research-execution-guide.md';
     saveFile(
-      new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' }),
-      'research-execution-guide.md'
+      new Blob([md], { type: 'text/markdown;charset=utf-8' }),
+      fname
+    );
+  };
+
+  const downloadAllOutlines = () => {
+    if (confirmedGuides.length === 0) return;
+    if (confirmedGuides.length === 1) {
+      downloadOutlineFor(confirmedGuides[0], confirmedGuidePlans[0]);
+      return;
+    }
+    const blocks = confirmedGuides.map((g, i) =>
+      buildOutlineMarkdownFor(g, confirmedGuidePlans[i])
+    );
+    saveFile(
+      new Blob([blocks.join('\n\n---\n\n')], { type: 'text/markdown;charset=utf-8' }),
+      'research-execution-guide-all.md'
     );
   };
 
@@ -534,20 +710,25 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
   );
 
   const renderStage1 = () => (
-    <div className="space-y-4">
-      <Bubble from="ai">
-        <p className="font-semibold text-slate-900">您好，我是您的 AI 体验伙伴小研，让我帮您一起完成体验工作吧。</p>
-        <p className="mt-2">请先告诉我以下几个信息，以便我更好地帮助您：</p>
-        <ol className="mt-1 list-decimal pl-5 space-y-1">
-          <li>您现在要做一个什么产品/功能/需求？</li>
-          <li>这个产品/功能/需求现在处于什么阶段？</li>
-          <li>您希望搞清楚什么问题？</li>
-        </ol>
-      </Bubble>
-      <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 md:p-6 space-y-5">
+      <div className="flex items-start gap-3">
+        <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-violet-100 text-violet-700 text-sm font-semibold">
+          AI
+        </span>
+        <div className="space-y-1">
+          <p className="text-sm font-semibold text-slate-900">
+            您好，我是您的 AI 体验伙伴小研，让我帮您一起完成体验工作吧。
+          </p>
+          <p className="text-sm text-slate-600">
+            请填写以下三项信息，我会基于您的回答帮您把业务问题转化成研究问题，并推荐研究方案。
+          </p>
+        </div>
+      </div>
+
+      <div className="space-y-3 md:pl-12">
         <div>
           <label className="text-xs font-semibold text-slate-700">
-            1. 产品 / 功能 / 需求
+            1. 您现在要做一个什么产品 / 功能 / 需求？
           </label>
           <textarea
             className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
@@ -558,7 +739,9 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
           />
         </div>
         <div>
-          <label className="text-xs font-semibold text-slate-700">2. 所处阶段</label>
+          <label className="text-xs font-semibold text-slate-700">
+            2. 这个产品 / 功能 / 需求现在处于什么阶段？
+          </label>
           <input
             className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             placeholder="例如：概念验证 / Demo 测试 / 上线 3 个月 / 体验下滑"
@@ -578,7 +761,7 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
             onChange={e => setNeeds(n => ({ ...n, problem: e.target.value }))}
           />
         </div>
-        <div className="flex justify-end">
+        <div className="flex justify-end pt-1">
           <button
             onClick={submitNeeds}
             className="rounded-lg bg-slate-900 px-5 py-2 text-sm font-semibold text-white"
@@ -624,10 +807,9 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
           question={state.question}
           options={state.options}
           pending={state.pending}
-          onChoose={chosen =>
-            handleClarifyChoose(stageKind, chosen, retry)
+          onSubmit={(selected, customText) =>
+            handleClarifySubmit(stageKind, selected, customText, retry)
           }
-          onCustom={text => handleClarifyCustom(stageKind, text, retry)}
           onSkip={() => handleClarifySkip(stageKind, retry)}
         />
       );
@@ -689,33 +871,79 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
       rpState,
       'researchPlan',
       () => startStage3(),
-      result => (
-        <SectionCard title="推荐的研究方案">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <div className="text-[11px] uppercase tracking-wide text-slate-500">方法</div>
-              <div className="mt-1 text-sm font-semibold text-slate-900">{result.method}</div>
+      result => {
+        const hasSubPlans = !!result.subPlans && result.subPlans.length > 1;
+        return (
+          <SectionCard title="推荐的研究方案">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div className="text-[11px] uppercase tracking-wide text-slate-500">方法</div>
+                <div className="mt-1 text-sm font-semibold text-slate-900">{result.method}</div>
+                {result.methodCategory === 'mixed' && (
+                  <div className="mt-1 inline-flex rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
+                    组合方案
+                  </div>
+                )}
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div className="text-[11px] uppercase tracking-wide text-slate-500">样本</div>
+                <div className="mt-1 text-sm font-semibold text-slate-900">{result.sample}</div>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div className="text-[11px] uppercase tracking-wide text-slate-500">周期</div>
+                <div className="mt-1 text-sm font-semibold text-slate-900">{result.duration}</div>
+              </div>
             </div>
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <div className="text-[11px] uppercase tracking-wide text-slate-500">样本</div>
-              <div className="mt-1 text-sm font-semibold text-slate-900">{result.sample}</div>
+
+            {hasSubPlans && (
+              <div className="space-y-2">
+                <div className="text-xs font-semibold text-slate-600">
+                  方案中的子方法（步骤 4 将分别生成执行指南）
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {result.subPlans!.map((sp, i) => (
+                    <div
+                      key={i}
+                      className="rounded-lg border border-violet-200 bg-violet-50/40 p-3 space-y-1"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm font-semibold text-slate-900">
+                          {i + 1}. {sp.method}
+                        </div>
+                        <span className="text-[10px] rounded-full bg-white px-2 py-0.5 border border-slate-200 text-slate-500">
+                          {sp.methodCategory}
+                        </span>
+                      </div>
+                      <div className="text-xs text-slate-700">
+                        <span className="text-slate-500">样本：</span>
+                        {sp.sample}
+                      </div>
+                      <div className="text-xs text-slate-700">
+                        <span className="text-slate-500">周期：</span>
+                        {sp.duration}
+                      </div>
+                      <div className="text-xs text-slate-600 leading-5">
+                        <span className="text-slate-500">目的：</span>
+                        {sp.purpose}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="text-sm text-slate-700 leading-7">
+              <span className="text-xs font-semibold text-slate-500">为什么推荐这个方案：</span>
+              <p className="mt-1">{result.rationale}</p>
             </div>
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <div className="text-[11px] uppercase tracking-wide text-slate-500">周期</div>
-              <div className="mt-1 text-sm font-semibold text-slate-900">{result.duration}</div>
-            </div>
-          </div>
-          <div className="text-sm text-slate-700 leading-7">
-            <span className="text-xs font-semibold text-slate-500">为什么推荐这个方案：</span>
-            <p className="mt-1">{result.rationale}</p>
-          </div>
-          {result.alternatives?.length ? (
-            <div className="text-xs text-slate-500">
-              备选方案：{result.alternatives.join('；')}
-            </div>
-          ) : null}
-        </SectionCard>
-      ),
+            {result.alternatives?.length ? (
+              <div className="text-xs text-slate-500">
+                备选方案：{result.alternatives.join('；')}
+              </div>
+            ) : null}
+          </SectionCard>
+        );
+      },
       () => {
         if (!rpState.result) return;
         setConfirmedResearchPlan(rpState.result);
@@ -834,28 +1062,213 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
     </div>
   );
 
-  const renderStage4 = () =>
-    renderClarifyOrResult<ExecutionGuideResult>(
-      egState,
-      'executionGuide',
-      () => startStage4(),
-      result => renderGuideBody(result),
-      () => {
-        if (!egState.result) return;
-        setConfirmedGuide(egState.result);
-        setStage(5);
-      },
-      async (feedback: string) => {
-        await startStage4(feedback);
-      }
-    );
+  const renderStage4 = () => {
+    if (stage4Plans.length === 0) {
+      return (
+        <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-500">
+          正在准备子方案…
+        </div>
+      );
+    }
 
-  const renderStage5 = () => (
+    const activeState = egStates[activeGuideIdx];
+    const activePlan = stage4Plans[activeGuideIdx];
+    const totalGenerated = egStates.filter(s => !!s?.result).length;
+    const allGenerated = totalGenerated === stage4Plans.length;
+
+    const confirmAll = () => {
+      if (!allGenerated) return;
+      const guides = egStates.map(s => s.result!).filter(Boolean);
+      setConfirmedGuides(guides);
+      setConfirmedGuidePlans(stage4Plans);
+      setActiveConfirmedGuideIdx(0);
+      setStage(5);
+    };
+
+    const retryActive = async () => {
+      await loadGuideForIndex(activeGuideIdx, stage4Plans, stage4UseFocus);
+    };
+
+    const reloadActiveWithFeedback = async (feedback: string) => {
+      await loadGuideForIndex(activeGuideIdx, stage4Plans, stage4UseFocus, feedback);
+    };
+
+    return (
+      <div className="space-y-3">
+        {stage4Plans.length > 1 && (
+          <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-xs font-semibold text-slate-700">
+                组合方案：分别为每个子方法生成执行指南
+              </div>
+              <div className="text-[11px] text-slate-500">
+                已生成 {totalGenerated} / {stage4Plans.length}
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {stage4Plans.map((sp, i) => {
+                const s = egStates[i];
+                const isActive = i === activeGuideIdx;
+                const status = s?.pending
+                  ? '生成中'
+                  : s?.error
+                  ? '失败'
+                  : s?.result
+                  ? '已生成'
+                  : s?.options?.length
+                  ? '待校准'
+                  : '未生成';
+                const statusColor = s?.pending
+                  ? 'bg-slate-100 text-slate-500'
+                  : s?.error
+                  ? 'bg-rose-100 text-rose-600'
+                  : s?.result
+                  ? 'bg-emerald-100 text-emerald-700'
+                  : s?.options?.length
+                  ? 'bg-amber-100 text-amber-700'
+                  : 'bg-slate-100 text-slate-500';
+                return (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={async () => {
+                      setActiveGuideIdx(i);
+                      const target = egStates[i];
+                      if (!target?.result && !target?.pending && !target?.options?.length) {
+                        await loadGuideForIndex(i, stage4Plans, stage4UseFocus);
+                      }
+                    }}
+                    className={`rounded-lg px-3 py-1.5 text-xs border transition-colors ${
+                      isActive
+                        ? 'border-slate-900 bg-slate-900 text-white'
+                        : 'border-slate-200 bg-white text-slate-700 hover:border-slate-400'
+                    }`}
+                  >
+                    <span className="font-semibold">{i + 1}. {sp.method}</span>
+                    <span className={`ml-2 inline-flex rounded-full px-1.5 py-0.5 text-[10px] ${statusColor}`}>
+                      {status}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="text-[11px] text-slate-500">
+              提示：每个子方法的招募样本量、提纲与记录模板都是独立的。切换 Tab 单独检查、可单独"重新生成"。
+            </div>
+          </div>
+        )}
+
+        {activePlan && (
+          <div className="rounded-xl border border-slate-200 bg-violet-50/40 p-3 text-xs text-violet-900 space-y-1">
+            <div>
+              <span className="font-semibold">当前子方法：</span>
+              {activePlan.method}
+              <span className="ml-2 rounded-full bg-white px-2 py-0.5 text-[10px] text-slate-500 border border-slate-200">
+                {activePlan.methodCategory}
+              </span>
+            </div>
+            <div>
+              <span className="font-semibold">独立样本：</span>
+              {activePlan.sample}
+              <span className="mx-2 text-slate-400">·</span>
+              <span className="font-semibold">独立周期：</span>
+              {activePlan.duration}
+            </div>
+            <div>
+              <span className="font-semibold">在整体研究中的角色：</span>
+              {activePlan.purpose}
+            </div>
+          </div>
+        )}
+
+        {activeState?.pending ? (
+          <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-500">
+            <span className="inline-block animate-pulse">AI 正在为该子方案生成执行指南…</span>
+          </div>
+        ) : activeState?.error ? (
+          <div className="rounded-xl border border-rose-300 bg-rose-50 p-4 space-y-2">
+            <p className="text-sm text-rose-700">{activeState.error}</p>
+            <button
+              onClick={retryActive}
+              className="rounded-md border border-rose-300 bg-white px-3 py-1.5 text-xs text-rose-700"
+            >
+              重试
+            </button>
+          </div>
+        ) : activeState?.options?.length && !activeState.result ? (
+          <ClarifyPanel
+            question={activeState.question}
+            options={activeState.options}
+            pending={!!activeState.pending}
+            onSubmit={(selected, customText) =>
+              handleClarifySubmit('executionGuide', selected, customText, retryActive)
+            }
+            onSkip={() => handleClarifySkip('executionGuide', retryActive)}
+          />
+        ) : activeState?.result ? (
+          <div className="space-y-3">
+            {renderGuideBody(activeState.result)}
+            <ConfirmActions
+              pending={!!activeState.pending}
+              onConfirm={() => {
+                if (stage4Plans.length === 1) {
+                  confirmAll();
+                  return;
+                }
+                if (allGenerated) {
+                  confirmAll();
+                } else {
+                  const nextIdx = egStates.findIndex(s => !s?.result);
+                  if (nextIdx >= 0 && nextIdx !== activeGuideIdx) {
+                    setActiveGuideIdx(nextIdx);
+                    const target = egStates[nextIdx];
+                    if (!target?.result && !target?.pending && !target?.options?.length) {
+                      void loadGuideForIndex(nextIdx, stage4Plans, stage4UseFocus);
+                    }
+                  }
+                }
+              }}
+              onFeedback={reloadActiveWithFeedback}
+            />
+            {stage4Plans.length > 1 && allGenerated && (
+              <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-3 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm text-emerald-800">
+                  所有子方案的执行指南均已生成。
+                </p>
+                <button
+                  onClick={confirmAll}
+                  className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white"
+                >
+                  全部确认，进入结果分析阶段
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-500 flex items-center justify-between">
+            <span>该子方案尚未生成执行指南。</span>
+            <button
+              onClick={retryActive}
+              className="rounded-md bg-slate-900 px-3 py-1.5 text-xs text-white"
+            >
+              生成此子方案的执行指南
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderStage5 = () => {
+    const multiGuide = confirmedGuides.length > 1;
+    const activeGuide = confirmedGuides[activeConfirmedGuideIdx];
+    const activePlan = confirmedGuidePlans[activeConfirmedGuideIdx];
+    return (
     <div className="space-y-4">
       <Bubble from="ai">
-        现在执行指南已经就绪。完成线下访谈/调研后，把记录文件上传给我，我会基于研究问题与方案进行结构化分析，整理出关键发现、痛点、机会点和下一步建议。
+        现在{multiGuide ? `${confirmedGuides.length} 份 ` : ''}执行指南已经就绪。完成线下访谈/调研后，把记录文件上传给我，我会基于研究问题与方案进行结构化分析，整理出关键发现、痛点、机会点和下一步建议。
       </Bubble>
-      {confirmedGuide && (
+      {confirmedGuides.length > 0 && (
         <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
           <button
             type="button"
@@ -875,9 +1288,16 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
               <div className="min-w-0">
                 <div className="text-sm font-semibold text-slate-900">
                   查看完整执行指南（含访谈提纲与记录模板下载）
+                  {multiGuide && (
+                    <span className="ml-2 inline-flex rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
+                      {confirmedGuides.length} 份子方案
+                    </span>
+                  )}
                 </div>
                 <div className="text-[11px] text-slate-500 truncate">
-                  在这里再次核对招募配额、提纲与记录字段，并下载 CSV 记录模板，按模板填写后再上传，能让 AI 分析更准确。
+                  {multiGuide
+                    ? '组合研究：每个子方法都有独立的招募配额、提纲与记录模板。按对应模板填写后再上传，分析会更准。'
+                    : '在这里再次核对招募配额、提纲与记录字段，下载 CSV 记录模板，按模板填写后再上传。'}
                 </div>
               </div>
             </div>
@@ -885,7 +1305,7 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
               <span
                 onClick={e => {
                   e.stopPropagation();
-                  downloadOutline();
+                  downloadAllOutlines();
                 }}
                 role="button"
                 tabIndex={0}
@@ -893,12 +1313,12 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
                     e.stopPropagation();
-                    downloadOutline();
+                    downloadAllOutlines();
                   }
                 }}
                 className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] text-slate-700 hover:bg-slate-100"
               >
-                下载 Markdown
+                {multiGuide ? '下载全部 Markdown' : '下载 Markdown'}
               </span>
               <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">
                 {showGuideInStage5 ? '收起' : '展开'}
@@ -906,8 +1326,64 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
             </div>
           </button>
           {showGuideInStage5 && (
-            <div className="border-t border-slate-200 bg-slate-50 p-4">
-              {renderGuideBody(confirmedGuide)}
+            <div className="border-t border-slate-200 bg-slate-50 p-4 space-y-3">
+              {multiGuide && (
+                <div className="flex flex-wrap gap-1.5">
+                  {confirmedGuides.map((_, i) => {
+                    const isActive = i === activeConfirmedGuideIdx;
+                    const plan = confirmedGuidePlans[i];
+                    return (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => setActiveConfirmedGuideIdx(i)}
+                        className={`rounded-lg px-3 py-1.5 text-xs border transition-colors ${
+                          isActive
+                            ? 'border-slate-900 bg-slate-900 text-white'
+                            : 'border-slate-200 bg-white text-slate-700 hover:border-slate-400'
+                        }`}
+                      >
+                        {i + 1}. {plan?.method || `子方案 ${i + 1}`}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {activeGuide && (
+                <>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-xs text-slate-500">
+                      当前查看：
+                      <span className="font-semibold text-slate-800 ml-1">
+                        {activePlan?.method || '研究执行指南'}
+                      </span>
+                      {activePlan && (
+                        <>
+                          <span className="mx-2 text-slate-400">·</span>
+                          独立样本 {activePlan.sample}
+                          <span className="mx-2 text-slate-400">·</span>
+                          周期 {activePlan.duration}
+                        </>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => downloadOutlineFor(activeGuide, activePlan)}
+                        className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] text-slate-700 hover:bg-slate-100"
+                      >
+                        下载这一份的 Markdown
+                      </button>
+                      <button
+                        onClick={() => downloadRecordTemplateFor(activeGuide, activePlan)}
+                        className="rounded-md bg-slate-900 px-2.5 py-1 text-[11px] text-white"
+                      >
+                        下载这一份的记录模板（CSV）
+                      </button>
+                    </div>
+                  </div>
+                  {renderGuideBody(activeGuide)}
+                </>
+              )}
             </div>
           )}
         </div>
@@ -1059,7 +1535,8 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
         </div>
       )}
     </div>
-  );
+    );
+  };
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">

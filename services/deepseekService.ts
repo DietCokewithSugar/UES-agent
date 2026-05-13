@@ -136,21 +136,42 @@ export interface ResearchQuestionResult {
   rationale: string;
 }
 
+export type ResearchMethodCategory =
+  | 'interview'
+  | 'survey'
+  | 'usability_test'
+  | 'diary_study'
+  | 'focus_group'
+  | 'desk_research'
+  | 'mixed'
+  | 'other';
+
+export interface ResearchSubPlan {
+  /** 子方案在 UI 中的稳定 id，AI 不强制返回，前端兜底生成 */
+  id?: string;
+  /** 该子方法的简短名称，例如 "用户访谈" / "在线问卷" */
+  method: string;
+  methodCategory: Exclude<ResearchMethodCategory, 'mixed'>;
+  /** 该子方法独立的样本规模与画像描述 */
+  sample: string;
+  /** 该子方法独立的周期，如 "1 周" */
+  duration: string;
+  /** 该子方法在整体研究中的角色 / 目的 */
+  purpose: string;
+}
+
 export interface ResearchPlanResult {
   method: string;              // 例如：用户访谈 / 问卷调研 / 可用性测试
-  methodCategory:
-    | 'interview'
-    | 'survey'
-    | 'usability_test'
-    | 'diary_study'
-    | 'focus_group'
-    | 'desk_research'
-    | 'mixed'
-    | 'other';
+  methodCategory: ResearchMethodCategory;
   sample: string;
   duration: string;
   rationale: string;
   alternatives?: string[];
+  /**
+   * 当 methodCategory === 'mixed' 时必须给出子方案列表；
+   * 单方法可省略或返回长度为 1 的数组。
+   */
+  subPlans?: ResearchSubPlan[];
 }
 
 export interface QuotaItem {
@@ -215,9 +236,19 @@ const buildContextDescription = (ctx: StageContext): string => {
     parts.push(`已确认的研究问题：${ctx.confirmedResearchQuestion}`);
   }
   if (ctx.confirmedResearchPlan) {
+    const plan = ctx.confirmedResearchPlan;
     parts.push(
-      `已确认的研究方案：方法=${ctx.confirmedResearchPlan.method}；样本=${ctx.confirmedResearchPlan.sample}；周期=${ctx.confirmedResearchPlan.duration}`
+      `已确认的研究方案：方法=${plan.method}；样本=${plan.sample}；周期=${plan.duration}`
     );
+    if (plan.subPlans && plan.subPlans.length > 0) {
+      const subs = plan.subPlans
+        .map(
+          (sp, i) =>
+            `  ${i + 1}. ${sp.method}（${sp.methodCategory}）样本=${sp.sample}；周期=${sp.duration}；目的=${sp.purpose}`
+        )
+        .join('\n');
+      parts.push(`方案中的子方法明细：\n${subs}`);
+    }
   }
   if (ctx.clarifications.length > 0) {
     parts.push(
@@ -281,18 +312,36 @@ ${buildContextDescription(ctx)}
 
 可选研究方法（从这些里挑最适合的，必要时可组合）：用户访谈 / 问卷调研 / 可用性测试 / 日记研究 / 焦点小组 / 桌面研究 等。
 
+约束（关于组合方案，非常重要，请严格遵守）：
+- 当你认为单一方法不够，需要"组合 / 混合方法"时：
+  - 顶层字段 method 用一句话概括整体方案（例如：定性访谈 + 定量问卷的混合研究）；
+  - methodCategory 必须为 "mixed"；
+  - 顶层 sample 用一句话总览（例如："访谈 8 人 + 问卷 200 份"），但不再用于后续执行指南的样本量基准；
+  - subPlans 必须给出 2 个或以上子方案，每个子方案要明确：method（必须是单一方法，不允许再是 "mixed"）、methodCategory、sample（该方法独立的样本量与画像）、duration（该方法独立的周期）、purpose（该方法在整体研究中的角色）。
+  - 顶层 sample / duration 的数字必须和 subPlans 中各子方法的样本量、周期相加/总览保持一致，不允许互相矛盾。
+- 当只使用单一方法时：methodCategory 不能是 "mixed"，subPlans 可以省略，或返回长度为 1 且各字段与顶层一致的数组。
+
 ${CLARIFY_INSTRUCTION}
 
 result 输出格式：
 {
   "kind": "result",
   "result": {
-    "method": "...（如：1v1 用户访谈 / 在线问卷 / 可用性测试 等）",
+    "method": "...（如：1v1 用户访谈 / 在线问卷 / 可用性测试 / 访谈+问卷 等）",
     "methodCategory": "interview|survey|usability_test|diary_study|focus_group|desk_research|mixed|other",
-    "sample": "...（样本规模与画像描述）",
+    "sample": "...（样本规模与画像描述；混合方案时为整体总览）",
     "duration": "...（建议周期，如 2 周）",
     "rationale": "...（为什么推荐这个方案）",
-    "alternatives": ["...", "..."]
+    "alternatives": ["...", "..."],
+    "subPlans": [
+      {
+        "method": "...",
+        "methodCategory": "interview|survey|usability_test|diary_study|focus_group|desk_research|other",
+        "sample": "...（该子方法独立样本量，如 '8 人 1v1 深访'）",
+        "duration": "...（该子方法独立周期）",
+        "purpose": "...（该子方法的目的）"
+      }
+    ]
   }
 }`;
   return deepseekJson<ClarifyResponse<ResearchPlanResult>>(
@@ -305,10 +354,14 @@ result 输出格式：
 };
 
 export const generateExecutionGuide = async (
-  ctx: StageContext
+  ctx: StageContext,
+  focusedPlan?: ResearchSubPlan
 ): Promise<ClarifyResponse<ExecutionGuideResult>> => {
+  const focusedDescription = focusedPlan
+    ? `\n本次生成的执行指南，仅针对下方这个【单一】子方法，不要混入其他方法的内容：\n- 方法：${focusedPlan.method}\n- 方法类型：${focusedPlan.methodCategory}\n- 该方法独立的样本量与画像：${focusedPlan.sample}\n- 该方法独立的周期：${focusedPlan.duration}\n- 该方法在整体研究中的角色：${focusedPlan.purpose}\n\n严格要求：\n- recruitment.totalSample 必须等于上面"该方法独立样本量"中明确给出的人数；如果原文是 "8 人"，那么 totalSample 必须是 8；不要把其它子方法的样本相加进来。\n- recruitment 的所有 quotas 配额之和应当等于 totalSample。\n- outline、cautions、recordTemplateColumns 都必须只服务该单一方法，例如访谈方法就只写访谈相关，问卷方法就只写问卷题目和板块。\n- 不要在指南里出现"另外做问卷"等跨方法的描述。`
+    : '';
   const userPrompt = `当前任务：根据已确认的研究方案，输出可直接执行的完整指南。
-${buildContextDescription(ctx)}
+${buildContextDescription(ctx)}${focusedDescription}
 
 要求：
 - 用户招募部分必须给出可量化的配额（例如年龄分布、行业分布等），并给出筛选标准。
