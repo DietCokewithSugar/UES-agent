@@ -459,7 +459,7 @@ const normalizeDimensionComparisons = (
 const normalizePersonaDraft = (
   rawDraft: any,
   index: number
-): Omit<Persona, 'id'> => {
+): Omit<Persona, 'id' | 'source'> => {
   const attributes =
     rawDraft?.attributes && typeof rawDraft.attributes === 'object' && !Array.isArray(rawDraft.attributes)
       ? Object.entries(rawDraft.attributes as Record<string, unknown>).reduce<Record<string, string>>(

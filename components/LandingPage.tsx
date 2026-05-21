@@ -6,6 +6,7 @@ interface LandingPageProps {
   onStartEvaluation: () => void;
   onRestoreDraft: () => void;
   onStartCompanion: () => void;
+  onOpenSettings: () => void;
 }
 
 const FEATURES = [
@@ -47,7 +48,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   draftSavedAt,
   onStartEvaluation,
   onRestoreDraft,
-  onStartCompanion
+  onStartCompanion,
+  onOpenSettings
 }) => {
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 md:px-6 md:py-10 space-y-6">
@@ -75,6 +77,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             className="rounded-lg border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-700 disabled:opacity-50"
           >
             恢复草稿
+          </button>
+          <button
+            onClick={onOpenSettings}
+            className="rounded-lg border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            角色库设置
           </button>
         </div>
 

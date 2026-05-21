@@ -1,6 +1,9 @@
-import { Persona, UserRole } from '../types';
+import { Persona, PersonaSource, UserRole } from '../types';
+import { DEFAULT_BUILTIN_PERSONA_IDS } from '../config/defaultPersonas';
 
 const STORAGE_KEY = 'ux-evaluation-personas-v1';
+const MIGRATION_KEY = 'ux-evaluation-personas-migration';
+const CURRENT_MIGRATION = 'role-refactor-v1';
 
 const hasStorage = () => typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
 
@@ -21,6 +24,12 @@ const normalizeAttributes = (input: unknown): Record<string, string> => {
 const normalizeRole = (value: unknown): UserRole =>
   value === UserRole.EXPERT ? UserRole.EXPERT : UserRole.USER;
 
+const normalizeSource = (value: unknown, id: string): PersonaSource => {
+  if (value === 'builtin' || value === 'custom') return value;
+  // Backwards compat: legacy personas without source. Known IDs are builtin.
+  return DEFAULT_BUILTIN_PERSONA_IDS.has(id) ? 'builtin' : 'custom';
+};
+
 const normalizePersona = (input: unknown, index: number): Persona | null => {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
   const raw = input as Record<string, unknown>;
@@ -28,34 +37,55 @@ const normalizePersona = (input: unknown, index: number): Persona | null => {
   const description = typeof raw.description === 'string' ? raw.description.trim() : '';
   if (!name || !description) return null;
 
+  const id =
+    typeof raw.id === 'string' && raw.id.trim()
+      ? raw.id.trim()
+      : `persona-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`;
+
   return {
-    id:
-      typeof raw.id === 'string' && raw.id.trim()
-        ? raw.id.trim()
-        : `persona-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`,
+    id,
     name,
     role: normalizeRole(raw.role),
+    source: normalizeSource(raw.source, id),
+    category: typeof raw.category === 'string' && raw.category.trim() ? raw.category.trim() : undefined,
     description,
     attributes: normalizeAttributes(raw.attributes)
   };
 };
 
-export const loadPersonas = (fallback: Persona[]): Persona[] => {
-  if (!hasStorage()) return fallback;
+export const loadPersonas = (defaults: Persona[]): Persona[] => {
+  if (!hasStorage()) return defaults;
 
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return fallback;
+
+    if (!raw) {
+      window.localStorage.setItem(MIGRATION_KEY, CURRENT_MIGRATION);
+      return defaults;
+    }
+
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return fallback;
+    if (!Array.isArray(parsed)) return defaults;
 
     const normalized = parsed
       .map((item, index) => normalizePersona(item, index))
       .filter(Boolean) as Persona[];
 
-    return normalized.length ? normalized : fallback;
+    const migration = window.localStorage.getItem(MIGRATION_KEY);
+    if (migration !== CURRENT_MIGRATION) {
+      // One-time migration: inject any new builtin defaults that the user does not yet have.
+      const existingIds = new Set(normalized.map((p) => p.id));
+      for (const def of defaults) {
+        if (def.source === 'builtin' && !existingIds.has(def.id)) {
+          normalized.push(def);
+        }
+      }
+      window.localStorage.setItem(MIGRATION_KEY, CURRENT_MIGRATION);
+    }
+
+    return normalized.length ? normalized : defaults;
   } catch {
-    return fallback;
+    return defaults;
   }
 };
 
@@ -76,4 +106,5 @@ export const savePersonas = (personas: Persona[]): { ok: true } | { ok: false; e
 export const clearPersonas = (): void => {
   if (!hasStorage()) return;
   window.localStorage.removeItem(STORAGE_KEY);
+  window.localStorage.removeItem(MIGRATION_KEY);
 };
