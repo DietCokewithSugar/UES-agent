@@ -1,6 +1,8 @@
-import { Persona, UserRole } from '../types';
+import { Persona, PersonaLibrary, UserRole } from '../types';
 
-const STORAGE_KEY = 'ux-evaluation-personas-v1';
+const LEGACY_STORAGE_KEY = 'ux-evaluation-personas-v1';
+const PUBLIC_STORAGE_KEY = 'ux-evaluation-public-personas-v2';
+const CUSTOM_STORAGE_KEY = 'ux-evaluation-custom-personas-v2';
 
 const hasStorage = () => typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
 
@@ -40,30 +42,75 @@ const normalizePersona = (input: unknown, index: number): Persona | null => {
   };
 };
 
-export const loadPersonas = (fallback: Persona[]): Persona[] => {
-  if (!hasStorage()) return fallback;
+const readPersonaArray = (key: string): Persona[] | null => {
+  const raw = window.localStorage.getItem(key);
+  if (!raw) return null;
+  const parsed = JSON.parse(raw);
+  if (!Array.isArray(parsed)) return null;
+
+  return parsed
+    .map((item, index) => normalizePersona(item, index))
+    .filter(Boolean) as Persona[];
+};
+
+const mergeLegacyPublicPersonas = (fallback: Persona[], legacyPersonas: Persona[]): Persona[] => {
+  const fallbackIds = new Set(fallback.map((persona) => persona.id));
+  const legacyByDefaultId = new Map(
+    legacyPersonas
+      .filter((persona) => fallbackIds.has(persona.id))
+      .map((persona) => [persona.id, persona])
+  );
+
+  return fallback.map((persona) => legacyByDefaultId.get(persona.id) || persona);
+};
+
+export const loadPersonaLibrary = (fallbackPublicPersonas: Persona[]): PersonaLibrary => {
+  if (!hasStorage()) {
+    return {
+      publicPersonas: fallbackPublicPersonas,
+      customPersonas: []
+    };
+  }
 
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return fallback;
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return fallback;
+    const publicPersonas = readPersonaArray(PUBLIC_STORAGE_KEY);
+    const customPersonas = readPersonaArray(CUSTOM_STORAGE_KEY);
+    if (publicPersonas || customPersonas) {
+      return {
+        publicPersonas: publicPersonas?.length ? publicPersonas : fallbackPublicPersonas,
+        customPersonas: customPersonas || []
+      };
+    }
 
-    const normalized = parsed
-      .map((item, index) => normalizePersona(item, index))
-      .filter(Boolean) as Persona[];
+    const legacyPersonas = readPersonaArray(LEGACY_STORAGE_KEY);
+    if (!legacyPersonas?.length) {
+      return {
+        publicPersonas: fallbackPublicPersonas,
+        customPersonas: []
+      };
+    }
 
-    return normalized.length ? normalized : fallback;
+    const fallbackIds = new Set(fallbackPublicPersonas.map((persona) => persona.id));
+    return {
+      publicPersonas: mergeLegacyPublicPersonas(fallbackPublicPersonas, legacyPersonas),
+      customPersonas: legacyPersonas.filter((persona) => !fallbackIds.has(persona.id))
+    };
   } catch {
-    return fallback;
+    return {
+      publicPersonas: fallbackPublicPersonas,
+      customPersonas: []
+    };
   }
 };
 
-export const savePersonas = (personas: Persona[]): { ok: true } | { ok: false; error: string } => {
+export const savePersonaLibrary = (
+  library: PersonaLibrary
+): { ok: true } | { ok: false; error: string } => {
   if (!hasStorage()) return { ok: false, error: '当前环境不支持本地角色缓存。' };
 
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(personas));
+    window.localStorage.setItem(PUBLIC_STORAGE_KEY, JSON.stringify(library.publicPersonas));
+    window.localStorage.setItem(CUSTOM_STORAGE_KEY, JSON.stringify(library.customPersonas));
     return { ok: true };
   } catch (error) {
     return {
@@ -75,5 +122,7 @@ export const savePersonas = (personas: Persona[]): { ok: true } | { ok: false; e
 
 export const clearPersonas = (): void => {
   if (!hasStorage()) return;
-  window.localStorage.removeItem(STORAGE_KEY);
+  window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+  window.localStorage.removeItem(PUBLIC_STORAGE_KEY);
+  window.localStorage.removeItem(CUSTOM_STORAGE_KEY);
 };
