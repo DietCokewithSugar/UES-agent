@@ -3,6 +3,8 @@ export enum UserRole {
   EXPERT = 'EXPERT' // Evaluates Consistency
 }
 
+export type PersonaLibraryScope = 'public' | 'custom';
+
 export enum EvaluationModel {
   ETS = 'ETS',
   HEART = 'HEART',
@@ -19,6 +21,11 @@ export interface Persona {
   role: UserRole;
   description: string;
   attributes: PersonaAttributes;
+}
+
+export interface PersonaLibrary {
+  publicPersonas: Persona[];
+  customPersonas: Persona[];
 }
 
 export type FrameworkSource = 'builtin' | 'custom';
