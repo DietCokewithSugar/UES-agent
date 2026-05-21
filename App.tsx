@@ -129,10 +129,27 @@ type AppRoute = 'app' | 'setting';
 const getCurrentRoute = (): AppRoute =>
   typeof window !== 'undefined' && window.location.pathname === '/setting' ? 'setting' : 'app';
 
-const getRoleLabel = (role: UserRole) => (role === UserRole.EXPERT ? '专家角色' : '用户角色');
+type PersonaMenuPrimaryId = 'user' | 'expert' | 'custom' | 'ai';
+type PersonaMenuGroupKind = 'personas' | 'ai-existing' | 'ai-new';
 
-const getPersonaGroupLabel = (persona: Persona, fallback: string) =>
-  persona.attributes?.类别?.trim() || persona.attributes?.场景?.trim() || fallback;
+interface PersonaMenuGroup {
+  id: string;
+  title: string;
+  description: string;
+  kind: PersonaMenuGroupKind;
+  personas: Persona[];
+}
+
+interface PersonaMenuSection {
+  id: PersonaMenuPrimaryId;
+  title: string;
+  description: string;
+  groups: PersonaMenuGroup[];
+}
+
+const USER_PERSONA_CATEGORY_ORDER = ['基础属性', '账户资产', '投资理财', '信贷'];
+
+const getRoleLabel = (role: UserRole) => (role === UserRole.EXPERT ? '专家角色' : '用户角色');
 
 const personaMatchesSearch = (persona: Persona, query: string) => {
   const normalizedQuery = query.trim().toLowerCase();
@@ -148,16 +165,31 @@ const personaMatchesSearch = (persona: Persona, query: string) => {
   return haystack.includes(normalizedQuery);
 };
 
-const groupPersonas = (personas: Persona[], fallbackGroup: string) =>
-  personas.reduce<Array<{ label: string; personas: Persona[] }>>((groups, persona) => {
-    const label = getPersonaGroupLabel(persona, fallbackGroup);
-    const existingGroup = groups.find((group) => group.label === label);
-    if (existingGroup) {
-      existingGroup.personas.push(persona);
-      return groups;
-    }
-    return [...groups, { label, personas: [persona] }];
-  }, []);
+const getUserPersonaMenuCategory = (persona: Persona) => {
+  const category = persona.attributes?.类别 || '';
+  if (category.includes('账户资产')) return '账户资产';
+  if (category.includes('投资理财')) return '投资理财';
+  if (category.includes('信贷')) return '信贷';
+  return '基础属性';
+};
+
+const getExpertPersonaMenuCategory = (persona: Persona) => {
+  const category = persona.attributes?.类别 || '';
+  return category.includes('业务') ? '业务' : '体验';
+};
+
+const createPersonaMenuGroups = (
+  labels: string[],
+  personas: Persona[],
+  getGroupLabel: (persona: Persona) => string
+): PersonaMenuGroup[] =>
+  labels.map((label) => ({
+    id: label,
+    title: label,
+    description: `${label}下的可选评测角色`,
+    kind: 'personas',
+    personas: personas.filter((persona) => getGroupLabel(persona) === label)
+  }));
 
 export default function App() {
   const [appRoute, setAppRoute] = useState<AppRoute>(() => getCurrentRoute());
@@ -174,6 +206,8 @@ export default function App() {
   const [editingPersonaId, setEditingPersonaId] = useState<string | null>(null);
   const [personaRecommendations, setPersonaRecommendations] = useState<PersonaRecommendation[]>([]);
   const [personaSearchQuery, setPersonaSearchQuery] = useState('');
+  const [activePersonaMenuPrimary, setActivePersonaMenuPrimary] = useState<PersonaMenuPrimaryId>('user');
+  const [activePersonaMenuGroupId, setActivePersonaMenuGroupId] = useState('基础属性');
 
   const [frameworks, setFrameworks] = useState<EvaluationFramework[]>(FRAMEWORK_PRESETS);
   const [selectedFrameworkId, setSelectedFrameworkId] = useState('');
@@ -273,40 +307,72 @@ export default function App() {
     }));
   };
 
-  const personaSections = useMemo(() => {
+  const personaMenuSections = useMemo<PersonaMenuSection[]>(() => {
     const filterPersonas = (items: Persona[]) =>
       items.filter((persona) => personaMatchesSearch(persona, personaSearchQuery));
+    const userPersonas = filterPersonas(publicPersonas.filter((persona) => persona.role === UserRole.USER));
+    const expertPersonas = filterPersonas(publicPersonas.filter((persona) => persona.role === UserRole.EXPERT));
+    const filteredCustomPersonas = filterPersonas(customPersonas);
 
     return [
       {
-        id: 'user' as const,
+        id: 'user',
         title: '用户角色',
-        description: '公共用户画像，所有评测成员看到一致；如需增删改请进入角色设置。',
-        groups: groupPersonas(
-          filterPersonas(publicPersonas.filter((persona) => persona.role === UserRole.USER)),
-          '用户角色'
-        ),
-        totalCount: publicPersonas.filter((persona) => persona.role === UserRole.USER).length
+        description: '公共用户画像，按业务类别选择具体角色。',
+        groups: createPersonaMenuGroups(USER_PERSONA_CATEGORY_ORDER, userPersonas, getUserPersonaMenuCategory)
       },
       {
-        id: 'expert' as const,
+        id: 'expert',
         title: '专家角色',
-        description: '公共专家评审视角，步骤 4 仅支持选择，维护入口在 /setting。',
-        groups: groupPersonas(
-          filterPersonas(publicPersonas.filter((persona) => persona.role === UserRole.EXPERT)),
-          '专家角色'
-        ),
-        totalCount: publicPersonas.filter((persona) => persona.role === UserRole.EXPERT).length
+        description: '公共专家评审视角，分为体验和业务。',
+        groups: createPersonaMenuGroups(['体验', '业务'], expertPersonas, getExpertPersonaMenuCategory)
       },
       {
-        id: 'custom' as const,
-        title: '自建角色',
-        description: '当前用户自己的角色库，保存在本地，仅自己可见。',
-        groups: groupPersonas(filterPersonas(customPersonas), '我的自建角色'),
-        totalCount: customPersonas.length
+        id: 'custom',
+        title: '自创角色',
+        description: '当前用户自己的角色库，仅自己可见。',
+        groups: createPersonaMenuGroups(
+          ['用户角色', '专家角色'],
+          filteredCustomPersonas,
+          (persona) => (persona.role === UserRole.EXPERT ? '专家角色' : '用户角色')
+        )
+      },
+      {
+        id: 'ai',
+        title: 'AI 角色',
+        description: '根据当前素材和场景推荐已有角色，或生成新的角色草案。',
+        groups: [
+          {
+            id: 'recommend-existing',
+            title: '推荐已有角色',
+            description: '调用 AI 推荐角色功能，从现有角色库中选择更匹配的角色。',
+            kind: 'ai-existing',
+            personas: []
+          },
+          {
+            id: 'generate-new',
+            title: '生成新角色',
+            description: '调用 AI 生成新角色功能，生成可保存为自创角色的草案。',
+            kind: 'ai-new',
+            personas: []
+          }
+        ]
       }
     ];
   }, [customPersonas, personaSearchQuery, publicPersonas]);
+
+  const activePersonaMenuSection =
+    personaMenuSections.find((section) => section.id === activePersonaMenuPrimary) || personaMenuSections[0];
+  const activePersonaMenuGroup =
+    activePersonaMenuSection.groups.find((group) => group.id === activePersonaMenuGroupId) ||
+    activePersonaMenuSection.groups[0];
+  const activeAiRecommendations = personaRecommendations.filter((recommendation) =>
+    activePersonaMenuGroup?.kind === 'ai-existing'
+      ? !!recommendation.existingPersonaId
+      : activePersonaMenuGroup?.kind === 'ai-new'
+      ? !!recommendation.personaDraft && !recommendation.existingPersonaId
+      : false
+  );
 
   const selectedPersonas = useMemo(
     () => personas.filter((persona) => selectedPersonaIds.includes(persona.id)),
@@ -1963,7 +2029,7 @@ export default function App() {
                     角色设置
                   </button>
                   <button onClick={() => personaImportRef.current?.click()} className="rounded-lg border border-slate-200 px-3 py-2 text-xs">
-                    导入自建角色
+                    导入自创角色
                   </button>
                   <input
                     ref={personaImportRef}
@@ -1976,7 +2042,7 @@ export default function App() {
                     onClick={openCreatePersonaModal}
                     className="rounded-lg border border-slate-200 px-3 py-2 text-xs"
                   >
-                    新建自建角色
+                    新建自创角色
                   </button>
                 </div>
               </div>
@@ -1989,114 +2055,178 @@ export default function App() {
                   className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
                 />
                 <p className="mt-2 text-[11px] text-slate-500">
-                  用户角色与专家角色为公共库，不能在步骤 4 直接修改；自建角色仅当前用户可见。
+                  通过左中右三级菜单逐级定位角色；用户角色与专家角色为公共库，自创角色仅当前用户可见。
                 </p>
               </div>
 
-              <div className="space-y-3 max-h-[30rem] overflow-y-auto pr-1">
-                {personaSections.map((section) => {
-                  const visibleCount = section.groups.reduce((sum, group) => sum + group.personas.length, 0);
-                  return (
-                    <details key={section.id} open className="rounded-xl border border-slate-200 bg-white p-3">
-                      <summary className="cursor-pointer list-none">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div>
-                            <p className="text-sm font-semibold text-slate-800">
-                              {section.title} · {visibleCount}/{section.totalCount}
-                            </p>
-                            <p className="text-xs text-slate-500">{section.description}</p>
-                          </div>
-                          <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] text-slate-500">展开/收起</span>
-                        </div>
-                      </summary>
+              <div className="grid grid-cols-1 overflow-hidden rounded-xl border border-slate-200 bg-white lg:grid-cols-[12rem_14rem_minmax(0,1fr)]">
+                <div className="border-b border-slate-200 bg-slate-50 p-2 lg:border-b-0 lg:border-r">
+                  <p className="px-2 py-1 text-[11px] font-semibold text-slate-500">一级菜单</p>
+                  <div className="grid grid-cols-2 gap-2 lg:grid-cols-1">
+                    {personaMenuSections.map((section) => {
+                      const sectionCount = section.groups.reduce((sum, group) => sum + group.personas.length, 0);
+                      const isActive = activePersonaMenuSection.id === section.id;
+                      return (
+                        <button
+                          key={section.id}
+                          type="button"
+                          onClick={() => {
+                            setActivePersonaMenuPrimary(section.id);
+                            setActivePersonaMenuGroupId(section.groups[0]?.id || '');
+                          }}
+                          className={`rounded-lg border px-3 py-2 text-left text-sm transition ${
+                            isActive
+                              ? 'border-slate-900 bg-slate-900 text-white'
+                              : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100'
+                          }`}
+                        >
+                          <span className="block font-semibold">{section.title}</span>
+                          <span className={`text-[11px] ${isActive ? 'text-slate-200' : 'text-slate-500'}`}>
+                            {section.id === 'ai' ? `${section.groups.length} 个入口` : `${sectionCount} 个角色`}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
 
-                      <div className="mt-3 space-y-2">
-                        {section.groups.map((group) => (
-                          <details key={`${section.id}-${group.label}`} open={!!personaSearchQuery || group.personas.length <= 6} className="rounded-lg border border-slate-100 bg-slate-50 p-2">
-                            <summary className="cursor-pointer list-none text-xs font-semibold text-slate-700">
-                              {group.label} · {group.personas.length}
-                            </summary>
-                            <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
-                              {group.personas.map((persona) => (
-                                <div key={persona.id} className="rounded-lg border border-slate-200 bg-white p-3">
-                                  <div className="flex items-start gap-2">
-                                    <input
-                                      type="checkbox"
-                                      checked={selectedPersonaIds.includes(persona.id)}
-                                      onChange={() => togglePersona(persona.id)}
-                                      className="mt-1"
-                                    />
-                                    <div className="min-w-0 flex-1">
-                                      <p className="text-sm font-medium text-slate-900">{persona.name}</p>
-                                      <p className="mt-1 text-xs text-slate-500">{persona.description}</p>
-                                      <p className="mt-1 text-[11px] text-slate-400">角色类型：{getRoleLabel(persona.role)}</p>
-                                      {!!Object.keys(persona.attributes || {}).length && (
-                                        <p className="mt-1 text-[11px] text-slate-400">
-                                          维度：{Object.entries(persona.attributes)
-                                            .slice(0, 4)
-                                            .map(([key, value]) => `${key}:${value}`)
-                                            .join('；')}
-                                        </p>
-                                      )}
-                                    </div>
-                                  </div>
-                                  <div className="mt-2 flex flex-wrap justify-end gap-2">
-                                    {section.id === 'custom' ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => openEditPersonaModal(persona)}
-                                        className="text-xs text-slate-500 underline"
-                                      >
-                                        查看/修改
-                                      </button>
-                                    ) : (
-                                      <button
-                                        type="button"
-                                        onClick={() => navigateTo('/setting')}
-                                        className="text-xs text-slate-500 underline"
-                                      >
-                                        去设置修改
-                                      </button>
-                                    )}
-                                    <button
-                                      type="button"
-                                      onClick={() => exportPersona(persona)}
-                                      className="text-xs text-slate-500 underline"
-                                    >
-                                      导出
-                                    </button>
-                                  </div>
-                                </div>
-                              ))}
+                <div className="border-b border-slate-200 p-2 lg:border-b-0 lg:border-r">
+                  <p className="px-2 py-1 text-[11px] font-semibold text-slate-500">二级菜单</p>
+                  <div className="grid grid-cols-2 gap-2 lg:grid-cols-1">
+                    {activePersonaMenuSection.groups.map((group) => {
+                      const isActive = activePersonaMenuGroup?.id === group.id;
+                      return (
+                        <button
+                          key={group.id}
+                          type="button"
+                          onClick={() => setActivePersonaMenuGroupId(group.id)}
+                          className={`rounded-lg border px-3 py-2 text-left text-sm transition ${
+                            isActive
+                              ? 'border-slate-400 bg-slate-100 text-slate-900'
+                              : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                          }`}
+                        >
+                          <span className="block font-medium">{group.title}</span>
+                          <span className="text-[11px] text-slate-500">
+                            {group.kind === 'personas' ? `${group.personas.length} 个角色` : group.description}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="min-h-[24rem] p-3">
+                  <div className="mb-3 rounded-lg border border-slate-100 bg-slate-50 p-3">
+                    <p className="text-sm font-semibold text-slate-800">
+                      {activePersonaMenuSection.title} / {activePersonaMenuGroup?.title}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">{activePersonaMenuGroup?.description}</p>
+                  </div>
+
+                  {activePersonaMenuGroup?.kind === 'personas' ? (
+                    <div className="grid max-h-[24rem] grid-cols-1 gap-2 overflow-y-auto pr-1 xl:grid-cols-2">
+                      {activePersonaMenuGroup.personas.map((persona) => (
+                        <div key={persona.id} className="rounded-lg border border-slate-200 bg-white p-3">
+                          <div className="flex items-start gap-2">
+                            <input
+                              type="checkbox"
+                              checked={selectedPersonaIds.includes(persona.id)}
+                              onChange={() => togglePersona(persona.id)}
+                              className="mt-1"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium text-slate-900">{persona.name}</p>
+                              <p className="mt-1 text-xs text-slate-500">{persona.description}</p>
+                              <p className="mt-1 text-[11px] text-slate-400">角色类型：{getRoleLabel(persona.role)}</p>
+                              {!!Object.keys(persona.attributes || {}).length && (
+                                <p className="mt-1 text-[11px] text-slate-400">
+                                  维度：{Object.entries(persona.attributes)
+                                    .slice(0, 4)
+                                    .map(([key, value]) => `${key}:${value}`)
+                                    .join('；')}
+                                </p>
+                              )}
                             </div>
-                          </details>
-                        ))}
-                        {!section.groups.length && (
-                          <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-center text-xs text-slate-500">
-                            当前分类没有匹配的角色。
                           </div>
-                        )}
+                          <div className="mt-2 flex flex-wrap justify-end gap-2">
+                            {activePersonaMenuSection.id === 'custom' ? (
+                              <button
+                                type="button"
+                                onClick={() => openEditPersonaModal(persona)}
+                                className="text-xs text-slate-500 underline"
+                              >
+                                查看/修改
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => navigateTo('/setting')}
+                                className="text-xs text-slate-500 underline"
+                              >
+                                去设置修改
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => exportPersona(persona)}
+                              className="text-xs text-slate-500 underline"
+                            >
+                              导出
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                      {!activePersonaMenuGroup.personas.length && (
+                        <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-xs text-slate-500 xl:col-span-2">
+                          当前二级菜单没有匹配角色，可调整搜索词或进入角色设置维护。
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="rounded-xl border border-violet-100 bg-violet-50 p-4">
+                        <p className="text-sm font-semibold text-violet-900">{activePersonaMenuGroup.title}</p>
+                        <p className="mt-1 text-xs text-violet-700">{activePersonaMenuGroup.description}</p>
+                        <button
+                          type="button"
+                          onClick={
+                            activePersonaMenuGroup.kind === 'ai-existing'
+                              ? fetchPersonaRecommendations
+                              : fetchNewPersonaRecommendations
+                          }
+                          disabled={
+                            !currentSetupInput ||
+                            (activePersonaMenuGroup.kind === 'ai-existing'
+                              ? isRecommending || isRecommendingNewPersona
+                              : isRecommendingNewPersona || isRecommending)
+                          }
+                          className="mt-3 rounded-lg border border-violet-200 bg-white px-3 py-2 text-xs font-semibold text-violet-700 disabled:opacity-50"
+                        >
+                          {activePersonaMenuGroup.kind === 'ai-existing'
+                            ? isRecommending
+                              ? '推荐中...'
+                              : 'AI 推荐角色'
+                            : isRecommendingNewPersona
+                            ? '生成中...'
+                            : 'AI 生成新角色'}
+                        </button>
                       </div>
-                    </details>
-                  );
-                })}
+
+                      <PersonaRecommendations
+                        recommendations={activeAiRecommendations}
+                        personas={personas}
+                        onAddExisting={(personaId) =>
+                          setSelectedPersonaIds((previous) => [...new Set([...previous, personaId])])
+                        }
+                        onCreateFromDraft={createPersonaFromRecommendation}
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={fetchPersonaRecommendations}
-                  disabled={!currentSetupInput || isRecommending || isRecommendingNewPersona}
-                  className="rounded-lg border border-slate-200 px-3 py-2 text-xs disabled:opacity-50"
-                >
-                  {isRecommending ? '推荐中...' : 'AI 推荐角色'}
-                </button>
-                <button
-                  onClick={fetchNewPersonaRecommendations}
-                  disabled={!currentSetupInput || isRecommendingNewPersona || isRecommending}
-                  className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-700 disabled:opacity-50"
-                >
-                  {isRecommendingNewPersona ? '生成中...' : 'AI 生成新角色'}
-                </button>
                 <button
                   onClick={() => personaExtractRef.current?.click()}
                   disabled={isExtractingFromDoc}
@@ -2180,15 +2310,6 @@ export default function App() {
                   </div>
                 </div>
               )}
-
-              <PersonaRecommendations
-                recommendations={personaRecommendations}
-                personas={personas}
-                onAddExisting={(personaId) =>
-                  setSelectedPersonaIds((previous) => [...new Set([...previous, personaId])])
-                }
-                onCreateFromDraft={createPersonaFromRecommendation}
-              />
             </section>
           )}
 
@@ -2198,10 +2319,10 @@ export default function App() {
                 <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
                   <div>
                     <p className="text-sm font-semibold text-slate-800">
-                      {personaModalMode === 'create' ? '新建自建角色' : '查看/修改自建角色'}
+                      {personaModalMode === 'create' ? '新建自创角色' : '查看/修改自创角色'}
                     </p>
                     <p className="text-xs text-slate-500">
-                      角色名称、角色描述、角色类型为必填；自建角色仅当前用户可见。
+                      角色名称、角色描述、角色类型为必填；自创角色仅当前用户可见。
                     </p>
                   </div>
                   <button onClick={closePersonaModal} className="text-xs text-slate-500 underline">
