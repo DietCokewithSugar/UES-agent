@@ -13,10 +13,14 @@ export enum EvaluationModel {
 
 export type PersonaAttributes = Record<string, string>;
 
+export type PersonaSource = 'builtin' | 'custom';
+
 export interface Persona {
   id: string;
   name: string;
   role: UserRole;
+  source: PersonaSource;
+  category?: string;
   description: string;
   attributes: PersonaAttributes;
 }
@@ -160,7 +164,7 @@ export type ETSReport = FrameworkReport;
 export interface PersonaRecommendation {
   id: string;
   existingPersonaId?: string;
-  personaDraft?: Omit<Persona, 'id'>;
+  personaDraft?: Omit<Persona, 'id' | 'source'>;
   matchScore: number; // 0-100
   reasoning: string;
 }
