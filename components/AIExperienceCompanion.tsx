@@ -17,6 +17,7 @@ import {
   StageKind
 } from '../services/deepseekService';
 import { extractTextFromFile } from '../utils/documentTextExtractor';
+import { findSkillForMethod } from '../services/skills/skillRegistry';
 
 interface AIExperienceCompanionProps {
   onBack: () => void;
@@ -1178,6 +1179,16 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
               <span className="font-semibold">在整体研究中的角色：</span>
               {activePlan.purpose}
             </div>
+            {(() => {
+              const skill = findSkillForMethod(activePlan.methodCategory, activePlan.method);
+              return skill ? (
+                <div className="pt-1">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
+                    ⚡ 由「{skill.name}」技能驱动
+                  </span>
+                </div>
+              ) : null;
+            })()}
           </div>
         )}
 

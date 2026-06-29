@@ -20,6 +20,16 @@ Configured in `.env.local` at the project root. Vite injects them at build/dev t
 - `DEEPSEEK_API_KEY` — required for the "AI 体验伙伴" (AI Experience Companion) feature.
 - `DEEPSEEK_API_BASE_URL` — optional override, defaults to `https://api.deepseek.com`.
 
+### Research-method skills (`skills/`)
+
+The "AI 体验伙伴" feature is augmented by pluggable **research-method skills** under `skills/`,
+following the Anthropic Agent Skills convention (one folder per skill with a `SKILL.md` that has
+`name`/`description` frontmatter, plus optional `references/`). `services/skills/skillRegistry.ts`
+bundles them at build time via Vite `import.meta.glob` (raw text). The companion uses skill
+`description`s to build the method catalog in `generateResearchPlan` (推荐研究方案) and injects the
+matched skill's full body + references in `generateExecutionGuide` (执行指南). Add a new method by
+dropping a folder into `skills/`; no code changes needed. See `skills/README.md`.
+
 ### Caveats
 
 - **No lint or test scripts**: `package.json` has no `lint` or `test` script. TypeScript type-checking can be run with `npx tsc --noEmit`, but there is a pre-existing TS error in `App.tsx` (line 354) that does not block the Vite build.
