@@ -29,6 +29,12 @@
   - 每个阶段当 AI 理解存在歧义时，会给出 A/B/C 三个方向 + "D 自行填写 / 跳过校准" 选项，降低偏差
   - 自动生成访谈/调研提纲、用户配额、筛选标准、执行注意事项与 CSV 记录模板
   - 完成线下调研后可继续上传访谈记录（.txt/.md/.csv/.docx/.pdf），由 AI 输出结构化研究报告
+  - **可插拔研究方法技能（Skills）**：`skills/` 目录下按 [Anthropic Agent Skills](https://www.anthropic.com/news/agent-skills)
+    约定存放研究方法技能（每个技能一个文件夹 + `SKILL.md`）。`services/skills/skillRegistry.ts`
+    在构建期自动加载这些技能：「推荐研究方案」阶段用各技能的 `description` 拼出方法目录（有哪些方法、何时用），
+    「生成执行指南」阶段把所选方法对应技能的完整说明 + 参考资料注入提示词来驱动详细设计。
+    新增研究方法只需往 `skills/` 放一个技能文件夹，无需改代码。详见 [`skills/README.md`](./skills/README.md)。
+    首个技能 `questionnaire-generator`（问卷调查）来自 [github.com/Evelyn32/skills](https://github.com/Evelyn32/skills)。
 
 ---
 

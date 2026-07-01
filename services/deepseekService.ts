@@ -6,6 +6,12 @@
  * 接口与 OpenAI 兼容，调用 /v1/chat/completions。
  */
 
+import {
+  buildSkillCatalog,
+  buildSkillKnowledge,
+  findSkillForMethod
+} from './skills/skillRegistry';
+
 export interface DeepSeekMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
@@ -307,11 +313,15 @@ result 输出格式：
 export const generateResearchPlan = async (
   ctx: StageContext
 ): Promise<ClarifyResponse<ResearchPlanResult>> => {
+  const skillCatalog = buildSkillCatalog();
+  const skillSection = skillCatalog
+    ? `\n本系统已安装以下"研究方法技能"（推荐时请优先考虑这些技能覆盖的方法，并参考其适用场景判断何时使用；被技能覆盖的方法在后续设计阶段会得到更专业的支持）：\n${skillCatalog}\n`
+    : '';
   const userPrompt = `当前任务：根据已确认的研究问题，推荐一个具体可执行的研究方案。
 ${buildContextDescription(ctx)}
 
 可选研究方法（从这些里挑最适合的，必要时可组合）：用户访谈 / 问卷调研 / 可用性测试 / 日记研究 / 焦点小组 / 桌面研究 等。
-
+${skillSection}
 约束（关于组合方案，非常重要，请严格遵守）：
 - 当你认为单一方法不够，需要"组合 / 混合方法"时：
   - 顶层字段 method 用一句话概括整体方案（例如：定性访谈 + 定量问卷的混合研究）；
@@ -360,8 +370,19 @@ export const generateExecutionGuide = async (
   const focusedDescription = focusedPlan
     ? `\n本次生成的执行指南，仅针对下方这个【单一】子方法，不要混入其他方法的内容：\n- 方法：${focusedPlan.method}\n- 方法类型：${focusedPlan.methodCategory}\n- 该方法独立的样本量与画像：${focusedPlan.sample}\n- 该方法独立的周期：${focusedPlan.duration}\n- 该方法在整体研究中的角色：${focusedPlan.purpose}\n\n严格要求：\n- recruitment.totalSample 必须等于上面"该方法独立样本量"中明确给出的人数；如果原文是 "8 人"，那么 totalSample 必须是 8；不要把其它子方法的样本相加进来。\n- recruitment 的所有 quotas 配额之和应当等于 totalSample。\n- outline、cautions、recordTemplateColumns 都必须只服务该单一方法，例如访谈方法就只写访谈相关，问卷方法就只写问卷题目和板块。\n- 不要在指南里出现"另外做问卷"等跨方法的描述。`
     : '';
+
+  // 解析当前方法对应的"研究方法技能"。优先用聚焦子方法，否则用整体方案。
+  const methodCategory =
+    focusedPlan?.methodCategory ?? ctx.confirmedResearchPlan?.methodCategory;
+  const methodName = focusedPlan?.method ?? ctx.confirmedResearchPlan?.method;
+  const matchedSkill = findSkillForMethod(methodCategory, methodName);
+  const skillKnowledge = matchedSkill
+    ? `\n\n=== 研究方法技能（请严格依据以下技能说明来设计本次执行指南；technique 细节、题型、模型规则、参考资料都要落实到输出中）===\n${buildSkillKnowledge(
+        matchedSkill
+      )}\n=== 技能说明结束 ===\n\n请把上述技能的方法论、结构骨架、题项规范与参考模型，转化到下方要求的 JSON 字段里（例如问卷类技能：outline.sections 表示问卷板块，questions 表示按规范编写的题目；recordTemplateColumns 贴合该方法）。`
+    : '';
   const userPrompt = `当前任务：根据已确认的研究方案，输出可直接执行的完整指南。
-${buildContextDescription(ctx)}${focusedDescription}
+${buildContextDescription(ctx)}${focusedDescription}${skillKnowledge}
 
 要求：
 - 用户招募部分必须给出可量化的配额（例如年龄分布、行业分布等），并给出筛选标准。
