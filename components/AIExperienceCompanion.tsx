@@ -4,11 +4,13 @@ import {
   analyzeResearchResults,
   ClarifyOption,
   ClarifyResponse,
+  ContentOutline,
   ExecutionGuideResult,
   generateExecutionGuide,
   generateResearchPlan,
   generateResearchQuestion,
   isDeepSeekConfigured,
+  ProbingGuide,
   ResearchPlanResult,
   ResearchQuestionResult,
   ResearchSubPlan,
@@ -101,6 +103,95 @@ const SectionCard: React.FC<{ title: string; children: React.ReactNode }> = ({ t
   </div>
 );
 
+/** 研究内容概览（contentOutline）的紧凑展示：模块列表 + 核心探针 + 嵌入任务 */
+const ContentOutlineView: React.FC<{ outline: ContentOutline }> = ({ outline }) => (
+  <div className="space-y-1.5">
+    {outline.sections.map((sec, i) => (
+      <div key={i} className="rounded-md border border-slate-200 bg-white/70 px-2.5 py-1.5">
+        <div className="text-xs font-semibold text-slate-800">
+          {sec.title}
+          {sec.duration ? (
+            <span className="ml-1 font-normal text-slate-400">（{sec.duration}）</span>
+          ) : null}
+        </div>
+        {sec.description ? (
+          <div className="mt-0.5 text-[11px] leading-4 text-slate-600">{sec.description}</div>
+        ) : null}
+        {sec.probes && sec.probes.length > 0 && (
+          <div className="mt-0.5 text-[11px] leading-4 text-slate-500">
+            核心探针：{sec.probes.join('；')}
+          </div>
+        )}
+      </div>
+    ))}
+    {outline.embedTask && (
+      <div className="rounded-md border border-violet-200 bg-violet-50/60 px-2.5 py-1.5 text-[11px] leading-4 text-violet-800">
+        <span className="font-semibold">嵌入任务 · {outline.embedTask.technique}：</span>
+        {outline.embedTask.description}
+      </div>
+    )}
+  </div>
+);
+
+/** 探询指南（interview-guide-generator）：追问三向仪 / ORID / 投射技术 / 特殊用户应对 */
+const ProbingGuideView: React.FC<{ guide: ProbingGuide }> = ({ guide }) => (
+  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+    {guide.threeSixty && guide.threeSixty.length > 0 && (
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <div className="text-xs font-semibold text-slate-700">追问三向仪（360度提问法）</div>
+        <ul className="mt-2 space-y-1.5 text-xs text-slate-600">
+          {guide.threeSixty.map((t, i) => (
+            <li key={i}>
+              <span className="font-semibold text-slate-800">{t.direction}</span>
+              ：{t.usage}
+              {t.example ? <span className="text-slate-400">（如："{t.example}"）</span> : null}
+            </li>
+          ))}
+        </ul>
+      </div>
+    )}
+    {guide.orid && guide.orid.length > 0 && (
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <div className="text-xs font-semibold text-slate-700">ORID 追问链</div>
+        <ul className="mt-2 space-y-1.5 text-xs text-slate-600">
+          {guide.orid.map((o, i) => (
+            <li key={i}>
+              <span className="font-semibold text-slate-800">{o.level}</span>
+              ：{(o.questions || []).join('；')}
+            </li>
+          ))}
+        </ul>
+      </div>
+    )}
+    {guide.projective && guide.projective.length > 0 && (
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <div className="text-xs font-semibold text-slate-700">投射技术速查</div>
+        <ul className="mt-2 space-y-1.5 text-xs text-slate-600">
+          {guide.projective.map((p, i) => (
+            <li key={i}>
+              <span className="font-semibold text-slate-800">{p.technique}</span>
+              ：{p.example}
+            </li>
+          ))}
+        </ul>
+      </div>
+    )}
+    {guide.specialUsers && guide.specialUsers.length > 0 && (
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <div className="text-xs font-semibold text-slate-700">特殊用户应对</div>
+        <ul className="mt-2 space-y-1.5 text-xs text-slate-600">
+          {guide.specialUsers.map((u, i) => (
+            <li key={i}>
+              <span className="font-semibold text-slate-800">{u.userType}</span>
+              ：{u.strategy}
+            </li>
+          ))}
+        </ul>
+      </div>
+    )}
+  </div>
+);
+
 const ClarifyPanel: React.FC<{
   question: string;
   options: ClarifyOption[];
@@ -168,7 +259,7 @@ const ClarifyPanel: React.FC<{
 
       <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-1">
         <label className="text-xs font-semibold text-slate-600">
-          D. 也想自己补充几句（可选，可与 A/B/C 同时使用）
+          自定义补充（可选，可与上方选项同时勾选）
         </label>
         <textarea
           className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -188,7 +279,7 @@ const ClarifyPanel: React.FC<{
               }`
             : customText.trim()
             ? '仅使用自定义补充'
-            : '至少勾选一个选项，或在 D 中填写自定义内容'}
+            : '至少勾选一个选项，或填写自定义补充'}
         </div>
         <div className="flex flex-wrap gap-2">
           <button
@@ -387,7 +478,9 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
     if (subs.length > 1) {
       return { plans: subs, useFocus: true };
     }
-    const single: ResearchSubPlan = {
+    // 优先沿用模型返回的唯一子方案（保留 contentOutline / embeddedTechniques），
+    // 只有完全缺失时才用顶层字段合成。
+    const single: ResearchSubPlan = subs[0] ?? {
       method: plan.method,
       methodCategory:
         plan.methodCategory === 'mixed'
@@ -623,17 +716,56 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
     lines.push('');
     lines.push(`## 二、访谈/调研提纲`);
     guide.outline.sections.forEach(s => {
-      lines.push(`### ${s.name}（${s.duration}）`);
+      lines.push(
+        `### ${s.name}（${s.duration}）${
+          s.organizingMethod ? ` · ${s.organizingMethod}` : ''
+        }`
+      );
       s.questions.forEach((q, idx) => {
-        lines.push(`${idx + 1}. [${q.topic}] ${q.question}`);
+        if (q.leadIn) lines.push(`${idx + 1}. 铺垫：${q.leadIn}`);
+        lines.push(
+          `${q.leadIn ? '   ' : `${idx + 1}. `}[${q.topic}] ${q.question}${
+            q.cbaType ? `（CBA：${q.cbaType}）` : ''
+          }`
+        );
         (q.followUps || []).forEach(f => lines.push(`   - 追问：${f}`));
+        if (q.purpose) lines.push(`   - 目的：${q.purpose}`);
       });
     });
     lines.push('');
     lines.push(`## 三、执行注意事项`);
     guide.cautions.forEach(c => lines.push(`- ${c}`));
+    const pg = guide.probingGuide;
+    if (
+      pg &&
+      (pg.threeSixty?.length ||
+        pg.orid?.length ||
+        pg.projective?.length ||
+        pg.specialUsers?.length)
+    ) {
+      lines.push('');
+      lines.push(`## 四、探询指南`);
+      if (pg.threeSixty?.length) {
+        lines.push(`### 追问三向仪（360度提问法）`);
+        pg.threeSixty.forEach(t =>
+          lines.push(`- ${t.direction}：${t.usage}${t.example ? `（如："${t.example}"）` : ''}`)
+        );
+      }
+      if (pg.orid?.length) {
+        lines.push(`### ORID 追问链`);
+        pg.orid.forEach(o => lines.push(`- ${o.level}：${(o.questions || []).join('；')}`));
+      }
+      if (pg.projective?.length) {
+        lines.push(`### 投射技术速查`);
+        pg.projective.forEach(p => lines.push(`- ${p.technique}：${p.example}`));
+      }
+      if (pg.specialUsers?.length) {
+        lines.push(`### 特殊用户应对`);
+        pg.specialUsers.forEach(u => lines.push(`- ${u.userType}：${u.strategy}`));
+      }
+    }
     lines.push('');
-    lines.push(`## 四、记录模板字段`);
+    lines.push(`## ${pg ? '五' : '四'}、记录模板字段`);
     guide.recordTemplateColumns.forEach(c => lines.push(`- ${c}`));
     return lines.join('\n');
   };
@@ -838,9 +970,25 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
       result => (
         <SectionCard title="将您的业务问题转化为研究问题">
           <div className="rounded-lg bg-violet-50 border border-violet-200 p-3 text-violet-900">
-            <span className="text-xs font-semibold">核心研究问题</span>
+            <span className="text-xs font-semibold">核心研究问题（研究问题陈述）</span>
             <p className="mt-1 text-sm font-medium leading-7">{result.researchQuestion}</p>
           </div>
+          {result.clarifiedDimensions && result.clarifiedDimensions.length > 0 && (
+            <div>
+              <div className="text-xs font-semibold text-slate-600">已澄清的维度</div>
+              <div className="mt-1 grid grid-cols-1 md:grid-cols-2 gap-1.5">
+                {result.clarifiedDimensions.map((d, i) => (
+                  <div
+                    key={i}
+                    className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs"
+                  >
+                    <span className="font-semibold text-slate-700">{d.dimension}：</span>
+                    <span className="text-slate-600">{d.conclusion}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {result.subQuestions?.length > 0 && (
             <div>
               <div className="text-xs font-semibold text-slate-600">细分研究问题</div>
@@ -874,17 +1022,26 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
       () => startStage3(),
       result => {
         const hasSubPlans = !!result.subPlans && result.subPlans.length > 1;
+        const singleSubPlan =
+          result.subPlans && result.subPlans.length === 1 ? result.subPlans[0] : undefined;
         return (
           <SectionCard title="推荐的研究方案">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
                 <div className="text-[11px] uppercase tracking-wide text-slate-500">方法</div>
                 <div className="mt-1 text-sm font-semibold text-slate-900">{result.method}</div>
-                {result.methodCategory === 'mixed' && (
-                  <div className="mt-1 inline-flex rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
-                    组合方案
-                  </div>
-                )}
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {result.methodCategory === 'mixed' && (
+                    <span className="inline-flex rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
+                      组合方案
+                    </span>
+                  )}
+                  {result.researchType && (
+                    <span className="inline-flex rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
+                      {result.researchType}
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
                 <div className="text-[11px] uppercase tracking-wide text-slate-500">样本</div>
@@ -895,6 +1052,25 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
                 <div className="mt-1 text-sm font-semibold text-slate-900">{result.duration}</div>
               </div>
             </div>
+
+            {!hasSubPlans && singleSubPlan && (singleSubPlan.contentOutline || singleSubPlan.embeddedTechniques?.length) ? (
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="text-xs font-semibold text-slate-600">研究内容概览</div>
+                  {singleSubPlan.embeddedTechniques?.map((t, i) => (
+                    <span
+                      key={i}
+                      className="inline-flex rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700"
+                    >
+                      嵌入技术 · {t}
+                    </span>
+                  ))}
+                </div>
+                {singleSubPlan.contentOutline && (
+                  <ContentOutlineView outline={singleSubPlan.contentOutline} />
+                )}
+              </div>
+            ) : null}
 
             {hasSubPlans && (
               <div className="space-y-2">
@@ -927,6 +1103,28 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
                         <span className="text-slate-500">目的：</span>
                         {sp.purpose}
                       </div>
+                      {sp.embeddedTechniques && sp.embeddedTechniques.length > 0 && (
+                        <div className="flex flex-wrap gap-1 pt-0.5">
+                          {sp.embeddedTechniques.map((t, k) => (
+                            <span
+                              key={k}
+                              className="inline-flex rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700"
+                            >
+                              嵌入技术 · {t}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {sp.contentOutline && (
+                        <div className="pt-1">
+                          <div className="text-[11px] font-semibold text-slate-500">
+                            研究内容概览
+                          </div>
+                          <div className="mt-1">
+                            <ContentOutlineView outline={sp.contentOutline} />
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -940,6 +1138,16 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
             {result.alternatives?.length ? (
               <div className="text-xs text-slate-500">
                 备选方案：{result.alternatives.join('；')}
+              </div>
+            ) : null}
+            {result.limitations?.length ? (
+              <div className="text-xs text-slate-500">
+                <span className="font-semibold">方案局限性：</span>
+                <ul className="mt-1 list-disc pl-5 space-y-0.5">
+                  {result.limitations.map((l, i) => (
+                    <li key={i}>{l}</li>
+                  ))}
+                </ul>
               </div>
             ) : null}
           </SectionCard>
@@ -999,16 +1207,31 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
       <SectionCard title="二、访谈/调研提纲">
         {result.outline.sections.map((s, i) => (
           <div key={i} className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="text-sm font-semibold text-slate-900">{s.name}</div>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="text-sm font-semibold text-slate-900">{s.name}</div>
+                {s.organizingMethod && (
+                  <span className="inline-flex rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
+                    {s.organizingMethod}
+                  </span>
+                )}
+              </div>
               <div className="text-xs text-slate-500">{s.duration}</div>
             </div>
             <ol className="list-decimal pl-5 space-y-2 text-sm">
               {s.questions.map((q, j) => (
                 <li key={j}>
+                  {q.leadIn && (
+                    <div className="text-xs text-slate-500">铺垫：{q.leadIn}</div>
+                  )}
                   <div>
                     <span className="text-xs text-slate-500">[{q.topic}] </span>
                     {q.question}
+                    {q.cbaType && (
+                      <span className="ml-1 inline-flex rounded border border-slate-300 bg-white px-1 text-[10px] font-semibold text-slate-500 align-middle">
+                        {q.cbaType}
+                      </span>
+                    )}
                   </div>
                   {q.followUps && q.followUps.length > 0 && (
                     <ul className="mt-1 list-disc pl-5 text-xs text-slate-600 space-y-0.5">
@@ -1016,6 +1239,9 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
                         <li key={k}>追问：{f}</li>
                       ))}
                     </ul>
+                  )}
+                  {q.purpose && (
+                    <div className="mt-0.5 text-[11px] text-slate-400">目的：{q.purpose}</div>
                   )}
                 </li>
               ))}
@@ -1030,8 +1256,17 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
           ))}
         </ul>
       </SectionCard>
+      {result.probingGuide &&
+        (result.probingGuide.threeSixty?.length ||
+          result.probingGuide.orid?.length ||
+          result.probingGuide.projective?.length ||
+          result.probingGuide.specialUsers?.length) ? (
+        <SectionCard title="四、探询指南（访谈中的导航仪）">
+          <ProbingGuideView guide={result.probingGuide} />
+        </SectionCard>
+      ) : null}
       {result.recordTemplateColumns?.length > 0 && (
-        <SectionCard title="四、记录模板">
+        <SectionCard title={result.probingGuide ? '五、记录模板' : '四、记录模板'}>
           <p>建议使用如下字段记录访谈/调研结果（可直接下载 CSV 表格）：</p>
           <div className="flex flex-wrap gap-1">
             {result.recordTemplateColumns.map((c, i) => (
