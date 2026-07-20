@@ -219,23 +219,17 @@ export interface InterviewQuestion {
   question: string;
   /** 追问链（仅访谈类） */
   followUps?: string[];
-  /** 铺垫问题（仅访谈类，CBA 编题：先从简单具体处切入） */
+  /** 铺垫问题（仅访谈类：先从简单具体处切入） */
   leadIn?: string;
   /** 设置目的：该题映射到哪个研究目标 */
   purpose?: string;
-  /** CBA 类型（仅访谈类）：C=情景 / B=行为+原因 / A=态度+建议 */
-  cbaType?: string;
-  /** 题型（仅问卷类）：单选 / 多选 / 量表 / NPS / 开放题 等 */
-  questionType?: string;
-  /** 选项列表（仅问卷类，开放题可为空） */
+  /** 选项列表（仅问卷类；作答方式写在题干里，开放题可为空） */
   options?: string[];
 }
 
 export interface GuideSection {
   name: string;
   duration: string;
-  /** 模块组织方法：标准CBA / JTBD / 旅程回溯 / 卡片分类任务 / 问卷板块 等 */
-  organizingMethod?: string;
   questions: InterviewQuestion[];
 }
 
@@ -669,20 +663,21 @@ export const generateExecutionGuide = async (
     : '';
   const methodRules = isInterview
     ? `- 提纲按访谈阶段划分。如果研究方案给出了"研究内容概览"（contentOutline），outline.sections 必须以其话题模块为骨架：每个模块对应一个 section，保留模块名与时长，并在最前和最后补充"开场"和"收尾"两个 section。
-- 每个 section 标注 organizingMethod：默认 "标准CBA"；涉及用户选择/切换/决策的模块用 "JTBD"；涉及端到端体验回溯的模块用 "旅程回溯"；卡片分类任务模块用 "卡片分类任务"。嵌入技术只作用于对应的话题模块，不影响其他模块。
-- 题目按 CBA 原则编写：leadIn（铺垫问题，从简单具体处切入）、question（核心问题）、followUps（追问链）、purpose（设置目的，映射研究目标）、cbaType（"C" 情景 / "B" 行为+原因 / "A" 态度+建议）。不要输出 questionType 和 options（那是问卷字段）。
+- 各模块内部按话题特点组织题目顺序：涉及用户选择/切换/决策的模块按 触发→比较→决策→评估 的决策链递进；涉及端到端体验回溯的模块按 行为序列→触点→情绪 递进；含卡片分类任务的模块放在所有话题模块之后。嵌入技术只作用于对应的话题模块，不影响其他模块。
+- 题目按 情景→行为→态度 递进编写：leadIn（铺垫问题，从简单具体处切入）、question（核心问题）、followUps（追问链）、purpose（设置目的，映射研究目标）。不要输出 options（那是问卷字段）。
+- 输出的任何字段中都不要出现方法名称或标签（如 "CBA"、"JTBD"、"旅程回溯"、"卡片分类任务" 这类术语标注）——方法只体现在题目的组织与措辞里，不体现为标签。
 - 严禁禁忌题目：否定性假设、未来预测、让用户定价、让用户设计、双重问题、含价值判断的措辞。
 - 必须输出 probingGuide（探询指南）：threeSixty（上推/平移/下切）、orid（O/R/I/D 各层典型问法）、projective（拟人法/联想法/第三人称法/完成法）、specialUsers（好奇用户/专家用户/佛系用户应对）。
 - 执行注意事项要落地（例如录音征得同意、避免诱导性提问、记录关键证据等）。`
     : isSurvey
     ? `- outline.sections 表示问卷板块（如：甄别题、主体测量模块、人口学信息、开放建议）。如果研究方案给出了"研究内容概览"（contentOutline），板块划分必须以其为骨架。
-- questions 表示问卷题目：question 是完整题干；questionType 标注题型（单选 / 多选 / 李克特量表 / NPS / 矩阵 / 排序 / 开放题 等）；options 给出完整选项列表（量表题写出刻度标签，开放题 options 为空数组）；purpose 说明该题的测量目的。
-- 问卷是用户自填的，没有访谈员在场：严禁输出 followUps（追问）、leadIn（铺垫）、cbaType、probingGuide 字段，严禁在任何文字中出现 CBA、ORID、追问、探询等访谈概念。organizingMethod 可省略或填 "问卷板块"。
+- questions 表示问卷题目：question 是完整题干，作答方式直接写进题干文字（如多选题在题干末尾注明"（可多选）"，量表题说明打分方式）；options 给出完整选项列表（量表题写出刻度标签，开放题 options 为空数组）；purpose 说明该题的测量目的。
+- 问卷是用户自填的，没有访谈员在场：严禁输出 followUps（追问）、leadIn（铺垫）、probingGuide 字段，严禁在任何文字中出现 CBA、ORID、追问、探询等访谈概念，也不要输出任何方法或题型标签字段。
 - 题目措辞规范：一题一问（不双重）、具体可感知、中性不引导、避免否定嵌套。
 - 如有跳转/显示逻辑（如甄别不通过即终止），写在对应题目的 purpose 或 cautions 里说明。
 - 执行注意事项要落地（例如投放渠道、甄别与作答质量控制、发布前预测试等）。`
     : `- 提纲按该方法的实际执行环节划分（如任务、观察点、分析步骤）。如果研究方案给出了"研究内容概览"（contentOutline），以其为骨架。
-- 每个问题/任务给出 purpose（目的说明）；仅在该方法确实存在口头追问环节时才使用 followUps。不要输出 cbaType / probingGuide。
+- 每个问题/任务给出 purpose（目的说明）；仅在该方法确实存在口头追问环节时才使用 followUps。不要输出 probingGuide，也不要输出任何方法标签。
 - 执行注意事项要落地，贴合该方法的关键操作与质量控制。`;
 
   const questionExample = isInterview
@@ -692,15 +687,13 @@ export const generateExecutionGuide = async (
               "question": "...",
               "followUps": ["..."],
               "leadIn": "...（铺垫问题，可省略）",
-              "purpose": "...（设置目的）",
-              "cbaType": "C"
+              "purpose": "...（设置目的）"
             }`
     : isSurvey
     ? `{
               "id": "q1",
               "topic": "使用频率",
-              "question": "...（完整题干）",
-              "questionType": "单选",
+              "question": "...（完整题干，作答方式写在题干里）",
               "options": ["每天", "每周数次", "每月数次", "更少"],
               "purpose": "...（测量目的）"
             }`
@@ -723,8 +716,7 @@ export const generateExecutionGuide = async (
 
   const sectionExampleHead = isInterview
     ? `"name": "开场（5min）",
-          "duration": "5 分钟",
-          "organizingMethod": "标准CBA",`
+          "duration": "5 分钟",`
     : isSurvey
     ? `"name": "甄别题",
           "duration": "约1分钟",`

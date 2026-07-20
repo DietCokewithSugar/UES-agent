@@ -24,8 +24,10 @@
   `stripCollaborationSections`，仅影响注入内容，`skills/` 源文件保持原样）。
 - 各阶段提示词均带隔离声明：技能文档中点名的其他技能只是流程分工说明，
   其方法、术语、标签（如 CBA、ORID）不得进入本阶段输出。
-- 执行指南阶段按方法类型分叉提示词：访谈类才有 CBA / 追问 / 探询指南；
-  问卷类只有板块、题型与选项，禁止访谈概念。
+- 执行指南阶段按方法类型分叉提示词：访谈类才有铺垫/追问设计与探询指南；
+  问卷类只有板块与选项，禁止访谈概念。
+- 方法名称标签（CBA、JTBD、旅程回溯、卡片分类任务等）只存在于注入给模型的方法论中，
+  用于组织题目顺序与措辞，**不会出现在输出结果与界面上**。
 
 ## 体验伙伴流水线与技能的对应关系
 
@@ -36,8 +38,8 @@
                   第一段注入 SKILL.md 正文做层级式方法匹配（采集方式→嵌入技术→合并阶段）；
                   第二段按命中方法注入对应 references 细化样本量/配额/研究内容概览
 阶段4 执行指南  ← findSkillForMethod（仅 role=method，本阶段唯一注入方法技能的地方）
-                  ├─ interview → interview-guide-generator（CBA 编题 + 组织方法 + 探询指南）
-                  └─ survey    → questionnaire-generator（问卷骨架 + Kano/ETS 模型 + 题型/选项）
+                  ├─ interview → interview-guide-generator（模块化编题 + 探询指南，输出不带方法标签）
+                  └─ survey    → questionnaire-generator（问卷骨架 + Kano/ETS 模型 + 选项设计）
                   其余方法类别（如 desk_research、独立卡片分类的 other）暂无方法技能，
                   回退到通用执行指南提示词
 ```

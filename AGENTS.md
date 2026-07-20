@@ -30,8 +30,9 @@ key (default `method`):
 
 - **method skills** (`interview-guide-generator`, `questionnaire-generator`) are injected ONLY in
   `generateExecutionGuide` (执行指南), routed by the selected method's category; the stage-4 prompt
-  branches by method type (interview gets CBA/probing-guide structure, survey gets question
-  types/options and forbids interview concepts).
+  branches by method type (interview gets lead-in/follow-up question design plus the probing
+  guide, survey gets options-only questions and forbids interview concepts). Method-name labels
+  (CBA/JTBD/…) guide question organization internally but are never emitted in outputs.
 - **process skills** (`problem-clarifier` for stage 2 研究问题, `research-plan-generator` for
   stage 3 研究方案) are injected explicitly via `getSkill(id)` into their stage prompts;
   stage 3 uses a two-phase call (method matching with the skill body, then refinement with only
