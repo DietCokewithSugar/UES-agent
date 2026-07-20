@@ -20,15 +20,23 @@ Configured in `.env.local` at the project root. Vite injects them at build/dev t
 - `DEEPSEEK_API_KEY` — required for the "AI 体验伙伴" (AI Experience Companion) feature.
 - `DEEPSEEK_API_BASE_URL` — optional override, defaults to `https://api.deepseek.com`.
 
-### Research-method skills (`skills/`)
+### Research skills (`skills/`)
 
-The "AI 体验伙伴" feature is augmented by pluggable **research-method skills** under `skills/`,
+The "AI 体验伙伴" feature is augmented by pluggable **research skills** under `skills/`,
 following the Anthropic Agent Skills convention (one folder per skill with a `SKILL.md` that has
 `name`/`description` frontmatter, plus optional `references/`). `services/skills/skillRegistry.ts`
-bundles them at build time via Vite `import.meta.glob` (raw text). The companion uses skill
-`description`s to build the method catalog in `generateResearchPlan` (推荐研究方案) and injects the
-matched skill's full body + references in `generateExecutionGuide` (执行指南). Add a new method by
-dropping a folder into `skills/`; no code changes needed. See `skills/README.md`.
+bundles them at build time via Vite `import.meta.glob` (raw text). Skills have a `role` frontmatter
+key (default `method`):
+
+- **method skills** (`interview-guide-generator`, `questionnaire-generator`) enter the method
+  catalog used by `generateResearchPlan` (推荐研究方案) and are routed by the selected method in
+  `generateExecutionGuide` (执行指南), where the full body + references are injected.
+- **process skills** (`problem-clarifier` for stage 2 研究问题, `research-plan-generator` for
+  stage 3 研究方案) are injected explicitly via `getSkill(id)` into their stage prompts;
+  stage 3 uses a two-phase call (method matching with the skill body, then refinement with only
+  the matched reference files).
+
+Add a new method by dropping a folder into `skills/`; no code changes needed. See `skills/README.md`.
 
 ### Caveats
 
