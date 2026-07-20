@@ -680,18 +680,10 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
     lines.push('');
     lines.push(`## 二、访谈/调研提纲`);
     guide.outline.sections.forEach(s => {
-      lines.push(
-        `### ${s.name}（${s.duration}）${
-          s.organizingMethod ? ` · ${s.organizingMethod}` : ''
-        }`
-      );
+      lines.push(`### ${s.name}（${s.duration}）`);
       s.questions.forEach((q, idx) => {
         if (q.leadIn) lines.push(`${idx + 1}. 铺垫：${q.leadIn}`);
-        lines.push(
-          `${q.leadIn ? '   ' : `${idx + 1}. `}[${q.topic}] ${q.question}${
-            q.cbaType ? `（CBA：${q.cbaType}）` : ''
-          }${q.questionType ? `（题型：${q.questionType}）` : ''}`
-        );
+        lines.push(`${q.leadIn ? '   ' : `${idx + 1}. `}[${q.topic}] ${q.question}`);
         if (q.options && q.options.length > 0) {
           lines.push(`   - 选项：${q.options.join(' / ')}`);
         }
@@ -1172,14 +1164,7 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
         {result.outline.sections.map((s, i) => (
           <div key={i} className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
             <div className="flex items-center justify-between gap-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="text-sm font-semibold text-slate-900">{s.name}</div>
-                {s.organizingMethod && (
-                  <span className="inline-flex rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
-                    {s.organizingMethod}
-                  </span>
-                )}
-              </div>
+              <div className="text-sm font-semibold text-slate-900">{s.name}</div>
               <div className="text-xs text-slate-500">{s.duration}</div>
             </div>
             <ol className="list-decimal pl-5 space-y-2 text-sm">
@@ -1191,16 +1176,6 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
                   <div>
                     <span className="text-xs text-slate-500">[{q.topic}] </span>
                     {q.question}
-                    {q.cbaType && (
-                      <span className="ml-1 inline-flex rounded border border-slate-300 bg-white px-1 text-[10px] font-semibold text-slate-500 align-middle">
-                        {q.cbaType}
-                      </span>
-                    )}
-                    {q.questionType && (
-                      <span className="ml-1 inline-flex rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 align-middle">
-                        {q.questionType}
-                      </span>
-                    )}
                   </div>
                   {q.options && q.options.length > 0 && (
                     <ul className="mt-1 space-y-0.5 pl-5 text-xs text-slate-600">
