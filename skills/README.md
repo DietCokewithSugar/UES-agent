@@ -11,10 +11,21 @@
 ## 技能的两类角色（前置元数据 `role`，缺省 `method`）
 
 - **`role: method` 研究方法技能** —— 服务某种具体研究方法（问卷、访谈…）。
-  进入流程「研究方案」的技能目录（`buildSkillCatalog`），并在流程「执行指南」按所选方法
-  路由命中（`findSkillForMethod`），完整正文 + references 注入提示词（`buildSkillKnowledge`）。
+  仅在流程「执行指南」按所选方法路由命中（`findSkillForMethod`），
+  完整正文 + references 注入提示词（`buildSkillKnowledge`）。
 - **`role: process` 流程技能** —— 服务体验伙伴的某个流程阶段本身（问题澄清、方案设计方法论）。
-  不进入方法目录、不参与方法路由，由 `deepseekService` 通过 `getSkill(id)` 显式注入对应阶段。
+  不参与方法路由，由 `deepseekService` 通过 `getSkill(id)` 显式注入对应阶段。
+
+## 阶段隔离（核心约定）
+
+**一个阶段只注入一个技能，技能之间互不注入、互不引用**：
+
+- 注入正文时自动剥离技能文档中的「与上下游技能协作」章节（`skillRegistry.ts` 的
+  `stripCollaborationSections`，仅影响注入内容，`skills/` 源文件保持原样）。
+- 各阶段提示词均带隔离声明：技能文档中点名的其他技能只是流程分工说明，
+  其方法、术语、标签（如 CBA、ORID）不得进入本阶段输出。
+- 执行指南阶段按方法类型分叉提示词：访谈类才有 CBA / 追问 / 探询指南；
+  问卷类只有板块、题型与选项，禁止访谈概念。
 
 ## 体验伙伴流水线与技能的对应关系
 
@@ -24,15 +35,14 @@
 阶段3 研究方案  ← research-plan-generator（process，两段式注入）
                   第一段注入 SKILL.md 正文做层级式方法匹配（采集方式→嵌入技术→合并阶段）；
                   第二段按命中方法注入对应 references 细化样本量/配额/研究内容概览
-                  + 方法技能目录 buildSkillCatalog（仅 role=method）供选型
-阶段4 执行指南  ← findSkillForMethod（仅 role=method）
+阶段4 执行指南  ← findSkillForMethod（仅 role=method，本阶段唯一注入方法技能的地方）
                   ├─ interview → interview-guide-generator（CBA 编题 + 组织方法 + 探询指南）
-                  └─ survey    → questionnaire-generator（问卷骨架 + Kano/ETS 模型）
+                  └─ survey    → questionnaire-generator（问卷骨架 + Kano/ETS 模型 + 题型/选项）
                   其余方法类别（如 desk_research、独立卡片分类的 other）暂无方法技能，
                   回退到通用执行指南提示词
 ```
 
-组合方案中每个子方法各自解析一个技能；技能内部对 `references/` 的引用即"相互调用"。
+组合方案中每个子方法各自解析一个技能；技能内部对自身 `references/` 的引用即"相互调用"（仅限技能自身目录内）。
 
 ## 目录结构
 

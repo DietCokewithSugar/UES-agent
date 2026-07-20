@@ -28,13 +28,18 @@ following the Anthropic Agent Skills convention (one folder per skill with a `SK
 bundles them at build time via Vite `import.meta.glob` (raw text). Skills have a `role` frontmatter
 key (default `method`):
 
-- **method skills** (`interview-guide-generator`, `questionnaire-generator`) enter the method
-  catalog used by `generateResearchPlan` (推荐研究方案) and are routed by the selected method in
-  `generateExecutionGuide` (执行指南), where the full body + references are injected.
+- **method skills** (`interview-guide-generator`, `questionnaire-generator`) are injected ONLY in
+  `generateExecutionGuide` (执行指南), routed by the selected method's category; the stage-4 prompt
+  branches by method type (interview gets CBA/probing-guide structure, survey gets question
+  types/options and forbids interview concepts).
 - **process skills** (`problem-clarifier` for stage 2 研究问题, `research-plan-generator` for
   stage 3 研究方案) are injected explicitly via `getSkill(id)` into their stage prompts;
   stage 3 uses a two-phase call (method matching with the skill body, then refinement with only
   the matched reference files).
+
+Stages are strictly isolated: one stage injects exactly one skill, "collaboration" sections in
+skill bodies are stripped at injection time, and each prompt forbids borrowing other skills'
+terminology.
 
 Add a new method by dropping a folder into `skills/`; no code changes needed. See `skills/README.md`.
 

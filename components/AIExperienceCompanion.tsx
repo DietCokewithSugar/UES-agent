@@ -53,33 +53,13 @@ const STAGE_SUBTITLES: Record<StageId, string> = {
   1: '告诉我你的产品、阶段和想搞清楚的问题',
   2: '我会把业务问题转化为研究问题',
   3: '我会推荐合适的研究方法、样本和周期',
-  4: '生成完整执行指南，并准备好记录模板',
+  4: '生成完整执行指南',
   5: '上传访谈/调研结果，由 AI 进行分析'
 };
 
 const saveFile = (data: Blob | string, filename: string) => {
   const save = (FileSaver as any).saveAs || (FileSaver as any).default || FileSaver;
   if (typeof save === 'function') save(data, filename);
-};
-
-const csvEscape = (value: string): string => {
-  const v = (value ?? '').toString();
-  if (/[",\n]/.test(v)) {
-    return `"${v.replace(/"/g, '""')}"`;
-  }
-  return v;
-};
-
-const buildCsv = (headers: string[], rows: string[][] = []): string => {
-  const lines = [headers.map(csvEscape).join(',')];
-  rows.forEach(row => lines.push(row.map(csvEscape).join(',')));
-  return '\uFEFF' + lines.join('\r\n');
-};
-
-const downloadCsv = (filename: string, headers: string[], sampleRow?: string[]) => {
-  const rows = sampleRow ? [sampleRow] : [];
-  const csv = buildCsv(headers, rows);
-  saveFile(new Blob([csv], { type: 'text/csv;charset=utf-8' }), filename);
 };
 
 const Bubble: React.FC<{ from: 'ai' | 'user'; children: React.ReactNode }> = ({ from, children }) => (
@@ -665,22 +645,6 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
       .replace(/^-|-$/g, '')
       .slice(0, 60) || 'guide';
 
-  const downloadRecordTemplateFor = (
-    guide: ExecutionGuideResult,
-    plan?: ResearchSubPlan
-  ) => {
-    const cols = guide.recordTemplateColumns;
-    if (!cols || cols.length === 0) {
-      alert('该子方案暂无可用的记录模板字段。');
-      return;
-    }
-    const sample = cols.map(c => `示例-${c}`);
-    const fname = plan
-      ? `record-template-${slugifyForFilename(plan.method)}.csv`
-      : 'research-record-template.csv';
-    downloadCsv(fname, cols, sample);
-  };
-
   const buildOutlineMarkdownFor = (
     guide: ExecutionGuideResult,
     plan?: ResearchSubPlan
@@ -726,8 +690,11 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
         lines.push(
           `${q.leadIn ? '   ' : `${idx + 1}. `}[${q.topic}] ${q.question}${
             q.cbaType ? `（CBA：${q.cbaType}）` : ''
-          }`
+          }${q.questionType ? `（题型：${q.questionType}）` : ''}`
         );
+        if (q.options && q.options.length > 0) {
+          lines.push(`   - 选项：${q.options.join(' / ')}`);
+        }
         (q.followUps || []).forEach(f => lines.push(`   - 追问：${f}`));
         if (q.purpose) lines.push(`   - 目的：${q.purpose}`);
       });
@@ -764,9 +731,6 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
         pg.specialUsers.forEach(u => lines.push(`- ${u.userType}：${u.strategy}`));
       }
     }
-    lines.push('');
-    lines.push(`## ${pg ? '五' : '四'}、记录模板字段`);
-    guide.recordTemplateColumns.forEach(c => lines.push(`- ${c}`));
     return lines.join('\n');
   };
 
@@ -1232,7 +1196,22 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
                         {q.cbaType}
                       </span>
                     )}
+                    {q.questionType && (
+                      <span className="ml-1 inline-flex rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 align-middle">
+                        {q.questionType}
+                      </span>
+                    )}
                   </div>
+                  {q.options && q.options.length > 0 && (
+                    <ul className="mt-1 space-y-0.5 pl-5 text-xs text-slate-600">
+                      {q.options.map((opt, k) => (
+                        <li key={k} className="list-none">
+                          <span className="mr-1 inline-block h-2.5 w-2.5 rounded-full border border-slate-300 align-middle" />
+                          {opt}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                   {q.followUps && q.followUps.length > 0 && (
                     <ul className="mt-1 list-disc pl-5 text-xs text-slate-600 space-y-0.5">
                       {q.followUps.map((f, k) => (
@@ -1265,36 +1244,6 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
           <ProbingGuideView guide={result.probingGuide} />
         </SectionCard>
       ) : null}
-      {result.recordTemplateColumns?.length > 0 && (
-        <SectionCard title={result.probingGuide ? '五、记录模板' : '四、记录模板'}>
-          <p>建议使用如下字段记录访谈/调研结果（可直接下载 CSV 表格）：</p>
-          <div className="flex flex-wrap gap-1">
-            {result.recordTemplateColumns.map((c, i) => (
-              <span
-                key={i}
-                className="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-xs"
-              >
-                {c}
-              </span>
-            ))}
-          </div>
-          <div className="flex flex-wrap gap-2 pt-2">
-            <button
-              onClick={() => {
-                const sample = result.recordTemplateColumns.map(c => `示例-${c}`);
-                downloadCsv(
-                  'research-record-template.csv',
-                  result.recordTemplateColumns,
-                  sample
-                );
-              }}
-              className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs text-white"
-            >
-              下载记录模板（CSV）
-            </button>
-          </div>
-        </SectionCard>
-      )}
     </div>
   );
 
@@ -1389,7 +1338,7 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
               })}
             </div>
             <div className="text-[11px] text-slate-500">
-              提示：每个子方法的招募样本量、提纲与记录模板都是独立的。切换 Tab 单独检查、可单独"重新生成"。
+              提示：每个子方法的招募样本量与提纲都是独立的。切换 Tab 单独检查、可单独"重新生成"。
             </div>
           </div>
         )}
@@ -1533,7 +1482,7 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
               </span>
               <div className="min-w-0">
                 <div className="text-sm font-semibold text-slate-900">
-                  查看完整执行指南（含访谈提纲与记录模板下载）
+                  查看完整执行指南（含提纲 Markdown 下载）
                   {multiGuide && (
                     <span className="ml-2 inline-flex rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
                       {confirmedGuides.length} 份子方案
@@ -1542,8 +1491,8 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
                 </div>
                 <div className="text-[11px] text-slate-500 truncate">
                   {multiGuide
-                    ? '组合研究：每个子方法都有独立的招募配额、提纲与记录模板。按对应模板填写后再上传，分析会更准。'
-                    : '在这里再次核对招募配额、提纲与记录字段，下载 CSV 记录模板，按模板填写后再上传。'}
+                    ? '组合研究：每个子方法都有独立的招募配额与提纲。执行后把结果整理上传，分析会更准。'
+                    : '在这里再次核对招募配额与提纲，执行后把结果整理上传。'}
                 </div>
               </div>
             </div>
@@ -1615,15 +1564,9 @@ export const AIExperienceCompanion: React.FC<AIExperienceCompanionProps> = ({ on
                     <div className="flex flex-wrap gap-2">
                       <button
                         onClick={() => downloadOutlineFor(activeGuide, activePlan)}
-                        className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] text-slate-700 hover:bg-slate-100"
-                      >
-                        下载这一份的 Markdown
-                      </button>
-                      <button
-                        onClick={() => downloadRecordTemplateFor(activeGuide, activePlan)}
                         className="rounded-md bg-slate-900 px-2.5 py-1 text-[11px] text-white"
                       >
-                        下载这一份的记录模板（CSV）
+                        下载这一份的 Markdown
                       </button>
                     </div>
                   </div>

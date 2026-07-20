@@ -96,12 +96,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               AI 体验伙伴 — 帮非专业人员设计一次完整的用户研究
             </h2>
             <p className="text-sm md:text-base text-slate-600 leading-7">
-              从需求澄清、转化研究问题、推荐研究方法，到生成可执行的访谈/调研指南与记录模板，再到访谈结果分析。AI 会通过单选式校准帮你避免"理解偏差"，全程对话引导。
+              从需求澄清、转化研究问题、推荐研究方法，到生成可执行的访谈/调研指南，再到访谈结果分析。AI 会通过可多选的理解校准帮你避免"理解偏差"，全程对话引导。
             </p>
             <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-600 leading-6">
               <li>· 把"业务问题"翻译成"研究问题"</li>
               <li>· 推荐方法 / 样本 / 周期</li>
-              <li>· 生成提纲、配额与记录模板</li>
+              <li>· 生成提纲与招募配额</li>
               <li>· 上传访谈结果，AI 输出研究报告</li>
             </ul>
           </div>
