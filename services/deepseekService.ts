@@ -7,7 +7,6 @@
  */
 
 import {
-  buildSkillCatalog,
   buildSkillKnowledge,
   findSkillForMethod,
   getSkill
@@ -218,13 +217,18 @@ export interface InterviewQuestion {
   id: string;
   topic: string;
   question: string;
+  /** 追问链（仅访谈类） */
   followUps?: string[];
-  /** 铺垫问题（CBA 编题：先从简单具体处切入） */
+  /** 铺垫问题（仅访谈类，CBA 编题：先从简单具体处切入） */
   leadIn?: string;
   /** 设置目的：该题映射到哪个研究目标 */
   purpose?: string;
-  /** CBA 类型：C=情景 / B=行为+原因 / A=态度+建议 */
+  /** CBA 类型（仅访谈类）：C=情景 / B=行为+原因 / A=态度+建议 */
   cbaType?: string;
+  /** 题型（仅问卷类）：单选 / 多选 / 量表 / NPS / 开放题 等 */
+  questionType?: string;
+  /** 选项列表（仅问卷类，开放题可为空） */
+  options?: string[];
 }
 
 export interface GuideSection {
@@ -258,7 +262,6 @@ export interface ExecutionGuideResult {
     sections: GuideSection[];
   };
   cautions: string[];
-  recordTemplateColumns: string[]; // 用于生成 CSV 模板
   probingGuide?: ProbingGuide;
 }
 
@@ -372,6 +375,12 @@ clarify 输出格式：
 result 输出请按各阶段的指定结构返回。`;
 
 /**
+ * 阶段隔离声明：每个阶段只使用本阶段注入的技能，
+ * 禁止把技能文档中点名的其他技能的方法论 / 术语 / 标签带入当前输出。
+ */
+const STAGE_ISOLATION_RULE = `阶段隔离（必须遵守）：本阶段只能使用上面注入的技能方法论。技能文档中提到的其他技能名称（problem-clarifier / research-plan-generator / questionnaire-generator / interview-guide-generator）仅是流程分工说明，它们的方法、术语与标签一律不得引入本阶段的输出。`;
+
+/**
  * 兜底规整 clarify 选项：截断到 6 个，并按 A-F 顺序重派 id，
  * 防止模型返回重复 / 异常 id 破坏前端多选状态与 React key。
  */
@@ -413,6 +422,7 @@ ${clarifierKnowledge}
   }。
 - researchQuestion 必须是"研究问题陈述"：一句自然语言，包含 研究对象 + 目标人群 + 研究意图，可在括号内补充研究类型与范围。
   示例：活跃用户（近30天有使用行为）对当前产品还有哪些未被满足的功能需求？（探索性研究，全产品范围）
+- ${STAGE_ISOLATION_RULE}
 
 ${CLARIFY_INSTRUCTION}
 
@@ -549,10 +559,6 @@ const pickPlanReferences = (plan: ResearchPlanResult): string[] => {
 export const generateResearchPlan = async (
   ctx: StageContext
 ): Promise<ClarifyResponse<ResearchPlanResult>> => {
-  const skillCatalog = buildSkillCatalog();
-  const skillSection = skillCatalog
-    ? `\n本系统已安装以下"研究方法技能"（推荐时请优先考虑这些技能覆盖的方法，并参考其适用场景判断何时使用；被技能覆盖的方法在后续设计阶段会得到更专业的支持）：\n${skillCatalog}\n`
-    : '';
   const planSkill = getSkill('research-plan-generator');
   const planMethodology = planSkill
     ? `\n=== 研究方案方法论（research-plan-generator 技能，必须严格遵循其层级式方法匹配规则）===\n${buildSkillKnowledge(
@@ -565,8 +571,9 @@ export const generateResearchPlan = async (
 ${buildContextDescription(ctx)}
 
 可选研究方法（从这些里挑最适合的，必要时可组合）：用户访谈 / 问卷调研 / 可用性测试 / 日记研究 / 焦点小组 / 桌面研究 等。
-${skillSection}${planMethodology}
+${planMethodology}
 ${PLAN_METHODOLOGY_RULES}
+- ${STAGE_ISOLATION_RULE}
 
 ${PLAN_MIXED_RULES}
 
@@ -604,6 +611,7 @@ ${refKnowledge}
 - 依据参考资料校准：样本量与画像（sample）、周期（duration）、研究内容概览（contentOutline 的模块划分、时长与核心探针）、嵌入任务描述。
 - 如果草稿中某个字段已经与参考资料一致，原样保留。
 - ${PLAN_SCHEMA_OVERRIDE}
+- ${STAGE_ISOLATION_RULE}
 
 输出完整的最终方案（不是差量），必须输出 kind 为 "result"：
 ${PLAN_RESULT_FORMAT}`;
@@ -637,7 +645,7 @@ export const generateExecutionGuide = async (
       ].join('\n')
     : '';
   const focusedDescription = focusedPlan
-    ? `\n本次生成的执行指南，仅针对下方这个【单一】子方法，不要混入其他方法的内容：\n- 方法：${focusedPlan.method}\n- 方法类型：${focusedPlan.methodCategory}\n- 该方法独立的样本量与画像：${focusedPlan.sample}\n- 该方法独立的周期：${focusedPlan.duration}\n- 该方法在整体研究中的角色：${focusedPlan.purpose}\n${focusedOutlineLines ? `${focusedOutlineLines}\n` : ''}\n严格要求：\n- recruitment.totalSample 必须等于上面"该方法独立样本量"中明确给出的人数；如果原文是 "8 人"，那么 totalSample 必须是 8；不要把其它子方法的样本相加进来。\n- recruitment 的所有 quotas 配额之和应当等于 totalSample。\n- outline、cautions、recordTemplateColumns 都必须只服务该单一方法，例如访谈方法就只写访谈相关，问卷方法就只写问卷题目和板块。\n- 不要在指南里出现"另外做问卷"等跨方法的描述。`
+    ? `\n本次生成的执行指南，仅针对下方这个【单一】子方法，不要混入其他方法的内容：\n- 方法：${focusedPlan.method}\n- 方法类型：${focusedPlan.methodCategory}\n- 该方法独立的样本量与画像：${focusedPlan.sample}\n- 该方法独立的周期：${focusedPlan.duration}\n- 该方法在整体研究中的角色：${focusedPlan.purpose}\n${focusedOutlineLines ? `${focusedOutlineLines}\n` : ''}\n严格要求：\n- recruitment.totalSample 必须等于上面"该方法独立样本量"中明确给出的人数；如果原文是 "8 人"，那么 totalSample 必须是 8；不要把其它子方法的样本相加进来。\n- recruitment 的所有 quotas 配额之和应当等于 totalSample。\n- outline、cautions 都必须只服务该单一方法，例如访谈方法就只写访谈相关，问卷方法就只写问卷题目和板块。\n- 不要在指南里出现"另外做问卷"等跨方法的描述。`
     : '';
 
   // 解析当前方法对应的"研究方法技能"。优先用聚焦子方法，否则用整体方案。
@@ -645,25 +653,93 @@ export const generateExecutionGuide = async (
     focusedPlan?.methodCategory ?? ctx.confirmedResearchPlan?.methodCategory;
   const methodName = focusedPlan?.method ?? ctx.confirmedResearchPlan?.method;
   const matchedSkill = findSkillForMethod(methodCategory, methodName);
+  // 按方法类型分叉提示词：访谈 / 问卷 / 通用，避免访谈概念（CBA、追问等）泄漏进问卷
+  const isInterview =
+    methodCategory === 'interview' || methodCategory === 'focus_group';
+  const isSurvey = methodCategory === 'survey';
+  const knowledgeApplyHint = isInterview
+    ? '请把上述技能的模块组织方法、CBA 题目规范与追问技术，转化到下方要求的 JSON 字段里。'
+    : isSurvey
+    ? '请把上述技能的问卷结构骨架、模型规则（Kano / ETS 等）与题项措辞规范，转化到下方要求的 JSON 字段里（outline.sections 表示问卷板块，questions 表示按规范编写的题目）。'
+    : '请把上述技能的方法论与结构骨架，转化到下方要求的 JSON 字段里。';
   const skillKnowledge = matchedSkill
     ? `\n\n=== 研究方法技能（请严格依据以下技能说明来设计本次执行指南；technique 细节、题型、模型规则、参考资料都要落实到输出中）===\n${buildSkillKnowledge(
         matchedSkill
-      )}\n=== 技能说明结束 ===\n\n请把上述技能的方法论、结构骨架、题项规范与参考模型，转化到下方要求的 JSON 字段里（例如问卷类技能：outline.sections 表示问卷板块，questions 表示按规范编写的题目；recordTemplateColumns 贴合该方法）。`
+      )}\n=== 技能说明结束 ===\n\n${knowledgeApplyHint}`
     : '';
+  const methodRules = isInterview
+    ? `- 提纲按访谈阶段划分。如果研究方案给出了"研究内容概览"（contentOutline），outline.sections 必须以其话题模块为骨架：每个模块对应一个 section，保留模块名与时长，并在最前和最后补充"开场"和"收尾"两个 section。
+- 每个 section 标注 organizingMethod：默认 "标准CBA"；涉及用户选择/切换/决策的模块用 "JTBD"；涉及端到端体验回溯的模块用 "旅程回溯"；卡片分类任务模块用 "卡片分类任务"。嵌入技术只作用于对应的话题模块，不影响其他模块。
+- 题目按 CBA 原则编写：leadIn（铺垫问题，从简单具体处切入）、question（核心问题）、followUps（追问链）、purpose（设置目的，映射研究目标）、cbaType（"C" 情景 / "B" 行为+原因 / "A" 态度+建议）。不要输出 questionType 和 options（那是问卷字段）。
+- 严禁禁忌题目：否定性假设、未来预测、让用户定价、让用户设计、双重问题、含价值判断的措辞。
+- 必须输出 probingGuide（探询指南）：threeSixty（上推/平移/下切）、orid（O/R/I/D 各层典型问法）、projective（拟人法/联想法/第三人称法/完成法）、specialUsers（好奇用户/专家用户/佛系用户应对）。
+- 执行注意事项要落地（例如录音征得同意、避免诱导性提问、记录关键证据等）。`
+    : isSurvey
+    ? `- outline.sections 表示问卷板块（如：甄别题、主体测量模块、人口学信息、开放建议）。如果研究方案给出了"研究内容概览"（contentOutline），板块划分必须以其为骨架。
+- questions 表示问卷题目：question 是完整题干；questionType 标注题型（单选 / 多选 / 李克特量表 / NPS / 矩阵 / 排序 / 开放题 等）；options 给出完整选项列表（量表题写出刻度标签，开放题 options 为空数组）；purpose 说明该题的测量目的。
+- 问卷是用户自填的，没有访谈员在场：严禁输出 followUps（追问）、leadIn（铺垫）、cbaType、probingGuide 字段，严禁在任何文字中出现 CBA、ORID、追问、探询等访谈概念。organizingMethod 可省略或填 "问卷板块"。
+- 题目措辞规范：一题一问（不双重）、具体可感知、中性不引导、避免否定嵌套。
+- 如有跳转/显示逻辑（如甄别不通过即终止），写在对应题目的 purpose 或 cautions 里说明。
+- 执行注意事项要落地（例如投放渠道、甄别与作答质量控制、发布前预测试等）。`
+    : `- 提纲按该方法的实际执行环节划分（如任务、观察点、分析步骤）。如果研究方案给出了"研究内容概览"（contentOutline），以其为骨架。
+- 每个问题/任务给出 purpose（目的说明）；仅在该方法确实存在口头追问环节时才使用 followUps。不要输出 cbaType / probingGuide。
+- 执行注意事项要落地，贴合该方法的关键操作与质量控制。`;
+
+  const questionExample = isInterview
+    ? `{
+              "id": "q1",
+              "topic": "破冰",
+              "question": "...",
+              "followUps": ["..."],
+              "leadIn": "...（铺垫问题，可省略）",
+              "purpose": "...（设置目的）",
+              "cbaType": "C"
+            }`
+    : isSurvey
+    ? `{
+              "id": "q1",
+              "topic": "使用频率",
+              "question": "...（完整题干）",
+              "questionType": "单选",
+              "options": ["每天", "每周数次", "每月数次", "更少"],
+              "purpose": "...（测量目的）"
+            }`
+    : `{
+              "id": "q1",
+              "topic": "...",
+              "question": "...（问题或任务描述）",
+              "purpose": "...（目的说明）"
+            }`;
+
+  const probingGuideExample = isInterview
+    ? `,
+    "probingGuide": {
+      "threeSixty": [ { "direction": "上推", "usage": "总结归纳、提炼高度", "example": "您分享的这些，如果用一句话概括……" } ],
+      "orid": [ { "level": "O — 事实", "questions": ["你看到了什么？当时页面是什么样的？"] } ],
+      "projective": [ { "technique": "拟人法", "example": "如果把这个产品想象成一个人，他是什么性格？" } ],
+      "specialUsers": [ { "userType": "佛系用户", "strategy": "用对比制造思考张力……" } ]
+    }`
+    : '';
+
+  const sectionExampleHead = isInterview
+    ? `"name": "开场（5min）",
+          "duration": "5 分钟",
+          "organizingMethod": "标准CBA",`
+    : isSurvey
+    ? `"name": "甄别题",
+          "duration": "约1分钟",`
+    : `"name": "环节一",
+          "duration": "...",`;
+
   const userPrompt = `当前任务：根据已确认的研究方案，输出可直接执行的完整指南。
 ${buildContextDescription(ctx)}${focusedDescription}${skillKnowledge}
 
 要求：
 - 用户招募部分必须给出可量化的配额（例如年龄分布、行业分布等），并给出筛选标准。
-- 提纲部分要按阶段划分，每个问题包含可选追问。如果研究方案给出了"研究内容概览"（contentOutline），outline.sections 必须以其话题模块为骨架：每个模块对应一个 section，保留模块名与时长，并在最前和最后补充"开场"和"收尾"两个 section。
-- 每个 section 标注 organizingMethod：默认 "标准CBA"；涉及用户选择/切换/决策的模块用 "JTBD"；涉及端到端体验回溯的模块用 "旅程回溯"；卡片分类任务模块用 "卡片分类任务"；问卷类方法可写 "问卷板块"。嵌入技术只作用于对应的话题模块，不影响其他模块。
-- 访谈类题目按 CBA 原则编写：leadIn（铺垫问题，从简单具体处切入）、question（核心问题）、followUps（追问链）、purpose（设置目的，映射研究目标）、cbaType（"C" 情景 / "B" 行为+原因 / "A" 态度+建议）。严禁禁忌题目：否定性假设、未来预测、让用户定价、让用户设计、双重问题、含价值判断的措辞。
-- 如果研究方法是访谈类（interview / focus_group），必须输出 probingGuide（探询指南）：threeSixty（上推/平移/下切）、orid（O/R/I/D 各层典型问法）、projective（拟人法/联想法/第三人称法/完成法）、specialUsers（好奇用户/专家用户/佛系用户应对）。其它方法可省略 probingGuide。
-- 执行注意事项要落地（例如录音征得同意、避免诱导性提问、记录关键证据等）。
-- recordTemplateColumns 用于生成访谈/调研记录的 CSV 表头，需贴合该研究方法。
+${methodRules}
 - 如果信息明显不足，请仍然使用 clarify 形式。
-- 如果研究方法是问卷类，"outline.sections" 可表示问卷的板块，questions 表示具体问题。
 - 特别注意：技能文档内部展示的 JSON 结构（modules / lead_in / core_question 等 snake_case 字段）只是方法论说明，你的最终输出必须且只能使用下方 result 输出格式中的字段名（camelCase），不得混用。
+- ${STAGE_ISOLATION_RULE}
 
 ${CLARIFY_INSTRUCTION}
 
@@ -682,31 +758,14 @@ result 输出格式：
     "outline": {
       "sections": [
         {
-          "name": "开场（5min）",
-          "duration": "5 分钟",
-          "organizingMethod": "标准CBA",
+          ${sectionExampleHead}
           "questions": [
-            {
-              "id": "q1",
-              "topic": "破冰",
-              "question": "...",
-              "followUps": ["..."],
-              "leadIn": "...（铺垫问题，可省略）",
-              "purpose": "...（设置目的）",
-              "cbaType": "C"
-            }
+            ${questionExample}
           ]
         }
       ]
     },
-    "cautions": ["...", "..."],
-    "recordTemplateColumns": ["受访者编号", "年龄", "...", "Q1 回答", "Q2 回答", "关键洞察", "情绪标签"],
-    "probingGuide": {
-      "threeSixty": [ { "direction": "上推", "usage": "总结归纳、提炼高度", "example": "您分享的这些，如果用一句话概括……" } ],
-      "orid": [ { "level": "O — 事实", "questions": ["你看到了什么？当时页面是什么样的？"] } ],
-      "projective": [ { "technique": "拟人法", "example": "如果把这个产品想象成一个人，他是什么性格？" } ],
-      "specialUsers": [ { "userType": "佛系用户", "strategy": "用对比制造思考张力……" } ]
-    }
+    "cautions": ["...", "..."]${probingGuideExample}
   }
 }`;
   const resp = await deepseekJson<ClarifyResponse<ExecutionGuideResult>>(

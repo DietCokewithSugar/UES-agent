@@ -5,10 +5,10 @@
  * Anthropic Agent Skills 约定（每个技能一个文件夹，含 SKILL.md 前置元数据 +
  * 可选 references/）的技能打包进前端，供 "AI 体验伙伴" 在运行时调用：
  *
- *   - 流程二「选择研究方法」：使用各技能的 name + description 构建技能目录，
- *     告诉 AI 当前系统装了哪些研究方法、分别适合什么时候用（见 listSkills / buildSkillCatalog）。
- *   - 流程三「设计研究方法」：根据已选方法解析出对应技能，把该技能完整的
- *     SKILL.md 正文 + references 注入提示词，驱动具体设计（见 findSkillForMethod / buildSkillKnowledge）。
+ *   - 各阶段严格隔离：一个阶段只注入一个技能。流程技能（role=process）由
+ *     deepseekService 按 id 显式注入其对应阶段；方法技能（role=method）只在
+ *     「执行指南」阶段按已选方法路由命中后注入（见 findSkillForMethod / buildSkillKnowledge）。
+ *     注入正文时会剥离技能文档中的「与上下游技能协作」章节，避免跨阶段串扰。
  *
  * 新增研究方法时，只需在 /skills 下新建一个技能文件夹（SKILL.md 带 name/description，
  * 可选 role / methodCategories / keywords / references），无需改动任何代码。
@@ -29,8 +29,8 @@ export interface SkillReference {
 
 /**
  * 技能角色：
- *   - method  —— 研究方法技能（问卷、访谈等），进入流程二的技能目录，
- *                并可被 findSkillForMethod 按方法路由（流程三注入）。
+ *   - method  —— 研究方法技能（问卷、访谈等），仅在「执行指南」阶段
+ *                被 findSkillForMethod 按已选方法路由命中后注入。
  *   - process —— 流程技能（问题澄清、方案生成方法论等），不作为研究方法出现，
  *                由对应阶段通过 getSkill(id) 显式注入提示词。
  * 前置元数据缺省时视为 method（向后兼容）。
@@ -197,18 +197,21 @@ export const findSkillForMethod = (
 };
 
 /**
- * 流程二用：构建「技能目录」文本，列出每个已安装技能的名称与适用场景，
- * 供研究方案推荐阶段告诉 AI 当前系统具备哪些研究方法、何时使用。
+ * 注入前剥离技能正文中的「与上下游技能协作」类章节：
+ * 这些章节只是技能仓库层面的流程分工说明，注入后会诱导模型跨阶段引用
+ * 其他技能的方法论，造成阶段间串扰。skills/ 下的源文件保持原样，仅影响注入内容。
  */
-export const buildSkillCatalog = (): string => {
-  const skills = listMethodSkills();
-  if (skills.length === 0) return '';
-  return skills
-    .map(s => {
-      const desc = s.description.replace(/\s+/g, ' ').trim();
-      return `- 【${s.name}】${desc}`;
-    })
-    .join('\n');
+const stripCollaborationSections = (body: string): string => {
+  const lines = body.split('\n');
+  const out: string[] = [];
+  let skipping = false;
+  for (const line of lines) {
+    if (/^##\s/.test(line)) {
+      skipping = /^##\s*与.*技能.*协作/.test(line);
+    }
+    if (!skipping) out.push(line);
+  }
+  return out.join('\n');
 };
 
 /**
@@ -228,7 +231,7 @@ export const buildSkillKnowledge = (
   const parts: string[] = [];
   parts.push(`# 技能：${skill.name}（${skill.id}）`);
   if (skill.description) parts.push(`技能说明：${skill.description.trim()}`);
-  parts.push(`\n## SKILL.md 正文\n${skill.body}`);
+  parts.push(`\n## SKILL.md 正文\n${stripCollaborationSections(skill.body)}`);
   const refs =
     refsOpt === 'all'
       ? skill.references
