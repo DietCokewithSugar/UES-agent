@@ -17,49 +17,69 @@ ETS Agent is a client-side React SPA (Vite + TypeScript) for AI-powered product 
 Configured in `.env.local` at the project root. Vite injects them at build/dev time:
 - `GEMINI_API_KEY` — required for Google Gemini AI provider.
 - `OPENROUTER_API_KEY` — optional, for OpenRouter AI provider.
-- `DEEPSEEK_API_KEY` — required for the "AI 研究助手" (AI Research Assistant) feature.
+- `DEEPSEEK_API_KEY` — required for both conversational entries (AI 研究助手 / AI 分析助手).
+- `DEEPSEEK_VISION_MODEL` — optional; the model used when the analysis assistant is given images.
+  Defaults to `deepseek-v4-flash-vision-exp`. `deepseek-chat` does NOT accept image input, so if
+  the default name is wrong for an account, change it here rather than in code — the API error
+  points at this variable.
 - `DEEPSEEK_API_BASE_URL` — optional override, defaults to `https://api.deepseek.com`.
 
 ### Research skills (`skills/`)
 
-The "AI 研究助手" feature is a conversational shell over a single **agent skill** under `skills/`,
-following the Anthropic Agent Skills convention (one folder per skill with a `SKILL.md` that has
-`name`/`description`/`role` frontmatter, plus optional `references/` and `templates/`).
-`services/skills/skillRegistry.ts` bundles them at build time via Vite `import.meta.glob` (raw text).
-`scripts/` and `evals/` are deliberately **not** bundled.
+Two **agent skills** live under `skills/`, following the Anthropic Agent Skills convention
+(one folder per skill, `SKILL.md` with `name`/`description`/`role` frontmatter, optional
+`references/` and `templates/`). `services/skills/skillRegistry.ts` bundles them at build time via
+Vite `import.meta.glob` (raw text); `scripts/` and `evals/` are deliberately **not** bundled.
 
-Currently one skill is installed: **`ux-kit`** (`role: process`). Method routing happens *inside*
-the skill (its Phase 0 产物词判定表), not in the frontend — so there is no per-method skill lookup
-any more.
+| Skill | Entry | What it does |
+|---|---|---|
+| `ux-kit` | AI 研究助手 | Designs research materials (questionnaire / interview guide / usability test / research plan) |
+| `ux-analysis` | AI 分析助手 | Analyses returned data (survey / interview / analytics / usability / eye-tracking / VoC) into a Word conclusion |
 
-The pipeline lives in `services/uxkit/`:
+They are upstream/downstream of one another; ux-kit offers a "去做分析" handoff that seeds a fresh
+ux-analysis session with the research context.
 
-- `uxkitOrchestrator.ts` — two turn kinds.
-  - `runControlTurn` — non-streaming + `json_object`. Runs Phase 0 (output-mode detection) and
-    Phase 1 (multi-round clarification, capped at 5 rounds). Injects the SKILL.md body plus
-    `references/question-templates.md` only. Returns `ask` or `confirm_intent`.
-  - `runGenerateTurn` — streaming + plain markdown. Injects the SKILL.md body, the ONE template
-    for the mode, and the references picked by `referencePicker.ts`.
-  - `derivePlanDeliverables` — after the user confirms a research plan, works out which materials
-    each stage needs (per SKILL.md 2D Step D; a VoC stage produces no separate file).
-- `normalize.ts` — enforces the hard product rule: **`mode` decides `deliverables`, not the model.**
-  If the user named a deliverable, exactly one material is produced and the research-plan step is
-  skipped. Pure module (no registry dependency) so it is directly unit-testable.
-- `referencePicker.ts` — context budgeting. All 15 references total ~70K chars; injecting them all
-  would blow the window. Priority order is template → base refs → hint-matched refs → quality
-  checklist, capped at 4 hint refs and 45000 chars. Whatever it actually picks is what the UI's
-  skill-trace chip displays.
+**Multi-agent shell.** `components/SkillChat.tsx` is generic — message model, composer, history
+drawer, skill-trace chip, card rendering. Per-skill behaviour lives in `services/agents/`:
 
-Document generation is browser-side (no Python): `services/markdown/parseMarkdown.ts` ports Step 1
-of `skills/ux-kit/scripts/convert_to_docx.py` into a `Block[]` tree, which feeds BOTH
-`services/docx/blocksToDocx.ts` (→ .docx via the `docx` package) and `components/uxkit/BlockView.tsx`
-(→ the in-chat preview). One parser, two renderers — so the preview matches the download, and no
-markdown dependency was needed. The Python script stays in the repo as the authoritative spec for
-the docx styling rules.
+- `types.ts` — `AgentDefinition` plus the shared action vocabulary
+  (`ask` / `intent` / `propose` / `request_files` / `generate` / `done`).
+- `uxKitAgent.ts` — thin adapter over the existing `services/uxkit/uxkitOrchestrator.ts`.
+- `uxAnalysisAgent.ts` — the 6-step flow. **The flow is not hard-coded in TS**: the control turn
+  hands the model the SKILL.md body, the conversation, and the current data inventory, and lets it
+  decide which node comes next. Change the skill's flow and this file does not move.
+- `normalizeAction.ts` — shared fallbacks (retry once on bad JSON; filter empty options *before*
+  assigning A–F ids, otherwise a dropped middle option leaves a lettering gap).
 
-UI is `components/UxKitChat.tsx` plus `components/uxkit/`: `ClarifyCard` (multi-select + custom
-supplement + skip), `IntentCard` (the intent-confirmation gate), `DocumentCard`, `SkillTrace`,
-`BlockView`.
+Adding a third conversational entry = drop a skill folder in `skills/`, add an `AgentDefinition`,
+register it in `services/agents/registry.ts`. The shell needs no changes.
+
+**Context isolation** (an explicit product requirement): each session owns its own `messages`,
+`toDeepSeekMessages` only flattens the current session, and starting a new chat swaps the session id
+and clears all state — so a new window has no memory. Opening one from history restores messages,
+intent and plan, so continuing it keeps full context. `utils/chatHistoryStorage.ts` namespaces
+sessions by `agentId`, so the two entries never see each other's history. Image data URLs are
+stripped before writing to localStorage (a single session would otherwise blow the quota).
+
+**Attachments** — `utils/attachments.ts` routes by type: text/csv (UTF-8 with a **GB18030 fallback**,
+because Chinese survey platforms export GBK and a naive UTF-8 read mojibakes the whole file), xlsx
+via `read-excel-file` (all sheets), docx/pdf via the existing `utils/documentTextExtractor.ts`, and
+images to data URLs for the vision model. Legacy `.xls` is rejected with a "re-export as .xlsx" note.
+
+**Document generation** is browser-side (no Python). One `Block[]` vocabulary in
+`services/docx/blocks.ts` is produced by two parsers and consumed by two renderers:
+
+```
+markdown      → services/markdown/parseMarkdown.ts     ─┐         ┌→ services/docx/blocksToDocx.ts  → .docx
+                                                        ├→ Block[] ┤
+analysis.json → services/analysis/parseAnalysisJson.ts ─┘         └→ components/uxkit/BlockView.tsx → preview
+```
+
+`blocksToDocx` takes a `theme`: `uxkit` (10.5pt body, no indent) or `analysis` (11pt, 1.15 line
+spacing, 2-character first-line indent, conclusion三段式). Charts are drawn on a canvas by
+`services/analysis/chartRenderer.ts` (bar/line/pie/scatter/funnel/radar, ported from
+`analysis_builder.py`'s matplotlib specs) and embedded as PNGs. The Python scripts stay in the repo
+as the authoritative styling spec.
 
 ### Caveats
 
@@ -71,6 +91,8 @@ supplement + skip), `IntentCard` (the intent-confirmation gate), `DocumentCard`,
   in the repo. The separate AI Studio `importmap` in `index.html` *is* irrelevant under Vite
   (Vite resolves from `node_modules`), and it is already stale — `js-yaml`, `mammoth`, `pdfjs-dist`
   and `docx` are not in it.
-- **Full AI functionality requires API keys**: Without a valid `GEMINI_API_KEY`, the app loads and all UI interactions work, but analysis requests will fail. Set real keys in `.env.local` to test AI features. The AI 研究助手 needs `DEEPSEEK_API_KEY` and shows an explicit banner when it is missing.
-- **The docx pipeline can be verified without any API key**: feed `skills/ux-kit/templates/*.md`
-  through `parseMarkdown` → `blocksToDocx` and check the generated files.
+- **Full AI functionality requires API keys**: Without a valid `GEMINI_API_KEY`, the app loads and all UI interactions work, but analysis requests will fail. Set real keys in `.env.local` to test AI features. Both conversational entries need `DEEPSEEK_API_KEY` and show an explicit banner when it is missing.
+- **Much of this can be verified without any API key**: feed `skills/ux-kit/templates/*.md` through
+  `parseMarkdown` → `blocksToDocx`, and `analysis_builder.py`'s own `ANALYSIS_EXAMPLE` through
+  `parseAnalysisJson` → `blocksToDocx`, then assert on the unzipped `word/document.xml`. Chart
+  rendering needs a real browser (canvas); drive it with Playwright against the dev server.

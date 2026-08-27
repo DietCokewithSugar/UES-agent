@@ -34,7 +34,8 @@ import { PersonaRecommendations } from './components/PersonaRecommendations';
 import { ABReportView } from './components/ABReportView';
 import { ABSummaryReport } from './components/ABSummaryReport';
 import { LandingPage } from './components/LandingPage';
-import { UxKitChat } from './components/UxKitChat';
+import { SkillChat, type HandoffPayload } from './components/SkillChat';
+import { uxAnalysisAgent, uxKitAgent } from './services/agents/registry';
 import { PersonaSettingsPage } from './components/PersonaSettingsPage';
 import { saveFile } from './utils/saveFile';
 
@@ -115,7 +116,7 @@ const SCENARIO_FIELD_LABELS: Record<keyof EvaluationScenario, string> = {
   constraints: '约束条件',
   source: '来源'
 };
-type PageMode = 'landing' | 'setup' | 'report' | 'companion';
+type PageMode = 'landing' | 'setup' | 'report' | 'companion' | 'analysis';
 type SetupStep = 1 | 2 | 3 | 4;
 type UploadMode = 'single' | 'flow' | 'video';
 type UploadConfigMode = 'standard' | 'ab_test';
@@ -189,6 +190,8 @@ const createPersonaMenuGroups = (
 export default function App() {
   const [appRoute, setAppRoute] = useState<AppRoute>(() => getCurrentRoute());
   const [pageMode, setPageMode] = useState<PageMode>('landing');
+  // 从研究助手「去做分析」跳过来时，把研究背景带给分析助手
+  const [analysisHandoff, setAnalysisHandoff] = useState<HandoffPayload | undefined>(undefined);
   const [activeStep, setActiveStep] = useState<SetupStep>(1);
 
   const [personaLibrary, setPersonaLibrary] = useState(() => loadPersonaLibrary(DEFAULT_PERSONAS));
@@ -1437,9 +1440,24 @@ export default function App() {
           onStartEvaluation={() => setPageMode('setup')}
           onRestoreDraft={handleRestoreDraft}
           onStartCompanion={() => setPageMode('companion')}
+          onStartAnalysis={() => setPageMode('analysis')}
         />
       ) : pageMode === 'companion' ? (
-        <UxKitChat onBack={() => setPageMode('landing')} />
+        <SkillChat
+          agent={uxKitAgent}
+          onBack={() => setPageMode('landing')}
+          onGoToAnalysis={context => {
+            setAnalysisHandoff({ context });
+            setPageMode('analysis');
+          }}
+        />
+      ) : pageMode === 'analysis' ? (
+        <SkillChat
+          agent={uxAnalysisAgent}
+          onBack={() => setPageMode('landing')}
+          handoff={analysisHandoff}
+          onHandoffConsumed={() => setAnalysisHandoff(undefined)}
+        />
       ) : pageMode === 'setup' ? (
         <div className="mx-auto max-w-4xl p-4 md:p-6 pb-28 space-y-4">
           <header className="rounded-xl border border-slate-200 bg-white p-5 space-y-4">

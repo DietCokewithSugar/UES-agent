@@ -26,19 +26,32 @@
 - **AI 研究助手（对话式技能调用）**
   - 由 DeepSeek 驱动，把 `skills/ux-kit` 技能"套壳"成一场对话
   - 流程：用户一句话 → AI 多选题追问 → AI 归纳意图请你确认 → 确认后产出 **.docx**
-  - **两种交互卡片**：
-    - *意图澄清卡* —— 多选选项 + 自定义补充 + 跳过兜底（对应技能里的 `question` 工具）
-    - *意图确认卡* —— 研究对象 / 目标人群 / 研究意图 + 输出模式 + **即将产出的文件名**
   - **两条分支**（由技能 Phase 0 的产物词判定表决定）：
     - 明确说了要问卷 / 访谈提纲 / 可用性测试方案 → 确认后**直接产出那份材料，没有研究方案这一步**
     - 诉求模糊或涉及多种材料 → 先产出研究方案，确认方案后再按阶段生成材料
-  - 界面上有 Claude Code 风格的**技能调用轨迹**：这一步调了哪个技能、处在哪个 Phase、
+  - 产出材料后可一键「去做分析」，带着研究背景跳到分析助手
+
+- **AI 分析助手（新）**
+  - 由 DeepSeek 驱动，调用 `skills/ux-analysis` 技能：数据回来之后的分析
+  - **支持上传数据文件**：xlsx / csv / txt / md / docx / pdf，以及**图片**（眼动热区图等）
+    - 国内问卷平台常见的 GBK/GB2312/GB18030 编码会自动识别并转码，不会乱码
+    - 图片走 DeepSeek 的视觉模型（`DEEPSEEK_VISION_MODEL`），文本模型不接受图片输入
+  - 6 步引导式流程、12 个确认节点，**每一步都跟你确认**，不黑箱输出
+  - 按研究主题（而不是按数据源）组织分析，多源三角验证并标注结论可信度
+  - 产出 .docx 分析结论，含核心结论三段式、表格与图表（bar/line/pie/scatter/funnel/radar）
+
+- **两个入口共用的对话能力**
+  - **两种交互卡片**：
+    - *意图澄清卡* —— 多选/单选选项（竖排，一行一个）+ 自定义补充 + 跳过兜底
+    - *意图确认卡 / 提案卡* —— 归纳识别到的意图请你确认，是流程的闸门
+  - **上下文按窗口隔离**：开新对话没有记忆；从历史记录回到旧对话，接着聊时带着完整上下文。
+    两个入口的历史各自独立，互不可见
+  - Claude Code 风格的**技能调用轨迹**：这一步调了哪个技能、处在哪个阶段、
     实际读了技能目录下的哪些 `templates/` 与 `references/` 文件
-  - 产出正文流式输出；.docx 在浏览器端生成（全文微软雅黑、标题深蓝、表格带框线），
-    转换失败时按技能规定降级为 Markdown 交付
+  - 产出正文流式输出；.docx 在浏览器端生成（全文微软雅黑、标题深蓝、表格带框线）
   - **可插拔研究技能（Skills）**：`skills/` 目录下按 [Anthropic Agent Skills](https://www.anthropic.com/news/agent-skills)
-    约定存放技能。当前安装 `ux-kit` 一个技能，`services/skills/skillRegistry.ts` 在构建期
-    自动加载其 `SKILL.md` / `references/` / `templates/`。详见 [`skills/README.md`](./skills/README.md)。
+    约定存放技能，`services/skills/skillRegistry.ts` 在构建期自动加载。
+    详见 [`skills/README.md`](./skills/README.md)。
 
 ---
 
@@ -60,10 +73,14 @@ OPENROUTER_API_KEY=your_openrouter_key
 DEEPSEEK_API_KEY=your_deepseek_key
 # 可选，默认 https://api.deepseek.com
 DEEPSEEK_API_BASE_URL=https://api.deepseek.com
+# 可选，分析助手上传图片时用；留空则用默认视觉模型
+DEEPSEEK_VISION_MODEL=
 ```
 
 > 仅使用 Google Provider 时，`OPENROUTER_API_KEY` 可留空。
-> `DEEPSEEK_API_KEY` 仅用于"AI 研究助手"功能，未配置时其他评测功能不受影响。
+> `DEEPSEEK_API_KEY` 用于"AI 研究助手"与"AI 分析助手"，未配置时其他评测功能不受影响。
+> `DEEPSEEK_VISION_MODEL` 只在分析助手上传图片时用到，留空则用默认值；
+> 如果你账号里的视觉模型名不同，在这里换掉即可，不用改代码。
 
 ### 3) 启动开发环境
 
@@ -123,3 +140,4 @@ npm run build
 - Recharts（图表）
 - html-to-image + JSZip + file-saver（导出）
 - docx（浏览器端生成 Word 文档）
+- mammoth / pdfjs-dist / read-excel-file（读取上传的 docx / pdf / xlsx）

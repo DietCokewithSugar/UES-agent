@@ -20,6 +20,8 @@ export interface ClarifyAnswer {
 interface Props {
   question: string;
   options: ClarifyOption[];
+  /** false 时是单选：选中一个会取消其他。默认多选。 */
+  multiple?: boolean;
   note?: string;
   /** 已作答时传入，卡片变成只读回顾 */
   answer?: ClarifyAnswer;
@@ -30,6 +32,7 @@ interface Props {
 export const ClarifyCard: React.FC<Props> = ({
   question,
   options,
+  multiple = true,
   note,
   answer,
   pending,
@@ -44,6 +47,7 @@ export const ClarifyCard: React.FC<Props> = ({
 
   const toggle = (id: string) => {
     setSelectedIds(prev => {
+      if (!multiple) return prev.has(id) ? new Set() : new Set([id]);
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -59,7 +63,7 @@ export const ClarifyCard: React.FC<Props> = ({
         <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-amber-400 text-[11px] text-white">
           ?
         </span>
-        我需要先和你校准一下方向（可多选）
+        {multiple ? '我需要先和你校准一下方向（可多选）' : '需要你确认一下'}
       </div>
       <p className="text-sm text-amber-900">{question}</p>
       {note && <p className="text-xs text-amber-700">{note}</p>}
@@ -84,7 +88,9 @@ export const ClarifyCard: React.FC<Props> = ({
               }`}
             >
               <span
-                className={`mt-0.5 inline-flex h-4 w-4 flex-none items-center justify-center rounded border text-[10px] ${
+                className={`mt-0.5 inline-flex h-4 w-4 flex-none items-center justify-center border text-[10px] ${
+                  multiple ? 'rounded' : 'rounded-full'
+                } ${
                   checked
                     ? 'border-amber-500 bg-amber-500 text-white'
                     : 'border-slate-300 bg-white text-transparent'
@@ -143,7 +149,9 @@ export const ClarifyCard: React.FC<Props> = ({
                 ? `已选择 ${selected.length} 项${customText.trim() ? ' + 自定义补充' : ''}`
                 : customText.trim()
                 ? '仅使用自定义补充'
-                : '至少勾选一个选项，或填写自定义补充'}
+                : multiple
+                ? '至少勾选一个选项，或填写自定义补充'
+                : '选一个选项，或直接在下面描述'}
             </div>
             <div className="flex flex-wrap gap-2">
               <button

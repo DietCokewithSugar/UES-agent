@@ -1,15 +1,23 @@
+import type { AgentId } from '../services/agents/types';
 import type { ChatMessage } from '../services/uxkit/chatHistory';
 import type { IntentSummary } from '../services/uxkit/types';
+import { slimAttachmentForStorage } from './attachments';
 
 /**
  * 对话历史的本地存储（localStorage）。
  *
  * 只存在浏览器本地，不上传任何地方。约定与 utils/draftStorage.ts 保持一致：
  * 带 version 做前向兼容、访问 storage 前先探测、读写全程 try/catch。
+ *
+ * **按技能分命名空间**：每个 agent 有自己的历史列表，两个入口互不可见。
+ * 配合"每条会话独立的 messages"，就实现了用户要的窗口级上下文隔离——
+ * 开新对话没有记忆，从历史回到旧会话则带着完整上下文继续。
  */
 
 export interface StoredSession {
   id: string;
+  /** 归属的技能。历史列表按它过滤，旧数据视为 ux-kit。 */
+  agentId: AgentId;
   /** 取第一条用户消息的前若干字，作为列表里的标题 */
   title: string;
   createdAt: string;
@@ -73,9 +81,14 @@ const write = (file: HistoryFile): { ok: true } | { ok: false; error: string } =
   }
 };
 
-/** 按更新时间倒序列出全部会话（不含正文，列表用）。 */
-export const listSessions = (): StoredSession[] =>
-  read().sessions.slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+/** 旧版本没有 agentId，一律归到 ux-kit（当时只有这一个技能）。 */
+const agentOf = (s: StoredSession): AgentId => s.agentId ?? 'ux-kit';
+
+/** 按更新时间倒序列出某个技能的会话。 */
+export const listSessions = (agentId: AgentId): StoredSession[] =>
+  read()
+    .sessions.filter(s => agentOf(s) === agentId)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 
 export const getSession = (id: string): StoredSession | undefined =>
   read().sessions.find(s => s.id === id);
@@ -89,8 +102,20 @@ export const deriveTitle = (messages: ChatMessage[]): string => {
 };
 
 /** 新建或更新一条会话。messages 为空时不写入（避免留下空壳记录）。 */
+/**
+ * 存进本地前给消息瘦身：图片 dataURL 动辄几 MB，
+ * 一条会话就能把 localStorage 配额吃光，所以只保留元信息。
+ */
+const slimMessages = (messages: ChatMessage[]): ChatMessage[] =>
+  messages.map(m =>
+    m.kind === 'text' && m.role === 'user' && m.attachments?.length
+      ? { ...m, attachments: m.attachments.map(slimAttachmentForStorage) }
+      : m
+  );
+
 export const saveSession = (session: {
   id: string;
+  agentId: AgentId;
   messages: ChatMessage[];
   intent?: IntentSummary;
   planMarkdown?: string;
@@ -104,10 +129,11 @@ export const saveSession = (session: {
 
   const next: StoredSession = {
     id: session.id,
+    agentId: session.agentId,
     title: deriveTitle(session.messages),
     createdAt: existing?.createdAt ?? session.createdAt ?? now,
     updatedAt: now,
-    messages: session.messages,
+    messages: slimMessages(session.messages),
     intent: session.intent,
     planMarkdown: session.planMarkdown
   };
@@ -129,13 +155,10 @@ export const deleteSession = (id: string): void => {
   write({ version: 1, sessions: file.sessions.filter(s => s.id !== id) });
 };
 
-export const clearAllSessions = (): void => {
-  if (!hasStorage()) return;
-  try {
-    window.localStorage.removeItem(STORAGE_KEY);
-  } catch {
-    /* 清不掉就算了，不该因为清历史失败而中断使用 */
-  }
+/** 清空某个技能的历史；另一个技能的记录保持不动。 */
+export const clearAllSessions = (agentId: AgentId): void => {
+  const file = read();
+  write({ version: 1, sessions: file.sessions.filter(s => agentOf(s) !== agentId) });
 };
 
 export const newSessionId = (): string =>

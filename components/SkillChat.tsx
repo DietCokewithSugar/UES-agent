@@ -1,20 +1,18 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
+import type { AgentDefinition } from '../services/agents/types';
 import { isDeepSeekConfigured } from '../services/deepseekService';
 import {
+  collectAttachments,
   countClarifyRounds,
   nextId,
   toDeepSeekMessages,
   type ChatMessage,
   type ClarifyAnswer
 } from '../services/uxkit/chatHistory';
-import {
-  derivePlanDeliverables,
-  getUxKitSkill,
-  runControlTurn,
-  runGenerateTurn
-} from '../services/uxkit/uxkitOrchestrator';
+import { derivePlanDeliverables } from '../services/uxkit/uxkitOrchestrator';
 import type { Deliverable, GeneratedDoc, IntentSummary } from '../services/uxkit/types';
+import { readAttachments, type Attachment } from '../utils/attachments';
 import {
   clearAllSessions,
   deleteSession,
@@ -29,14 +27,27 @@ import { Composer } from './uxkit/Composer';
 import { DocumentCard } from './uxkit/DocumentCard';
 import { HistoryPanel } from './uxkit/HistoryPanel';
 import { IntentCard } from './uxkit/IntentCard';
+import { ProposalCard } from './uxkit/ProposalCard';
 import { SkillTraceChip } from './uxkit/SkillTrace';
-
-interface Props {
-  onBack: () => void;
-}
 
 /** 流式输出时 messages 每个分片都在变，写 localStorage 要防抖，否则会疯狂写盘。 */
 const SAVE_DEBOUNCE_MS = 800;
+
+export interface HandoffPayload {
+  /** 从 ux-kit 带过来的研究背景，作为首条上下文注入 */
+  context: string;
+}
+
+interface Props {
+  agent: AgentDefinition;
+  onBack: () => void;
+  /** ux-kit 产出材料后跳到分析助手时，把研究背景带过来 */
+  handoff?: HandoffPayload;
+  /** 消费掉 handoff，避免开新对话时被重复注入 */
+  onHandoffConsumed?: () => void;
+  /** ux-kit 产出材料后，提供"去做分析"的入口 */
+  onGoToAnalysis?: (context: string) => void;
+}
 
 const Bubble: React.FC<{ from: 'ai' | 'user'; children: React.ReactNode }> = ({
   from,
@@ -55,10 +66,10 @@ const Bubble: React.FC<{ from: 'ai' | 'user'; children: React.ReactNode }> = ({
   </div>
 );
 
-const HeaderButton: React.FC<{
-  onClick: () => void;
-  children: React.ReactNode;
-}> = ({ onClick, children }) => (
+const HeaderButton: React.FC<{ onClick: () => void; children: React.ReactNode }> = ({
+  onClick,
+  children
+}) => (
   <button
     onClick={onClick}
     className="rounded-lg px-2.5 py-1.5 text-xs text-slate-500 transition-colors hover:bg-slate-200/60 hover:text-slate-800"
@@ -68,22 +79,31 @@ const HeaderButton: React.FC<{
 );
 
 /**
- * 对话式的 ux-kit 体验。
+ * 通用的技能对话外壳。
  *
- * 把 `skills/ux-kit` 技能"套壳"成一场对话：
- *   用户一句话 → AI 追问（多选卡）→ AI 归纳意图（确认卡）→ 用户确认 → 产出 .docx
+ * 消息模型、输入框、历史抽屉、技能轨迹、卡片渲染都在这里；
+ * 具体走什么流程由传入的 `agent` 决定（ux-kit 设计研究材料 / ux-analysis 分析数据）。
  *
- * 用户明确指定了产出物时（"我要编一个 XX 问卷"），Phase 0 判定为问卷/提纲/可用性模式，
- * 确认后**直接产出材料，没有研究方案这一步**；诉求模糊或涉及多种材料时走方案模式，
- * 先出研究方案、确认后再按阶段生成材料。
+ * **上下文独立性**：每条会话有独立的 `messages`，`toDeepSeekMessages` 只摊平当前会话，
+ * 开新对话会换 sessionId 并清空全部状态——所以新窗口没有记忆；
+ * 从历史打开旧会话会把 messages / intent / planMarkdown 一起还原，接着聊就有上下文。
  */
-export const UxKitChat: React.FC<Props> = ({ onBack }) => {
+export const SkillChat: React.FC<Props> = ({
+  agent,
+  onBack,
+  handoff,
+  onHandoffConsumed,
+  onGoToAnalysis
+}) => {
   const [sessionId, setSessionId] = useState(newSessionId);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [intent, setIntent] = useState<IntentSummary | undefined>();
   const [planMarkdown, setPlanMarkdown] = useState<string | undefined>();
+
+  const [pendingFiles, setPendingFiles] = useState<Attachment[]>([]);
+  const [parsingFiles, setParsingFiles] = useState(false);
 
   const [historyOpen, setHistoryOpen] = useState(false);
   const [sessions, setSessions] = useState<StoredSession[]>([]);
@@ -92,19 +112,26 @@ export const UxKitChat: React.FC<Props> = ({ onBack }) => {
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const configured = isDeepSeekConfigured();
 
-  // 技能没装好属于部署问题，早点说清楚，别等到第一次调用才报错
   const [skillError, setSkillError] = useState<string | null>(null);
-  const [skillName, setSkillName] = useState('ux-kit');
-  useEffect(() => {
-    try {
-      setSkillName(getUxKitSkill().name);
-    } catch (err) {
-      setSkillError((err as Error).message);
-    }
-  }, []);
 
-  const refreshSessions = useCallback(() => setSessions(listSessions()), []);
+  const refreshSessions = useCallback(
+    () => setSessions(listSessions(agent.id)),
+    [agent.id]
+  );
   useEffect(refreshSessions, [refreshSessions]);
+
+  // 切换技能入口时彻底重置，绝不把上一个技能的会话带过来
+  useEffect(() => {
+    abortRef.current?.abort();
+    setSessionId(newSessionId());
+    setMessages([]);
+    setIntent(undefined);
+    setPlanMarkdown(undefined);
+    setPendingFiles([]);
+    setInput('');
+    setBusy(false);
+    setSkillError(null);
+  }, [agent.id]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -114,14 +141,13 @@ export const UxKitChat: React.FC<Props> = ({ onBack }) => {
   useEffect(() => {
     if (messages.length === 0) return;
     const timer = window.setTimeout(() => {
-      saveSession({ id: sessionId, messages, intent, planMarkdown });
+      saveSession({ id: sessionId, agentId: agent.id, messages, intent, planMarkdown });
       refreshSessions();
     }, SAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
-  }, [messages, intent, planMarkdown, sessionId, refreshSessions]);
+  }, [messages, intent, planMarkdown, sessionId, agent.id, refreshSessions]);
 
   const push = useCallback((msg: ChatMessage) => setMessages(prev => [...prev, msg]), []);
-
   const patch = useCallback(
     (id: string, updater: (m: ChatMessage) => ChatMessage) =>
       setMessages(prev => prev.map(m => (m.id === id ? updater(m) : m))),
@@ -148,7 +174,19 @@ export const UxKitChat: React.FC<Props> = ({ onBack }) => {
     [push]
   );
 
-  // ===== 控制轮：Phase 0 模式识别 + Phase 1 澄清 ===== //
+  const buildCtx = useCallback(
+    (history: ChatMessage[], signal?: AbortSignal) => ({
+      history: toDeepSeekMessages(history),
+      attachments: collectAttachments(history),
+      rounds: countClarifyRounds(history),
+      intent,
+      planMarkdown,
+      signal
+    }),
+    [intent, planMarkdown]
+  );
+
+  // ===== 控制轮 ===== //
 
   const runControl = useCallback(
     async (history: ChatMessage[]) => {
@@ -156,46 +194,73 @@ export const UxKitChat: React.FC<Props> = ({ onBack }) => {
       const signal = newAbort();
       const traceId = nextId('trace');
       try {
-        const skill = getUxKitSkill();
         push({
           id: traceId,
           role: 'assistant',
           kind: 'trace',
           running: true,
           trace: {
-            skillId: skill.id,
-            skillName: skill.name,
-            phase: 'Phase 0/1 模式识别与问题澄清',
+            skillId: agent.skillId,
+            skillName: agent.skillId,
+            phase: '正在思考下一步',
             templates: [],
             references: []
           }
         });
 
-        const { action, trace } = await runControlTurn(toDeepSeekMessages(history), {
-          roundsSoFar: countClarifyRounds(history),
-          signal
-        });
-
+        const { action, trace } = await agent.runControlTurn(buildCtx(history, signal));
         patch(traceId, m => (m.kind === 'trace' ? { ...m, trace, running: false } : m));
 
-        if (action.action === 'ask') {
-          push({
-            id: nextId('ask'),
-            role: 'assistant',
-            kind: 'clarify',
-            question: action.question,
-            options: action.options,
-            note: action.note
-          });
-        } else {
-          setIntent(action.intent);
-          push({
-            id: nextId('intent'),
-            role: 'assistant',
-            kind: 'intent',
-            intent: action.intent,
-            status: 'pending'
-          });
+        switch (action.action) {
+          case 'ask':
+            push({
+              id: nextId('ask'),
+              role: 'assistant',
+              kind: 'clarify',
+              question: action.question,
+              options: action.options,
+              multiple: action.multiple,
+              note: action.note
+            });
+            break;
+          case 'intent':
+            setIntent(action.intent);
+            push({
+              id: nextId('intent'),
+              role: 'assistant',
+              kind: 'intent',
+              intent: action.intent,
+              status: 'pending'
+            });
+            break;
+          case 'propose':
+            push({
+              id: nextId('prop'),
+              role: 'assistant',
+              kind: 'proposal',
+              proposal: action.proposal,
+              status: 'pending'
+            });
+            break;
+          case 'request_files':
+            push({
+              id: nextId('files'),
+              role: 'assistant',
+              kind: 'request_files',
+              prompt: action.prompt,
+              hint: action.hint
+            });
+            break;
+          case 'generate':
+            setBusy(false);
+            for (const d of action.deliverables) {
+              const doc = await generateDoc(history, d);
+              if (!doc) break;
+            }
+            return;
+          case 'done':
+            push({ id: nextId('a'), role: 'assistant', kind: 'text', text: action.text });
+            break;
         }
       } catch (err) {
         setMessages(prev => prev.filter(m => m.id !== traceId));
@@ -204,22 +269,22 @@ export const UxKitChat: React.FC<Props> = ({ onBack }) => {
         setBusy(false);
       }
     },
-    [patch, push, pushError]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [agent, buildCtx, patch, push, pushError]
   );
 
-  // ===== 产出轮：流式生成一份材料 ===== //
+  // ===== 产出轮 ===== //
 
   const generateDoc = useCallback(
     async (
-      target: IntentSummary,
+      history: ChatMessage[],
       deliverable: Deliverable,
-      opts: { planMarkdown?: string; feedback?: string } = {}
+      opts: { feedback?: string } = {}
     ): Promise<GeneratedDoc | null> => {
       setBusy(true);
       const signal = newAbort();
       const traceId = nextId('trace');
       const docId = nextId('doc');
-      const skill = getUxKitSkill();
 
       push({
         id: traceId,
@@ -227,8 +292,8 @@ export const UxKitChat: React.FC<Props> = ({ onBack }) => {
         kind: 'trace',
         running: true,
         trace: {
-          skillId: skill.id,
-          skillName: skill.name,
+          skillId: agent.skillId,
+          skillName: agent.skillId,
           phase: '正在准备产出',
           templates: [],
           references: []
@@ -239,28 +304,33 @@ export const UxKitChat: React.FC<Props> = ({ onBack }) => {
         role: 'assistant',
         kind: 'document',
         streaming: true,
+        format: 'markdown',
         doc: { id: docId, kind: deliverable.kind, filename: deliverable.filename, markdown: '' }
       });
 
       try {
         let acc = '';
-        const { markdown, truncated, trace } = await runGenerateTurn(target, deliverable, {
-          ...opts,
-          signal,
-          onDelta: chunk => {
-            acc += chunk;
-            patch(docId, m =>
-              m.kind === 'document' ? { ...m, doc: { ...m.doc, markdown: acc } } : m
-            );
+        const { raw, format, truncated, trace } = await agent.runGenerateTurn(
+          buildCtx(history, signal),
+          deliverable,
+          {
+            feedback: opts.feedback,
+            signal,
+            onDelta: chunk => {
+              acc += chunk;
+              patch(docId, m =>
+                m.kind === 'document' ? { ...m, doc: { ...m.doc, markdown: acc } } : m
+              );
+            }
           }
-        });
+        );
 
         patch(traceId, m => (m.kind === 'trace' ? { ...m, trace, running: false } : m));
         const doc: GeneratedDoc = {
           id: docId,
           kind: deliverable.kind,
           filename: deliverable.filename,
-          markdown,
+          markdown: raw,
           truncated
         };
         patch(docId, m =>
@@ -268,8 +338,12 @@ export const UxKitChat: React.FC<Props> = ({ onBack }) => {
             ? {
                 ...m,
                 doc,
+                format,
                 streaming: false,
-                awaitingConfirm: deliverable.kind === 'researchPlan'
+                // ux-kit 的研究方案要等用户确认后才按阶段出材料
+                awaitingConfirm: agent.id === 'ux-kit' && deliverable.kind === 'researchPlan',
+                // ux-kit 产出的是研究材料，产出后引导去做分析
+                offerAnalysis: agent.id === 'ux-kit' && deliverable.kind !== 'researchPlan'
               }
             : m
         );
@@ -282,18 +356,35 @@ export const UxKitChat: React.FC<Props> = ({ onBack }) => {
         setBusy(false);
       }
     },
-    [patch, push, pushError]
+    [agent, buildCtx, patch, push, pushError]
   );
 
   // ===== 交互回调 ===== //
 
+  const addFiles = async (files: File[]) => {
+    setParsingFiles(true);
+    try {
+      const parsed = await readAttachments(files);
+      setPendingFiles(prev => [...prev, ...parsed]);
+    } finally {
+      setParsingFiles(false);
+    }
+  };
+
   const handleSend = async () => {
     const text = input.trim();
-    if (!text || busy) return;
-    const msg: ChatMessage = { id: nextId('u'), role: 'user', kind: 'text', text };
+    if ((!text && pendingFiles.length === 0) || busy) return;
+    const msg: ChatMessage = {
+      id: nextId('u'),
+      role: 'user',
+      kind: 'text',
+      text: text || `（上传了 ${pendingFiles.length} 个文件）`,
+      attachments: pendingFiles.length ? pendingFiles : undefined
+    };
     const history = [...messages, msg];
     setMessages(history);
     setInput('');
+    setPendingFiles([]);
     await runControl(history);
   };
 
@@ -309,15 +400,15 @@ export const UxKitChat: React.FC<Props> = ({ onBack }) => {
     await runControl(history);
   };
 
-  const handleIntentConfirm = async (msgId: string, confirmed: IntentSummary) => {
-    patch(msgId, m => (m.kind === 'intent' ? { ...m, status: 'confirmed' } : m));
-    setIntent(confirmed);
-    const doc = await generateDoc(confirmed, confirmed.deliverables[0]);
-    // 非方案模式：一份材料就是全部产出，这里就结束了
-    if (doc && confirmed.mode === 'plan') setPlanMarkdown(doc.markdown);
+  const handleProposalConfirm = async (msgId: string) => {
+    const confirmed = messages.map(m =>
+      m.id === msgId && m.kind === 'proposal' ? { ...m, status: 'confirmed' as const } : m
+    );
+    setMessages(confirmed);
+    await runControl(confirmed);
   };
 
-  const handleIntentRevise = async (feedback: string) => {
+  const handleFeedback = async (feedback: string) => {
     const history: ChatMessage[] = [
       ...messages,
       { id: nextId('u'), role: 'user', kind: 'text', text: feedback }
@@ -326,10 +417,24 @@ export const UxKitChat: React.FC<Props> = ({ onBack }) => {
     await runControl(history);
   };
 
+  const handleIntentConfirm = async (msgId: string, confirmed: IntentSummary) => {
+    const next = messages.map(m =>
+      m.id === msgId && m.kind === 'intent' ? { ...m, status: 'confirmed' as const } : m
+    );
+    setMessages(next);
+    setIntent(confirmed);
+    const doc = await generateDoc(next, confirmed.deliverables[0]);
+    if (doc && confirmed.mode === 'plan') setPlanMarkdown(doc.markdown);
+  };
+
   const handlePlanRevise = async (feedback: string) => {
     if (!intent) return;
-    push({ id: nextId('u'), role: 'user', kind: 'text', text: feedback });
-    const doc = await generateDoc(intent, intent.deliverables[0], { feedback });
+    const history: ChatMessage[] = [
+      ...messages,
+      { id: nextId('u'), role: 'user', kind: 'text', text: feedback }
+    ];
+    setMessages(history);
+    const doc = await generateDoc(history, intent.deliverables[0], { feedback });
     if (doc) setPlanMarkdown(doc.markdown);
   };
 
@@ -368,9 +473,9 @@ export const UxKitChat: React.FC<Props> = ({ onBack }) => {
     });
 
     for (const d of deliverables) {
-      // 串行生成：每份材料都要看到已确认的方案，且避免并发把上下文打乱
-      const doc = await generateDoc(intent, d, { planMarkdown });
-      if (!doc) break; // 出错或被中止就停下，错误消息已经推进对话
+      // 串行：每份材料都要看到已确认的方案，且避免并发把上下文打乱
+      const doc = await generateDoc(messages, d);
+      if (!doc) break;
     }
   };
 
@@ -381,16 +486,26 @@ export const UxKitChat: React.FC<Props> = ({ onBack }) => {
 
   // ===== 会话管理 ===== //
 
-  const startNewChat = () => {
-    abortRef.current?.abort();
-    // 当前会话已经由防抖 effect 落盘；这里立即再存一次，避免刚说完话就切走丢内容
-    if (messages.length > 0) saveSession({ id: sessionId, messages, intent, planMarkdown });
-    setSessionId(newSessionId());
+  const persistCurrent = () => {
+    if (messages.length > 0) {
+      saveSession({ id: sessionId, agentId: agent.id, messages, intent, planMarkdown });
+    }
+  };
+
+  const resetTo = (id: string) => {
+    setSessionId(id);
     setMessages([]);
     setIntent(undefined);
     setPlanMarkdown(undefined);
+    setPendingFiles([]);
     setInput('');
     setBusy(false);
+  };
+
+  const startNewChat = () => {
+    abortRef.current?.abort();
+    persistCurrent();
+    resetTo(newSessionId());
     refreshSessions();
   };
 
@@ -400,13 +515,14 @@ export const UxKitChat: React.FC<Props> = ({ onBack }) => {
       return;
     }
     abortRef.current?.abort();
-    if (messages.length > 0) saveSession({ id: sessionId, messages, intent, planMarkdown });
+    persistCurrent();
     const stored = getSession(id);
     if (!stored) return;
     setSessionId(stored.id);
     setMessages(stored.messages);
     setIntent(stored.intent);
     setPlanMarkdown(stored.planMarkdown);
+    setPendingFiles([]);
     setInput('');
     setBusy(false);
     setHistoryOpen(false);
@@ -415,25 +531,32 @@ export const UxKitChat: React.FC<Props> = ({ onBack }) => {
 
   const removeSession = (id: string) => {
     deleteSession(id);
-    // 删掉的正是当前会话时，把界面也清空，避免屏幕上留着一条已不存在的记录
-    if (id === sessionId) {
-      setSessionId(newSessionId());
-      setMessages([]);
-      setIntent(undefined);
-      setPlanMarkdown(undefined);
-    }
+    if (id === sessionId) resetTo(newSessionId());
     refreshSessions();
   };
 
   const clearHistory = () => {
-    clearAllSessions();
-    setSessionId(newSessionId());
-    setMessages([]);
-    setIntent(undefined);
-    setPlanMarkdown(undefined);
+    clearAllSessions(agent.id);
+    resetTo(newSessionId());
     setHistoryOpen(false);
     refreshSessions();
   };
+
+  // ===== 技能衔接：从 ux-kit 带研究背景过来 ===== //
+
+  useEffect(() => {
+    if (!handoff || messages.length > 0) return;
+    const msg: ChatMessage = {
+      id: nextId('u'),
+      role: 'user',
+      kind: 'text',
+      text: handoff.context
+    };
+    setMessages([msg]);
+    onHandoffConsumed?.();
+    void runControl([msg]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [handoff]);
 
   // ===== 渲染 ===== //
 
@@ -443,6 +566,17 @@ export const UxKitChat: React.FC<Props> = ({ onBack }) => {
         return (
           <Bubble key={m.id} from={m.role === 'user' ? 'user' : 'ai'}>
             <div className="whitespace-pre-wrap">{m.text}</div>
+            {m.role === 'user' && m.attachments && m.attachments.length > 0 && (
+              <div className="mt-2 space-y-1 border-t border-white/20 pt-2">
+                {m.attachments.map(a => (
+                  <div key={a.id} className="flex items-center gap-1.5 text-[11px] opacity-80">
+                    <span>📎</span>
+                    <span className="truncate">{a.name}</span>
+                    {a.note && <span className="flex-none opacity-70">· {a.note}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
           </Bubble>
         );
 
@@ -469,11 +603,40 @@ export const UxKitChat: React.FC<Props> = ({ onBack }) => {
               <ClarifyCard
                 question={m.question}
                 options={m.options}
+                multiple={m.multiple}
                 note={m.note}
                 answer={m.answer}
                 pending={busy}
                 onSubmit={answer => handleClarifyAnswer(m.id, answer)}
               />
+            </div>
+          </div>
+        );
+
+      case 'proposal':
+        return (
+          <div key={m.id} className="flex justify-start">
+            <div className="w-full max-w-[92%]">
+              <ProposalCard
+                proposal={m.proposal}
+                status={m.status}
+                pending={busy}
+                onConfirm={() => handleProposalConfirm(m.id)}
+                onRevise={handleFeedback}
+              />
+            </div>
+          </div>
+        );
+
+      case 'request_files':
+        return (
+          <div key={m.id} className="flex justify-start">
+            <div className="max-w-[92%] rounded-xl border border-slate-300 border-dashed bg-white px-4 py-3">
+              <div className="text-sm text-slate-800">{m.prompt}</div>
+              {m.hint && <div className="mt-1 text-xs text-slate-500">{m.hint}</div>}
+              <div className="mt-2 text-[11px] text-slate-400">
+                用下方输入框左侧的回形针添加文件，或直接把文件拖进来。
+              </div>
             </div>
           </div>
         );
@@ -487,7 +650,7 @@ export const UxKitChat: React.FC<Props> = ({ onBack }) => {
                 status={m.status}
                 pending={busy}
                 onConfirm={() => handleIntentConfirm(m.id, m.intent)}
-                onRevise={handleIntentRevise}
+                onRevise={handleFeedback}
               />
             </div>
           </div>
@@ -496,15 +659,35 @@ export const UxKitChat: React.FC<Props> = ({ onBack }) => {
       case 'document':
         return (
           <div key={m.id} className="flex justify-start">
-            <div className="w-full max-w-[92%]">
+            <div className="w-full max-w-[92%] space-y-2">
               <DocumentCard
                 doc={m.doc}
+                format={m.format}
                 streaming={m.streaming}
                 awaitingConfirm={m.awaitingConfirm}
                 pending={busy}
                 onConfirm={() => handlePlanConfirm(m.id)}
                 onRevise={handlePlanRevise}
               />
+              {m.offerAnalysis && onGoToAnalysis && !m.streaming && (
+                <button
+                  onClick={() =>
+                    onGoToAnalysis(
+                      `我刚用研究助手完成了研究材料设计，现在数据已经回收，想做分析。研究背景：${
+                        intent?.statement || m.doc.filename
+                      }${intent?.audience ? `\n目标人群：${intent.audience}` : ''}${
+                        intent?.intent ? `\n研究意图：${intent.intent}` : ''
+                      }\n已产出的材料：${m.doc.filename}`
+                    )
+                  }
+                  className="w-full rounded-xl border border-sky-300 bg-sky-50 px-4 py-2.5 text-left text-sm text-sky-900 transition-colors hover:bg-sky-100"
+                >
+                  <span className="font-semibold">数据回来了？去做分析 →</span>
+                  <span className="ml-1.5 text-xs text-sky-700">
+                    带着这次的研究背景开一条分析助手的新对话
+                  </span>
+                </button>
+              )}
             </div>
           </div>
         );
@@ -534,7 +717,7 @@ export const UxKitChat: React.FC<Props> = ({ onBack }) => {
       <span className="inline-flex h-4 w-4 items-center justify-center rounded bg-violet-100 text-[9px] font-bold text-violet-700">
         S
       </span>
-      <span className="font-mono text-slate-500">{skillName}</span>
+      <span className="font-mono text-slate-500">{agent.skillId}</span>
       <span className="text-slate-300">/</span>
       <span>DeepSeek</span>
     </span>
@@ -549,12 +732,13 @@ export const UxKitChat: React.FC<Props> = ({ onBack }) => {
       busy={busy}
       disabled={blocked}
       autoFocus={isEmpty}
-      placeholder={
-        isEmpty
-          ? '说一句你想做的研究，比如「帮我编一个外卖 App 的满意度问卷」…'
-          : '继续补充或提出修改…'
-      }
+      placeholder={isEmpty ? agent.composer.emptyPlaceholder : agent.composer.placeholder}
       footer={composerFooter}
+      attachments={pendingFiles}
+      onAddFiles={agent.composer.acceptsFiles ? addFiles : undefined}
+      onRemoveAttachment={id => setPendingFiles(prev => prev.filter(a => a.id !== id))}
+      accept={agent.composer.accept}
+      parsing={parsingFiles}
     />
   );
 
@@ -580,6 +764,7 @@ export const UxKitChat: React.FC<Props> = ({ onBack }) => {
         open={historyOpen}
         sessions={sessions}
         activeId={sessionId}
+        title={`${agent.nav.title} · 历史对话`}
         onClose={() => setHistoryOpen(false)}
         onOpenSession={openSession}
         onDeleteSession={removeSession}
@@ -588,19 +773,22 @@ export const UxKitChat: React.FC<Props> = ({ onBack }) => {
 
       <div className="mx-auto flex min-h-screen max-w-3xl flex-col px-4 md:px-6">
         <header className="flex items-center justify-between gap-2 py-3">
-          <HeaderButton onClick={() => setHistoryOpen(true)}>
-            <span className="inline-flex items-center gap-1.5">
-              <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden>
-                <path
-                  d="M2.5 4h11M2.5 8h11M2.5 12h7"
-                  stroke="currentColor"
-                  strokeWidth="1.4"
-                  strokeLinecap="round"
-                />
-              </svg>
-              历史{sessions.length > 0 ? ` (${sessions.length})` : ''}
-            </span>
-          </HeaderButton>
+          <div className="flex items-center gap-1">
+            <HeaderButton onClick={() => setHistoryOpen(true)}>
+              <span className="inline-flex items-center gap-1.5">
+                <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden>
+                  <path
+                    d="M2.5 4h11M2.5 8h11M2.5 12h7"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                    strokeLinecap="round"
+                  />
+                </svg>
+                历史{sessions.length > 0 ? ` (${sessions.length})` : ''}
+              </span>
+            </HeaderButton>
+            <span className="text-xs text-slate-400">{agent.nav.title}</span>
+          </div>
           <div className="flex items-center gap-1">
             {!isEmpty && <HeaderButton onClick={startNewChat}>新对话</HeaderButton>}
             <HeaderButton onClick={onBack}>返回首页</HeaderButton>
@@ -608,7 +796,6 @@ export const UxKitChat: React.FC<Props> = ({ onBack }) => {
         </header>
 
         {isEmpty ? (
-          /* 空态：输入框居中，上方是极淡的字标与一句介绍 */
           <div className="flex flex-1 flex-col items-center justify-center pb-24">
             <div className="w-full space-y-6">
               <div className="select-none text-center">
@@ -616,15 +803,13 @@ export const UxKitChat: React.FC<Props> = ({ onBack }) => {
                   className="font-display text-6xl font-extrabold tracking-tight text-slate-900/[0.06] md:text-7xl"
                   aria-hidden
                 >
-                  ux&middot;kit
+                  {agent.nav.wordmark}
                 </div>
                 <h1 className="-mt-3 text-lg font-semibold tracking-tight text-slate-800 md:text-xl">
-                  说一句你想做的研究，我来产出材料
+                  {agent.nav.title}
                 </h1>
                 <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-slate-500">
-                  明确说要<span className="text-slate-700">问卷 / 访谈提纲 / 可用性测试方案</span>
-                  ，我先跟你确认需求，然后直接产出那份文档；诉求还比较模糊、或者要好几种材料，
-                  我会先出一份研究方案，等你确认后再按阶段生成。
+                  {agent.nav.intro}
                 </p>
               </div>
 
@@ -663,4 +848,4 @@ export const UxKitChat: React.FC<Props> = ({ onBack }) => {
   );
 };
 
-export default UxKitChat;
+export default SkillChat;
