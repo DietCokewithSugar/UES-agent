@@ -15,8 +15,19 @@ import {
   runGenerateTurn
 } from '../services/uxkit/uxkitOrchestrator';
 import type { Deliverable, GeneratedDoc, IntentSummary } from '../services/uxkit/types';
+import {
+  clearAllSessions,
+  deleteSession,
+  getSession,
+  listSessions,
+  newSessionId,
+  saveSession,
+  type StoredSession
+} from '../utils/chatHistoryStorage';
 import { ClarifyCard } from './uxkit/ClarifyCard';
+import { Composer } from './uxkit/Composer';
 import { DocumentCard } from './uxkit/DocumentCard';
+import { HistoryPanel } from './uxkit/HistoryPanel';
 import { IntentCard } from './uxkit/IntentCard';
 import { SkillTraceChip } from './uxkit/SkillTrace';
 
@@ -24,11 +35,8 @@ interface Props {
   onBack: () => void;
 }
 
-const EXAMPLES = [
-  '帮我编一个外卖 App 的满意度问卷',
-  '做一份新版首页的可用性测试方案',
-  '帮我调研一下用户对会员权益的看法'
-];
+/** 流式输出时 messages 每个分片都在变，写 localStorage 要防抖，否则会疯狂写盘。 */
+const SAVE_DEBOUNCE_MS = 800;
 
 const Bubble: React.FC<{ from: 'ai' | 'user'; children: React.ReactNode }> = ({
   from,
@@ -47,6 +55,18 @@ const Bubble: React.FC<{ from: 'ai' | 'user'; children: React.ReactNode }> = ({
   </div>
 );
 
+const HeaderButton: React.FC<{
+  onClick: () => void;
+  children: React.ReactNode;
+}> = ({ onClick, children }) => (
+  <button
+    onClick={onClick}
+    className="rounded-lg px-2.5 py-1.5 text-xs text-slate-500 transition-colors hover:bg-slate-200/60 hover:text-slate-800"
+  >
+    {children}
+  </button>
+);
+
 /**
  * 对话式的 ux-kit 体验。
  *
@@ -58,11 +78,15 @@ const Bubble: React.FC<{ from: 'ai' | 'user'; children: React.ReactNode }> = ({
  * 先出研究方案、确认后再按阶段生成材料。
  */
 export const UxKitChat: React.FC<Props> = ({ onBack }) => {
+  const [sessionId, setSessionId] = useState(newSessionId);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [intent, setIntent] = useState<IntentSummary | undefined>();
   const [planMarkdown, setPlanMarkdown] = useState<string | undefined>();
+
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [sessions, setSessions] = useState<StoredSession[]>([]);
 
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -70,17 +94,31 @@ export const UxKitChat: React.FC<Props> = ({ onBack }) => {
 
   // 技能没装好属于部署问题，早点说清楚，别等到第一次调用才报错
   const [skillError, setSkillError] = useState<string | null>(null);
+  const [skillName, setSkillName] = useState('ux-kit');
   useEffect(() => {
     try {
-      getUxKitSkill();
+      setSkillName(getUxKitSkill().name);
     } catch (err) {
       setSkillError((err as Error).message);
     }
   }, []);
 
+  const refreshSessions = useCallback(() => setSessions(listSessions()), []);
+  useEffect(refreshSessions, [refreshSessions]);
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages]);
+
+  // 防抖落盘：流式产出期间不会每个分片都写一次
+  useEffect(() => {
+    if (messages.length === 0) return;
+    const timer = window.setTimeout(() => {
+      saveSession({ id: sessionId, messages, intent, planMarkdown });
+      refreshSessions();
+    }, SAVE_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [messages, intent, planMarkdown, sessionId, refreshSessions]);
 
   const push = useCallback((msg: ChatMessage) => setMessages(prev => [...prev, msg]), []);
 
@@ -100,11 +138,12 @@ export const UxKitChat: React.FC<Props> = ({ onBack }) => {
   const pushError = useCallback(
     (err: unknown) => {
       const message = (err as Error)?.message ?? String(err);
-      if (/abort/i.test(message)) {
-        push({ id: nextId('err'), role: 'assistant', kind: 'error', message: '已停止生成。' });
-        return;
-      }
-      push({ id: nextId('err'), role: 'assistant', kind: 'error', message });
+      push({
+        id: nextId('err'),
+        role: 'assistant',
+        kind: 'error',
+        message: /abort/i.test(message) ? '已停止生成。' : message
+      });
     },
     [push]
   );
@@ -259,7 +298,9 @@ export const UxKitChat: React.FC<Props> = ({ onBack }) => {
   };
 
   const handleClarifyAnswer = async (msgId: string, answer: ClarifyAnswer) => {
-    const answered = messages.map(m => (m.id === msgId && m.kind === 'clarify' ? { ...m, answer } : m));
+    const answered = messages.map(m =>
+      m.id === msgId && m.kind === 'clarify' ? { ...m, answer } : m
+    );
     const history: ChatMessage[] = [
       ...answered,
       { id: nextId('u'), role: 'user', kind: 'answer', answer }
@@ -299,9 +340,7 @@ export const UxKitChat: React.FC<Props> = ({ onBack }) => {
     setBusy(true);
     let deliverables: Deliverable[] = [];
     try {
-      deliverables = await derivePlanDeliverables(intent, planMarkdown, {
-        signal: newAbort()
-      });
+      deliverables = await derivePlanDeliverables(intent, planMarkdown, { signal: newAbort() });
     } catch (err) {
       pushError(err);
       setBusy(false);
@@ -340,13 +379,60 @@ export const UxKitChat: React.FC<Props> = ({ onBack }) => {
     setBusy(false);
   };
 
-  const reset = () => {
+  // ===== 会话管理 ===== //
+
+  const startNewChat = () => {
     abortRef.current?.abort();
+    // 当前会话已经由防抖 effect 落盘；这里立即再存一次，避免刚说完话就切走丢内容
+    if (messages.length > 0) saveSession({ id: sessionId, messages, intent, planMarkdown });
+    setSessionId(newSessionId());
     setMessages([]);
     setIntent(undefined);
     setPlanMarkdown(undefined);
     setInput('');
     setBusy(false);
+    refreshSessions();
+  };
+
+  const openSession = (id: string) => {
+    if (id === sessionId) {
+      setHistoryOpen(false);
+      return;
+    }
+    abortRef.current?.abort();
+    if (messages.length > 0) saveSession({ id: sessionId, messages, intent, planMarkdown });
+    const stored = getSession(id);
+    if (!stored) return;
+    setSessionId(stored.id);
+    setMessages(stored.messages);
+    setIntent(stored.intent);
+    setPlanMarkdown(stored.planMarkdown);
+    setInput('');
+    setBusy(false);
+    setHistoryOpen(false);
+    refreshSessions();
+  };
+
+  const removeSession = (id: string) => {
+    deleteSession(id);
+    // 删掉的正是当前会话时，把界面也清空，避免屏幕上留着一条已不存在的记录
+    if (id === sessionId) {
+      setSessionId(newSessionId());
+      setMessages([]);
+      setIntent(undefined);
+      setPlanMarkdown(undefined);
+    }
+    refreshSessions();
+  };
+
+  const clearHistory = () => {
+    clearAllSessions();
+    setSessionId(newSessionId());
+    setMessages([]);
+    setIntent(undefined);
+    setPlanMarkdown(undefined);
+    setHistoryOpen(false);
+    refreshSessions();
   };
 
   // ===== 渲染 ===== //
@@ -441,120 +527,137 @@ export const UxKitChat: React.FC<Props> = ({ onBack }) => {
   };
 
   const blocked = !configured || Boolean(skillError);
+  const isEmpty = messages.length === 0;
+
+  const composerFooter = (
+    <span className="inline-flex items-center gap-1.5">
+      <span className="inline-flex h-4 w-4 items-center justify-center rounded bg-violet-100 text-[9px] font-bold text-violet-700">
+        S
+      </span>
+      <span className="font-mono text-slate-500">{skillName}</span>
+      <span className="text-slate-300">/</span>
+      <span>DeepSeek</span>
+    </span>
+  );
+
+  const composer = (
+    <Composer
+      value={input}
+      onChange={setInput}
+      onSend={handleSend}
+      onStop={stop}
+      busy={busy}
+      disabled={blocked}
+      autoFocus={isEmpty}
+      placeholder={
+        isEmpty
+          ? '说一句你想做的研究，比如「帮我编一个外卖 App 的满意度问卷」…'
+          : '继续补充或提出修改…'
+      }
+      footer={composerFooter}
+    />
+  );
+
+  const banners = (
+    <>
+      {skillError && (
+        <div className="rounded-xl border border-rose-300 bg-rose-50 p-4 text-sm text-rose-800">
+          {skillError}
+        </div>
+      )}
+      {!configured && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          尚未配置 <code className="font-mono">DEEPSEEK_API_KEY</code>
+          。请在项目根目录的 <code className="font-mono">.env.local</code> 里填好后重启开发服务。
+        </div>
+      )}
+    </>
+  );
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
-      <div className="mx-auto flex min-h-screen max-w-4xl flex-col p-4 md:p-6">
-        <header className="flex flex-wrap items-center justify-between gap-3 pb-4">
-          <div>
-            <h1 className="text-lg font-semibold tracking-tight">AI 研究助手</h1>
-            <p className="text-xs text-slate-500">
-              由 DeepSeek 驱动 · 调用 ux-kit 技能，一句话产出研究材料
-            </p>
-          </div>
-          <div className="flex gap-2">
-            {messages.length > 0 && (
-              <button
-                onClick={reset}
-                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-700"
-              >
-                新对话
-              </button>
-            )}
-            <button
-              onClick={onBack}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-700"
-            >
-              返回首页
-            </button>
+    <div className="min-h-screen bg-slate-50 text-slate-900">
+      <HistoryPanel
+        open={historyOpen}
+        sessions={sessions}
+        activeId={sessionId}
+        onClose={() => setHistoryOpen(false)}
+        onOpenSession={openSession}
+        onDeleteSession={removeSession}
+        onClearAll={clearHistory}
+      />
+
+      <div className="mx-auto flex min-h-screen max-w-3xl flex-col px-4 md:px-6">
+        <header className="flex items-center justify-between gap-2 py-3">
+          <HeaderButton onClick={() => setHistoryOpen(true)}>
+            <span className="inline-flex items-center gap-1.5">
+              <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden>
+                <path
+                  d="M2.5 4h11M2.5 8h11M2.5 12h7"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                  strokeLinecap="round"
+                />
+              </svg>
+              历史{sessions.length > 0 ? ` (${sessions.length})` : ''}
+            </span>
+          </HeaderButton>
+          <div className="flex items-center gap-1">
+            {!isEmpty && <HeaderButton onClick={startNewChat}>新对话</HeaderButton>}
+            <HeaderButton onClick={onBack}>返回首页</HeaderButton>
           </div>
         </header>
 
-        {skillError && (
-          <div className="mb-3 rounded-xl border border-rose-300 bg-rose-50 p-4 text-sm text-rose-800">
-            {skillError}
-          </div>
-        )}
-        {!configured && (
-          <div className="mb-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-            尚未配置 <code className="font-mono">DEEPSEEK_API_KEY</code>
-            。请在项目根目录的 <code className="font-mono">.env.local</code> 里填好后重启开发服务。
-          </div>
-        )}
-
-        <div className="flex-1 space-y-3 pb-4">
-          {messages.length === 0 && !blocked && (
-            <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 md:p-6">
-              <div>
-                <h2 className="text-base font-semibold text-slate-900">
+        {isEmpty ? (
+          /* 空态：输入框居中，上方是极淡的字标与一句介绍 */
+          <div className="flex flex-1 flex-col items-center justify-center pb-24">
+            <div className="w-full space-y-6">
+              <div className="select-none text-center">
+                <div
+                  className="font-display text-6xl font-extrabold tracking-tight text-slate-900/[0.06] md:text-7xl"
+                  aria-hidden
+                >
+                  ux&middot;kit
+                </div>
+                <h1 className="-mt-3 text-lg font-semibold tracking-tight text-slate-800 md:text-xl">
                   说一句你想做的研究，我来产出材料
-                </h2>
-                <p className="mt-1.5 text-sm leading-6 text-slate-600">
-                  明确说要问卷、访谈提纲或可用性测试方案，我会先跟你确认需求，然后
-                  <span className="font-semibold text-slate-800">直接产出那份材料</span>
-                  ；如果诉求还比较模糊、或者要好几种材料，我会先出一份研究方案，等你确认后再按阶段生成。
+                </h1>
+                <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-slate-500">
+                  明确说要<span className="text-slate-700">问卷 / 访谈提纲 / 可用性测试方案</span>
+                  ，我先跟你确认需求，然后直接产出那份文档；诉求还比较模糊、或者要好几种材料，
+                  我会先出一份研究方案，等你确认后再按阶段生成。
                 </p>
               </div>
-              <div className="flex flex-wrap gap-2">
-                {EXAMPLES.map(ex => (
-                  <button
-                    key={ex}
-                    onClick={() => setInput(ex)}
-                    className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-700 hover:border-slate-400"
-                  >
-                    {ex}
-                  </button>
-                ))}
+
+              <div className="space-y-3">
+                {banners}
+                {composer}
               </div>
+
+              <p className="text-center text-[11px] text-slate-400">
+                产出为 .docx · 对话仅保存在你自己的浏览器里
+              </p>
             </div>
-          )}
-
-          {messages.map(renderMessage)}
-
-          {busy && (
-            <div className="flex justify-start">
-              <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500 shadow-sm">
-                <span className="inline-block animate-pulse">AI 正在思考中…</span>
-              </div>
-            </div>
-          )}
-          <div ref={bottomRef} />
-        </div>
-
-        <div className="sticky bottom-0 -mx-4 border-t border-slate-200 bg-slate-100/95 px-4 py-3 backdrop-blur md:-mx-6 md:px-6">
-          <div className="flex items-end gap-2">
-            <textarea
-              rows={2}
-              value={input}
-              disabled={blocked}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSend();
-                }
-              }}
-              placeholder="例如：帮我编一个外卖 App 的满意度问卷（Enter 发送，Shift+Enter 换行）"
-              className="min-h-[3.25rem] flex-1 resize-y rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm disabled:opacity-50"
-            />
-            {busy ? (
-              <button
-                onClick={stop}
-                className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700"
-              >
-                停止
-              </button>
-            ) : (
-              <button
-                onClick={handleSend}
-                disabled={!input.trim() || blocked}
-                className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white disabled:opacity-50"
-              >
-                发送
-              </button>
-            )}
           </div>
-        </div>
+        ) : (
+          <>
+            <div className="flex-1 space-y-3 pb-4">
+              {banners}
+              {messages.map(renderMessage)}
+              {busy && (
+                <div className="flex justify-start">
+                  <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500 shadow-sm">
+                    <span className="inline-block animate-pulse">AI 正在思考中…</span>
+                  </div>
+                </div>
+              )}
+              <div ref={bottomRef} />
+            </div>
+
+            <div className="sticky bottom-0 -mx-4 bg-gradient-to-t from-slate-50 via-slate-50 to-transparent px-4 pb-4 pt-6 md:-mx-6 md:px-6">
+              {composer}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
