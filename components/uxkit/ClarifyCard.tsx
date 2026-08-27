@@ -64,7 +64,8 @@ export const ClarifyCard: React.FC<Props> = ({
       <p className="text-sm text-amber-900">{question}</p>
       {note && <p className="text-xs text-amber-700">{note}</p>}
 
-      <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+      {/* 竖排一行一个：选项文案往往是一整句带举例的说明，横排方块会被挤成窄条 */}
+      <div className="space-y-2">
         {options.map(opt => {
           const checked = answered ? answeredIds.has(opt.id) : selectedIds.has(opt.id);
           return (
@@ -74,7 +75,7 @@ export const ClarifyCard: React.FC<Props> = ({
               disabled={pending || answered}
               onClick={() => toggle(opt.id)}
               aria-pressed={checked}
-              className={`text-left rounded-lg p-3 transition-colors disabled:cursor-default ${
+              className={`flex w-full items-start gap-3 rounded-lg p-3 text-left transition-colors disabled:cursor-default ${
                 checked
                   ? 'border-2 border-amber-500 bg-amber-100/70 shadow-sm'
                   : `border border-amber-200 bg-white ${
@@ -82,21 +83,25 @@ export const ClarifyCard: React.FC<Props> = ({
                     }`
               }`}
             >
-              <div className="flex items-center justify-between">
-                <div className="text-xs font-semibold text-amber-700">选项 {opt.id}</div>
-                <span
-                  className={`inline-flex h-4 w-4 items-center justify-center rounded border ${
-                    checked
-                      ? 'border-amber-500 bg-amber-500 text-white'
-                      : 'border-slate-300 bg-white text-transparent'
-                  }`}
-                  aria-hidden
-                >
-                  ✓
+              <span
+                className={`mt-0.5 inline-flex h-4 w-4 flex-none items-center justify-center rounded border text-[10px] ${
+                  checked
+                    ? 'border-amber-500 bg-amber-500 text-white'
+                    : 'border-slate-300 bg-white text-transparent'
+                }`}
+                aria-hidden
+              >
+                ✓
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="flex flex-wrap items-baseline gap-x-2">
+                  <span className="text-sm font-semibold text-slate-900">{opt.title}</span>
+                  <span className="text-[11px] font-semibold text-amber-600">选项 {opt.id}</span>
                 </span>
-              </div>
-              <div className="mt-1 text-sm font-semibold text-slate-900">{opt.title}</div>
-              <div className="mt-1 text-xs leading-5 text-slate-600">{opt.description}</div>
+                <span className="mt-0.5 block text-xs leading-5 text-slate-600">
+                  {opt.description}
+                </span>
+              </span>
             </button>
           );
         })}

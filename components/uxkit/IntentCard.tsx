@@ -23,13 +23,14 @@ interface Props {
   onRevise?: (feedback: string) => void;
 }
 
+/** 竖排：标签固定宽度在左，取值在右，三行对齐读起来比三列并排清楚。 */
 const Field: React.FC<{ label: string; value: string }> = ({ label, value }) =>
   value ? (
-    <div>
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+    <div className="flex gap-3">
+      <div className="w-16 flex-none pt-0.5 text-[11px] font-semibold tracking-wide text-emerald-700">
         {label}
       </div>
-      <div className="mt-0.5 text-sm leading-6 text-slate-800">{value}</div>
+      <div className="min-w-0 flex-1 text-sm leading-6 text-slate-800">{value}</div>
     </div>
   ) : null;
 
@@ -71,18 +72,18 @@ export const IntentCard: React.FC<Props> = ({
         {intent.statement}
       </p>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className="space-y-1.5">
         <Field label="研究对象" value={intent.subject} />
         <Field label="目标人群" value={intent.audience} />
         <Field label="研究意图" value={intent.intent} />
       </div>
 
       {intent.constraints && intent.constraints.length > 0 && (
-        <div>
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+        <div className="flex gap-3">
+          <div className="w-16 flex-none pt-0.5 text-[11px] font-semibold tracking-wide text-emerald-700">
             约束条件
           </div>
-          <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm leading-6 text-slate-700">
+          <ul className="min-w-0 flex-1 list-disc space-y-0.5 pl-4 text-sm leading-6 text-slate-700">
             {intent.constraints.map((c, i) => (
               <li key={i}>{c}</li>
             ))}
@@ -91,7 +92,7 @@ export const IntentCard: React.FC<Props> = ({
       )}
 
       <div className="rounded-lg border border-emerald-200 bg-white p-3">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+        <div className="text-[11px] font-semibold tracking-wide text-emerald-700">
           确认后将生成
         </div>
         <ul className="mt-1.5 space-y-1.5">
