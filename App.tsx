@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { toPng } from 'html-to-image';
 import JSZip from 'jszip';
-import * as FileSaver from 'file-saver';
 import {
   ABComparisonReport,
   ApiConfig,
@@ -35,13 +34,9 @@ import { PersonaRecommendations } from './components/PersonaRecommendations';
 import { ABReportView } from './components/ABReportView';
 import { ABSummaryReport } from './components/ABSummaryReport';
 import { LandingPage } from './components/LandingPage';
-import { AIExperienceCompanion } from './components/AIExperienceCompanion';
+import { UxKitChat } from './components/UxKitChat';
 import { PersonaSettingsPage } from './components/PersonaSettingsPage';
-
-const saveFile = (data: Blob | string, filename: string) => {
-  const save = (FileSaver as any).saveAs || (FileSaver as any).default || FileSaver;
-  if (typeof save === 'function') save(data, filename);
-};
+import { saveFile } from './utils/saveFile';
 
 const EMPTY_PERSONA: Omit<Persona, 'id'> = {
   name: '',
@@ -1444,7 +1439,7 @@ export default function App() {
           onStartCompanion={() => setPageMode('companion')}
         />
       ) : pageMode === 'companion' ? (
-        <AIExperienceCompanion onBack={() => setPageMode('landing')} />
+        <UxKitChat onBack={() => setPageMode('landing')} />
       ) : pageMode === 'setup' ? (
         <div className="mx-auto max-w-4xl p-4 md:p-6 pb-28 space-y-4">
           <header className="rounded-xl border border-slate-200 bg-white p-5 space-y-4">

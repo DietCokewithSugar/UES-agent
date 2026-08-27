@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@google/genai": "^1.30.0",
+    "docx": "^9.7.1",
     "file-saver": "^2.0.5",
     "html-to-image": "^1.11.0",
     "js-yaml": "^4.3.0",

@@ -3,42 +3,37 @@
  *
  * 本模块在构建期通过 Vite 的 import.meta.glob 把 /skills 目录下所有遵循
  * Anthropic Agent Skills 约定（每个技能一个文件夹，含 SKILL.md 前置元数据 +
- * 可选 references/）的技能打包进前端，供 "AI 体验伙伴" 在运行时调用：
+ * 可选 references/ 与 templates/）的技能打包进前端，供对话式的 ux-kit 体验在运行时调用。
  *
- *   - 各阶段严格隔离：一个阶段只注入一个技能。流程技能（role=process）由
- *     deepseekService 按 id 显式注入其对应阶段；方法技能（role=method）只在
- *     「执行指南」阶段按已选方法路由命中后注入（见 findSkillForMethod / buildSkillKnowledge）。
- *     注入正文时会剥离技能文档中的「与上下游技能协作」章节，避免跨阶段串扰。
+ * 注入正文时会剥离技能文档中的「与上下游技能协作」章节，避免技能仓库层面的
+ * 流程分工说明诱导模型跨技能引用方法论。
  *
- * 新增研究方法时，只需在 /skills 下新建一个技能文件夹（SKILL.md 带 name/description，
- * 可选 role / methodCategories / keywords / references），无需改动任何代码。
+ * 新增技能时，只需在 /skills 下新建一个技能文件夹（SKILL.md 带 name/description，
+ * 可选 role / methodCategories / keywords / references / templates），无需改动本文件。
  *
- * 技能分两类角色（前置元数据 role，缺省 method）：
- *   - method  技能进入上述目录与方法路由（如 questionnaire-generator、interview-guide-generator）；
- *   - process 技能服务于特定流程阶段，由 deepseekService 按 id 显式注入
- *     （problem-clarifier → 流程「研究问题」；research-plan-generator → 流程「研究方案」）。
+ * 注意：`scripts/` 与 `evals/` 不打包进前端——脚本在浏览器里跑不了，
+ * 它们留在仓库中作为规格与评测用例（例如 ux-kit 的 convert_to_docx.py 是
+ * services/docx/blocksToDocx.ts 的移植来源）。
  */
 import yaml from 'js-yaml';
 
 export interface SkillReference {
-  /** 引用文件名，例如 "kano-model.md" */
+  /** 文件名，例如 "kano-model.md" / "questionnaire.md" */
   name: string;
-  /** 引用文件原文 */
+  /** 文件原文 */
   content: string;
 }
 
 /**
  * 技能角色：
- *   - method  —— 研究方法技能（问卷、访谈等），仅在「执行指南」阶段
- *                被 findSkillForMethod 按已选方法路由命中后注入。
- *   - process —— 流程技能（问题澄清、方案生成方法论等），不作为研究方法出现，
- *                由对应阶段通过 getSkill(id) 显式注入提示词。
+ *   - process —— 流程技能，自身驱动一整条流程（如 ux-kit 的 Phase 0/1/2）。
+ *   - method  —— 研究方法技能，服务某种具体研究方法。
  * 前置元数据缺省时视为 method（向后兼容）。
  */
 export type SkillRole = 'method' | 'process';
 
 export interface SkillMeta {
-  /** 技能文件夹名，作为稳定 id，例如 "questionnaire-generator" */
+  /** 技能文件夹名，作为稳定 id，例如 "ux-kit" */
   id: string;
   /** 前置元数据中的 name，缺省回退到 id */
   name: string;
@@ -54,6 +49,8 @@ export interface SkillMeta {
   body: string;
   /** references/ 下的所有参考文件 */
   references: SkillReference[];
+  /** templates/ 下的所有产出模板 */
+  templates: SkillReference[];
 }
 
 interface Frontmatter {
@@ -102,37 +99,57 @@ const referenceFiles = import.meta.glob('/skills/*/references/*.md', {
   eager: true
 }) as Record<string, string>;
 
+const templateFiles = import.meta.glob('/skills/*/templates/*.md', {
+  query: '?raw',
+  import: 'default',
+  eager: true
+}) as Record<string, string>;
+
 /** 从 "/skills/<id>/SKILL.md" 解析出技能 id。 */
 const skillIdFromSkillPath = (path: string): string | null => {
   const m = /\/skills\/([^/]+)\/SKILL\.md$/.exec(path);
   return m ? m[1] : null;
 };
 
-/** 从 "/skills/<id>/references/<file>" 解析出 [id, 文件名]。 */
-const refInfoFromPath = (path: string): { id: string; file: string } | null => {
-  const m = /\/skills\/([^/]+)\/references\/([^/]+)$/.exec(path);
+/** 从 "/skills/<id>/<dir>/<file>" 解析出 [id, 文件名]。 */
+const assetInfoFromPath = (
+  path: string,
+  dir: 'references' | 'templates'
+): { id: string; file: string } | null => {
+  const m = new RegExp(`/skills/([^/]+)/${dir}/([^/]+)$`).exec(path);
   return m ? { id: m[1], file: m[2] } : null;
 };
 
-const buildRegistry = (): SkillMeta[] => {
-  // 先按技能 id 归集 references
-  const refsById = new Map<string, SkillReference[]>();
-  for (const [path, content] of Object.entries(referenceFiles)) {
-    const info = refInfoFromPath(path);
+/** 把一组 glob 结果按技能 id 归集成 SkillReference[]。 */
+const groupById = (
+  files: Record<string, string>,
+  dir: 'references' | 'templates'
+): Map<string, SkillReference[]> => {
+  const byId = new Map<string, SkillReference[]>();
+  for (const [path, content] of Object.entries(files)) {
+    const info = assetInfoFromPath(path, dir);
     if (!info) continue;
-    const list = refsById.get(info.id) || [];
+    const list = byId.get(info.id) || [];
     list.push({ name: info.file, content });
-    refsById.set(info.id, list);
+    byId.set(info.id, list);
   }
+  return byId;
+};
+
+const byName = (a: SkillReference, b: SkillReference) => a.name.localeCompare(b.name);
+
+const buildRegistry = (): SkillMeta[] => {
+  // 先按技能 id 归集 references 与 templates
+  const refsById = groupById(referenceFiles, 'references');
+  const tplsById = groupById(templateFiles, 'templates');
 
   const skills: SkillMeta[] = [];
   for (const [path, raw] of Object.entries(skillFiles)) {
     const id = skillIdFromSkillPath(path);
     if (!id) continue;
     const { data, body } = parseFrontmatter(raw);
-    const references = (refsById.get(id) || []).sort((a, b) =>
-      a.name.localeCompare(b.name)
-    );
+    const references = (refsById.get(id) || []).sort(byName);
+    const templates = (tplsById.get(id) || []).sort(byName);
     skills.push({
       id,
       name: (typeof data.name === 'string' && data.name.trim()) || id,
@@ -142,7 +159,8 @@ const buildRegistry = (): SkillMeta[] => {
       methodCategories: toStringArray(data.methodCategories),
       keywords: toStringArray(data.keywords),
       body: body.trim(),
-      references
+      references,
+      templates
     });
   }
   // 稳定排序，便于目录展示
@@ -160,41 +178,6 @@ export const listSkills = (): SkillMeta[] => {
 /** 按 id 精确获取一个技能。 */
 export const getSkill = (id: string): SkillMeta | undefined =>
   listSkills().find(s => s.id === id);
-
-/** 仅返回研究方法技能（role=method），流程技能不参与方法目录与方法路由。 */
-export const listMethodSkills = (): SkillMeta[] =>
-  listSkills().filter(s => s.role === 'method');
-
-/**
- * 把一个研究方法（分类 + 方法名）解析为对应技能：
- *   1. methodCategory 命中技能声明的 methodCategories；
- *   2. 否则在「方法名 + 分类」文本中模糊匹配技能 keywords / name / id。
- * 找不到则返回 undefined（此时调用方应退回到无技能的默认行为）。
- */
-export const findSkillForMethod = (
-  methodCategory?: string,
-  method?: string
-): SkillMeta | undefined => {
-  const skills = listMethodSkills();
-  const cat = (methodCategory || '').trim().toLowerCase();
-
-  if (cat) {
-    const byCategory = skills.find(s =>
-      s.methodCategories.some(c => c.toLowerCase() === cat)
-    );
-    if (byCategory) return byCategory;
-  }
-
-  const haystack = `${method || ''} ${methodCategory || ''}`.toLowerCase();
-  if (!haystack.trim()) return undefined;
-
-  return skills.find(s => {
-    const needles = [...s.keywords, s.name, s.id]
-      .map(n => n.toLowerCase())
-      .filter(Boolean);
-    return needles.some(n => haystack.includes(n));
-  });
-};
 
 /**
  * 注入前剥离技能正文中的「与上下游技能协作」类章节：
@@ -215,31 +198,46 @@ const stripCollaborationSections = (body: string): string => {
 };
 
 /**
- * 把某个技能的正文与参考文件拼成知识块，注入提示词。
- * 这样设计阶段会严格遵循该技能的方法论；技能内部对 references 的引用即"相互调用"。
+ * 把某个技能的正文、产出模板与参考文件拼成知识块，注入提示词。
+ * 技能内部对 references / templates 的引用即"相互调用"（仅限技能自身目录内）。
  *
- * opts.refs 控制注入哪些参考文件：
- *   - 'all'（默认）—— 正文 + 全部 references（流程四执行指南的现有行为）；
- *   - 'none'        —— 仅正文（流程三第一段：方法匹配，不需要各方法细节）；
- *   - string[]      —— 仅注入指定文件名的 references（流程三第二段：按命中方法细化）。
+ * opts.refs / opts.templates 控制注入哪些文件，语义一致：
+ *   - 'all'    —— 全部注入；
+ *   - 'none'   —— 一个都不注入（默认，控制轮只需要正文）；
+ *   - string[] —— 只注入指定文件名的那几个（产出轮按模式挑选）。
+ *
+ * ux-kit 的 references 加起来有几万字，全量注入会撑爆上下文，
+ * 所以调用方必须显式挑选——见 services/uxkit/referencePicker.ts。
  */
 export const buildSkillKnowledge = (
   skill: SkillMeta,
-  opts: { refs?: 'all' | 'none' | string[] } = {}
+  opts: {
+    refs?: 'all' | 'none' | string[];
+    templates?: 'all' | 'none' | string[];
+  } = {}
 ): string => {
-  const refsOpt = opts.refs ?? 'all';
   const parts: string[] = [];
   parts.push(`# 技能：${skill.name}（${skill.id}）`);
   if (skill.description) parts.push(`技能说明：${skill.description.trim()}`);
   parts.push(`\n## SKILL.md 正文\n${stripCollaborationSections(skill.body)}`);
-  const refs =
-    refsOpt === 'all'
-      ? skill.references
-      : refsOpt === 'none'
-      ? []
-      : skill.references.filter(r => refsOpt.includes(r.name));
-  for (const ref of refs) {
+
+  for (const tpl of pickAssets(skill.templates, opts.templates ?? 'none')) {
+    parts.push(`\n## 产出模板：templates/${tpl.name}\n${tpl.content.trim()}`);
+  }
+  for (const ref of pickAssets(skill.references, opts.refs ?? 'none')) {
     parts.push(`\n## 参考文件：references/${ref.name}\n${ref.content.trim()}`);
   }
   return parts.join('\n');
+};
+
+/** 按 'all' | 'none' | 文件名白名单过滤。白名单保持传入顺序，便于调用方控制优先级。 */
+const pickAssets = (
+  assets: SkillReference[],
+  opt: 'all' | 'none' | string[]
+): SkillReference[] => {
+  if (opt === 'all') return assets;
+  if (opt === 'none') return [];
+  return opt
+    .map(name => assets.find(a => a.name === name))
+    .filter((a): a is SkillReference => Boolean(a));
 };
