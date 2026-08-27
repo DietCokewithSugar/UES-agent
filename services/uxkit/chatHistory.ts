@@ -5,7 +5,7 @@
  * 一次性的 prompt 里。这里换成真正的 user/assistant 交替，模型能看到完整的追问上下文。
  */
 import type { Attachment } from '../../utils/attachments';
-import type { DocFormat, Proposal } from '../agents/types';
+import type { DocFormat, HandoffContext, Proposal } from '../agents/types';
 import type { DeepSeekMessage } from '../deepseekService';
 import type {
   ClarifyOption,
@@ -23,6 +23,7 @@ export interface ClarifyAnswer {
 
 export type ChatMessage =
   | { id: string; role: 'user'; kind: 'text'; text: string; attachments?: Attachment[] }
+  | { id: string; role: 'user'; kind: 'handoff'; handoff: HandoffContext }
   | { id: string; role: 'user'; kind: 'answer'; answer: ClarifyAnswer }
   | { id: string; role: 'assistant'; kind: 'text'; text: string }
   | {
@@ -114,6 +115,23 @@ export const toDeepSeekMessages = (messages: ChatMessage[]): DeepSeekMessage[] =
         });
         break;
       }
+      case 'handoff':
+        out.push({
+          role: 'user',
+          content: [
+            '以下是从 AI 研究助手带入并已由用户确认的需求摘要。请直接作为当前研究背景使用，不要索要研究方案全文，也不要重复追问已经明确的字段。',
+            `研究需求：${m.handoff.statement}`,
+            m.handoff.subject ? `研究对象：${m.handoff.subject}` : '',
+            m.handoff.audience ? `目标人群：${m.handoff.audience}` : '',
+            m.handoff.intent ? `研究目的：${m.handoff.intent}` : '',
+            m.handoff.constraints?.length
+              ? `约束条件：${m.handoff.constraints.join('；')}`
+              : ''
+          ]
+            .filter(Boolean)
+            .join('\n')
+        });
+        break;
       case 'answer':
         out.push({ role: 'user', content: describeAnswer(m.answer) });
         break;

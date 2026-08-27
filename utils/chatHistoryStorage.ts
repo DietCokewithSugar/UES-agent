@@ -95,8 +95,15 @@ export const getSession = (id: string): StoredSession | undefined =>
 
 /** 从消息里取标题：第一条用户文本消息的前 24 字。 */
 export const deriveTitle = (messages: ChatMessage[]): string => {
-  const first = messages.find(m => m.role === 'user' && m.kind === 'text');
-  const text = first && first.kind === 'text' ? first.text.trim() : '';
+  const first = messages.find(
+    m => m.role === 'user' && (m.kind === 'text' || m.kind === 'handoff')
+  );
+  const text =
+    first?.kind === 'text'
+      ? first.text.trim()
+      : first?.kind === 'handoff'
+        ? first.handoff.statement.trim()
+        : '';
   if (!text) return '新对话';
   return text.length > 24 ? `${text.slice(0, 24)}…` : text;
 };

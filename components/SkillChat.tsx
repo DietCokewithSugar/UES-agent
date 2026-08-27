@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
-import type { AgentDefinition } from '../services/agents/types';
+import type { AgentDefinition, HandoffContext } from '../services/agents/types';
 import { isDeepSeekConfigured } from '../services/deepseekService';
 import {
   collectAttachments,
@@ -26,6 +26,7 @@ import { ClarifyCard } from './uxkit/ClarifyCard';
 import { Composer } from './uxkit/Composer';
 import { DocumentCard } from './uxkit/DocumentCard';
 import { HistoryPanel } from './uxkit/HistoryPanel';
+import { HandoffCard } from './uxkit/HandoffCard';
 import { IntentCard } from './uxkit/IntentCard';
 import { ProposalCard } from './uxkit/ProposalCard';
 import { SkillTraceChip } from './uxkit/SkillTrace';
@@ -34,8 +35,8 @@ import { SkillTraceChip } from './uxkit/SkillTrace';
 const SAVE_DEBOUNCE_MS = 800;
 
 export interface HandoffPayload {
-  /** 从 ux-kit 带过来的研究背景，作为首条上下文注入 */
-  context: string;
+  /** 从 ux-kit 的需求确认卡带过来的精简研究背景 */
+  context: HandoffContext;
 }
 
 interface Props {
@@ -46,7 +47,7 @@ interface Props {
   /** 消费掉 handoff，避免开新对话时被重复注入 */
   onHandoffConsumed?: () => void;
   /** ux-kit 产出材料后，提供"去做分析"的入口 */
-  onGoToAnalysis?: (context: string) => void;
+  onGoToAnalysis?: (handoff: HandoffPayload) => void;
 }
 
 const Bubble: React.FC<{ from: 'ai' | 'user'; children: React.ReactNode }> = ({
@@ -549,14 +550,14 @@ export const SkillChat: React.FC<Props> = ({
     const msg: ChatMessage = {
       id: nextId('u'),
       role: 'user',
-      kind: 'text',
-      text: handoff.context
+      kind: 'handoff',
+      handoff: handoff.context
     };
     setMessages([msg]);
     onHandoffConsumed?.();
     void runControl([msg]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [handoff]);
+  }, [handoff, agent.id, messages.length]);
 
   // ===== 渲染 ===== //
 
@@ -578,6 +579,15 @@ export const SkillChat: React.FC<Props> = ({
               </div>
             )}
           </Bubble>
+        );
+
+      case 'handoff':
+        return (
+          <div key={m.id} className="flex justify-start">
+            <div className="w-full max-w-[92%]">
+              <HandoffCard handoff={m.handoff} />
+            </div>
+          </div>
         );
 
       case 'answer':
@@ -672,13 +682,16 @@ export const SkillChat: React.FC<Props> = ({
               {m.offerAnalysis && onGoToAnalysis && !m.streaming && (
                 <button
                   onClick={() =>
-                    onGoToAnalysis(
-                      `我刚用研究助手完成了研究材料设计，现在数据已经回收，想做分析。研究背景：${
-                        intent?.statement || m.doc.filename
-                      }${intent?.audience ? `\n目标人群：${intent.audience}` : ''}${
-                        intent?.intent ? `\n研究意图：${intent.intent}` : ''
-                      }\n已产出的材料：${m.doc.filename}`
-                    )
+                    onGoToAnalysis({
+                      context: {
+                        source: 'ux-kit',
+                        statement: intent?.statement || `分析《${m.doc.filename}》对应的研究数据`,
+                        subject: intent?.subject,
+                        audience: intent?.audience,
+                        intent: intent?.intent,
+                        constraints: intent?.constraints
+                      }
+                    })
                   }
                   className="w-full rounded-xl border border-sky-300 bg-sky-50 px-4 py-2.5 text-left text-sm text-sky-900 transition-colors hover:bg-sky-100"
                 >

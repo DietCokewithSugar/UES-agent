@@ -52,6 +52,16 @@ export interface Proposal {
   reviseLabel?: string;
 }
 
+/** 从上游研究助手带入分析助手的精简需求记忆。 */
+export interface HandoffContext {
+  source: 'ux-kit';
+  statement: string;
+  subject?: string;
+  audience?: string;
+  intent?: string;
+  constraints?: string[];
+}
+
 /**
  * 控制轮的返回。
  * `intent` 是 ux-kit 专用（研究问题陈述卡），`propose` 是通用提案卡。
