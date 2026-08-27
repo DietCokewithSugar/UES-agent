@@ -1446,8 +1446,8 @@ export default function App() {
         <SkillChat
           agent={uxKitAgent}
           onBack={() => setPageMode('landing')}
-          onGoToAnalysis={context => {
-            setAnalysisHandoff({ context });
+          onGoToAnalysis={handoff => {
+            setAnalysisHandoff(handoff);
             setPageMode('analysis');
           }}
         />
