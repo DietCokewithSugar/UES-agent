@@ -1,3 +1,7 @@
+import type { Block, InlineRun } from '../docx/blocks';
+
+export type { Block, InlineRun };
+
 /**
  * Markdown → 结构化 Block 解析器
  *
@@ -5,28 +9,9 @@
  * （`parse_markdown` / `_parse_inline`）。该脚本是 Python，浏览器端跑不了，
  * 但它定义的解析规则是技能产出文档的权威规格，因此这里逐条对齐移植。
  *
- * 解析结果 `Block[]` 有两个消费方：
- *   - `services/docx/blocksToDocx.ts` —— 渲染成 .docx
- *   - `components/uxkit/BlockView.tsx` —— 渲染成聊天里的预览
- * 同一份 Block 树喂给两个渲染器，保证"屏幕上看到的"和"下载到的 docx"结构一致，
- * 也省掉了一个 markdown 渲染依赖。
+ * Block 的定义在 `services/docx/blocks.ts`（与 analysis.json 共用同一套词汇表）；
+ * 本解析器只产出其中的 markdown 子集，不会产出 conclusion / chart / image / pagebreak。
  */
-
-export interface InlineRun {
-  text: string;
-  bold?: boolean;
-  italic?: boolean;
-  code?: boolean;
-}
-
-export type Block =
-  | { type: 'heading'; text: string; level: 1 | 2 | 3 | 4 }
-  | { type: 'paragraph'; text: string }
-  | { type: 'bullets'; items: string[] }
-  | { type: 'numbered'; items: string[] }
-  | { type: 'quote'; text: string }
-  | { type: 'codeblock'; text: string; lang?: string }
-  | { type: 'table'; headers: string[]; rows: string[][] };
 
 export interface ParsedMarkdown {
   /** 第一个 `# 一级标题`，单独抽出作为文档标题，不再出现在 blocks 里 */

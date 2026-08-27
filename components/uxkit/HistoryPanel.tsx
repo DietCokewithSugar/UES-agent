@@ -12,6 +12,7 @@ interface Props {
   open: boolean;
   sessions: StoredSession[];
   activeId: string;
+  title?: string;
   onClose: () => void;
   onOpenSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
@@ -22,6 +23,7 @@ export const HistoryPanel: React.FC<Props> = ({
   open,
   sessions,
   activeId,
+  title = '历史对话',
   onClose,
   onOpenSession,
   onDeleteSession,
@@ -39,7 +41,7 @@ export const HistoryPanel: React.FC<Props> = ({
       <aside className="relative flex h-full w-full max-w-xs flex-col border-r border-slate-200 bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
           <div>
-            <div className="text-sm font-semibold text-slate-900">历史对话</div>
+            <div className="text-sm font-semibold text-slate-900">{title}</div>
             <div className="text-[11px] text-slate-500">仅保存在这台设备的浏览器里</div>
           </div>
           <button

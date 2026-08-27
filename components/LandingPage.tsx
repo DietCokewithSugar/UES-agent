@@ -1,4 +1,5 @@
 import React from 'react';
+import { uxAnalysisAgent, uxKitAgent } from '../services/agents/registry';
 
 interface LandingPageProps {
   hasStoredDraft: boolean;
@@ -6,6 +7,7 @@ interface LandingPageProps {
   onStartEvaluation: () => void;
   onRestoreDraft: () => void;
   onStartCompanion: () => void;
+  onStartAnalysis: () => void;
 }
 
 const FEATURES = [
@@ -47,7 +49,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   draftSavedAt,
   onStartEvaluation,
   onRestoreDraft,
-  onStartCompanion
+  onStartCompanion,
+  onStartAnalysis
 }) => {
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 md:px-6 md:py-10 space-y-6">
@@ -85,37 +88,62 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         )}
       </section>
 
-      <section className="rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 via-white to-indigo-50 p-6 md:p-7 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="space-y-3 max-w-2xl">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-violet-300 bg-white px-3 py-1 text-xs font-semibold text-violet-700">
-              <span className="inline-flex h-1.5 w-1.5 rounded-full bg-violet-500" />
-              新功能 · 由 DeepSeek 驱动
-            </span>
-            <h2 className="text-xl md:text-2xl font-semibold tracking-tight text-slate-900">
-              AI 研究助手 — 一句话产出用户研究材料
-            </h2>
-            <p className="text-sm md:text-base text-slate-600 leading-7">
-              对话式地调用 ux-kit 研究技能：你说一句诉求，AI 用可多选的问题跟你校准方向，归纳出研究问题陈述请你确认，确认后直接产出 Word 文档。
-            </p>
-            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-600 leading-6">
-              <li>· 多选题式追问，避免"理解偏差"</li>
-              <li>· 明确说要问卷/提纲，就直接出材料</li>
-              <li>· 诉求模糊时先出研究方案再出材料</li>
-              <li>· 产出 .docx，全文微软雅黑排版</li>
-            </ul>
+      {[
+        {
+          agent: uxKitAgent,
+          onClick: onStartCompanion,
+          ring: 'border-violet-200 from-violet-50',
+          pill: 'border-violet-300 text-violet-700',
+          dot: 'bg-violet-500',
+          button: 'bg-violet-600 hover:bg-violet-700',
+          tag: '对话式技能 · 由 DeepSeek 驱动'
+        },
+        {
+          agent: uxAnalysisAgent,
+          onClick: onStartAnalysis,
+          ring: 'border-sky-200 from-sky-50',
+          pill: 'border-sky-300 text-sky-700',
+          dot: 'bg-sky-500',
+          button: 'bg-sky-600 hover:bg-sky-700',
+          tag: '新功能 · 支持上传数据与图片'
+        }
+      ].map(({ agent, onClick, ring, pill, dot, button, tag }) => (
+        <section
+          key={agent.id}
+          className={`rounded-2xl border bg-gradient-to-br via-white to-indigo-50 p-6 md:p-7 shadow-sm ${ring}`}
+        >
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="space-y-3 max-w-2xl">
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full border bg-white px-3 py-1 text-xs font-semibold ${pill}`}
+              >
+                <span className={`inline-flex h-1.5 w-1.5 rounded-full ${dot}`} />
+                {tag}
+              </span>
+              <h2 className="text-xl md:text-2xl font-semibold tracking-tight text-slate-900">
+                {agent.nav.landing.heading}
+              </h2>
+              <p className="text-sm md:text-base text-slate-600 leading-7">
+                {agent.nav.landing.description}
+              </p>
+              <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-600 leading-6">
+                {agent.nav.landing.bullets.map(b => (
+                  <li key={b}>{b}</li>
+                ))}
+              </ul>
+            </div>
+            <div className="flex flex-col items-end gap-2">
+              <button
+                onClick={onClick}
+                className={`rounded-lg px-5 py-2.5 text-sm font-semibold text-white shadow-sm ${button}`}
+              >
+                {agent.nav.landing.cta}
+              </button>
+              <span className="text-[11px] text-slate-500">需要在 .env.local 配置 DEEPSEEK_API_KEY</span>
+            </div>
           </div>
-          <div className="flex flex-col items-end gap-2">
-            <button
-              onClick={onStartCompanion}
-              className="rounded-lg bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-violet-700"
-            >
-              进入 AI 研究助手
-            </button>
-            <span className="text-[11px] text-slate-500">需要在 .env.local 配置 DEEPSEEK_API_KEY</span>
-          </div>
-        </div>
-      </section>
+        </section>
+      ))}
 
       <section className="grid grid-cols-1 gap-3 md:grid-cols-2">
         {FEATURES.map((feature) => (

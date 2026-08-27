@@ -1,6 +1,40 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 
-import { parseInline, type Block, type InlineRun } from '../../services/markdown/parseMarkdown';
+import { drawChart } from '../../services/analysis/chartRenderer';
+import type { Block, ChartSpec, InlineRun } from '../../services/docx/blocks';
+import { parseInline } from '../../services/markdown/parseMarkdown';
+
+/** 图表预览：与导出 docx 用的是同一套 drawChart，所见即所得。 */
+const ChartView: React.FC<{ spec: ChartSpec; caption?: string }> = ({ spec, caption }) => {
+  const ref = useRef<HTMLCanvasElement | null>(null);
+  const [failed, setFailed] = React.useState(false);
+
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const [fw, fh] = spec.figsize ?? [8, 4];
+    canvas.width = Math.round(fw * 96 * 2);
+    canvas.height = Math.round(fh * 96 * 2);
+    try {
+      drawChart(canvas, spec);
+      setFailed(false);
+    } catch {
+      setFailed(true);
+    }
+  }, [spec]);
+
+  if (failed) {
+    return <p className="text-xs text-slate-500">（图略：图表渲染失败{caption ? ` — ${caption}` : ''}）</p>;
+  }
+  return (
+    <figure className="space-y-1">
+      <canvas ref={ref} className="w-full rounded border border-slate-200 bg-white" />
+      {caption && (
+        <figcaption className="text-center text-xs text-slate-500">{caption}</figcaption>
+      )}
+    </figure>
+  );
+};
 
 /**
  * Block[] → React。
@@ -103,7 +137,11 @@ export const BlockView: React.FC<{ blocks: Block[] }> = ({ blocks }) => (
         case 'table':
           return (
             // 宽表格自己横向滚动，不让整个气泡被撑出横向滚动条
-            <div key={idx} className="overflow-x-auto">
+            <div key={idx} className="space-y-1">
+              {block.title && (
+                <div className="text-xs font-semibold text-slate-800">{block.title}</div>
+              )}
+              <div className="overflow-x-auto">
               <table className="w-full min-w-[32rem] border-collapse text-xs">
                 <thead>
                   <tr>
@@ -132,8 +170,60 @@ export const BlockView: React.FC<{ blocks: Block[] }> = ({ blocks }) => (
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           );
+
+        case 'conclusion':
+          return (
+            // 核心结论三段式：结论加粗独立成段 / 关键数据带项目符号 / 可信度与解读合并
+            <div key={idx} className="space-y-1.5 border-l-2 border-slate-300 pl-3">
+              {block.statement && (
+                <p className="font-semibold text-slate-900">
+                  <Inline text={block.statement} />
+                </p>
+              )}
+              {block.data.length > 0 && (
+                <ul className="space-y-0.5">
+                  {block.data.map((d, i) => (
+                    <li key={i} className="flex gap-1.5">
+                      <span className="flex-none text-slate-400">•</span>
+                      <span className="min-w-0 flex-1">
+                        <Inline text={d} />
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {(block.confidence || block.interpretation) && (
+                <p className="text-xs text-slate-500">
+                  {[block.confidence, block.interpretation].filter(Boolean).join('；')}
+                </p>
+              )}
+            </div>
+          );
+
+        case 'chart':
+          return <ChartView key={idx} spec={block.spec} caption={block.caption} />;
+
+        case 'image':
+          return (
+            <figure key={idx} className="space-y-1">
+              <img
+                src={block.dataUrl}
+                alt={block.caption || '图片'}
+                className="mx-auto max-w-full rounded border border-slate-200"
+              />
+              {block.caption && (
+                <figcaption className="text-center text-xs text-slate-500">
+                  {block.caption}
+                </figcaption>
+              )}
+            </figure>
+          );
+
+        case 'pagebreak':
+          return <hr key={idx} className="my-3 border-dashed border-slate-300" />;
 
         default:
           return null;

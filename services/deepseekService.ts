@@ -10,10 +10,24 @@
  *   - deepseekChatStream 产出轮：长、流式、纯 markdown（研究方案 / 问卷 / 提纲 / 测试方案）
  */
 
+/**
+ * OpenAI 兼容的多模态内容块。纯文本消息直接用 string；
+ * 带图片时用块数组，DeepSeek 的视觉模型按这个格式接收图片。
+ */
+export type DeepSeekContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } };
+
 export interface DeepSeekMessage {
   role: 'system' | 'user' | 'assistant';
-  content: string;
+  content: string | DeepSeekContentBlock[];
 }
+
+/** 消息里带图片吗？带的话要切到视觉模型。 */
+export const hasImageContent = (messages: DeepSeekMessage[]): boolean =>
+  messages.some(
+    m => Array.isArray(m.content) && m.content.some(b => b.type === 'image_url')
+  );
 
 export interface DeepSeekChatOptions {
   model?: string;
@@ -24,6 +38,36 @@ export interface DeepSeekChatOptions {
 }
 
 const DEFAULT_MODEL = 'deepseek-chat';
+
+/**
+ * 视觉模型。`deepseek-chat` 只接文本，图片要走这个模型。
+ *
+ * 做成环境变量是因为模型名可能变：改 `.env.local` 一行即可，不必改代码。
+ * 被 API 拒绝时会明确报错指向这个变量，而不是静默退回纯文本——
+ * 否则用户会以为图片被分析了。
+ */
+const DEFAULT_VISION_MODEL = 'deepseek-v4-flash-vision-exp';
+
+const getVisionModel = (): string =>
+  process.env.DEEPSEEK_VISION_MODEL || DEFAULT_VISION_MODEL;
+
+/** 按消息内容挑模型：带图片用视觉模型，否则用默认文本模型。 */
+export const pickModel = (messages: DeepSeekMessage[], override?: string): string => {
+  if (override) return override;
+  return hasImageContent(messages) ? getVisionModel() : DEFAULT_MODEL;
+};
+
+/**
+ * 把 API 报错翻译成能直接照做的提示。
+ * 视觉模型名不对是最容易踩的坑，单独点名。
+ */
+const describeApiError = (status: number, body: string, model: string, usedVision: boolean): string => {
+  const head = `DeepSeek API 调用失败 (${status}): ${body.slice(0, 500)}`;
+  if (usedVision && (status === 400 || status === 404 || /model/i.test(body))) {
+    return `${head}\n\n看起来视觉模型「${model}」不可用。请在 .env.local 里用 DEEPSEEK_VISION_MODEL 指定你账号可用的视觉模型名，然后重启开发服务。（图片必须走视觉模型，deepseek-chat 不接受图片输入。）`;
+  }
+  return head;
+};
 
 const getApiKey = (): string => {
   const key = process.env.DEEPSEEK_API_KEY;
@@ -50,8 +94,11 @@ export const deepseekChat = async (
   const apiKey = getApiKey();
   const url = `${getBaseUrl()}/v1/chat/completions`;
 
+  const model = pickModel(messages, options.model);
+  const usedVision = hasImageContent(messages);
+
   const body: Record<string, unknown> = {
-    model: options.model || DEFAULT_MODEL,
+    model,
     messages,
     temperature: options.temperature ?? 0.5,
     stream: false
@@ -71,7 +118,7 @@ export const deepseekChat = async (
 
   if (!response.ok) {
     const errText = await response.text().catch(() => '');
-    throw new Error(`DeepSeek API 调用失败 (${response.status}): ${errText.slice(0, 500)}`);
+    throw new Error(describeApiError(response.status, errText, model, usedVision));
   }
 
   const data: any = await response.json();
@@ -135,8 +182,11 @@ export const deepseekChatStream = async (
   const apiKey = getApiKey();
   const url = `${getBaseUrl()}/v1/chat/completions`;
 
+  const model = pickModel(messages, options.model);
+  const usedVision = hasImageContent(messages);
+
   const body: Record<string, unknown> = {
-    model: options.model || DEFAULT_MODEL,
+    model,
     messages,
     temperature: options.temperature ?? 0.5,
     stream: true
@@ -155,7 +205,7 @@ export const deepseekChatStream = async (
 
   if (!response.ok) {
     const errText = await response.text().catch(() => '');
-    throw new Error(`DeepSeek API 调用失败 (${response.status}): ${errText.slice(0, 500)}`);
+    throw new Error(describeApiError(response.status, errText, model, usedVision));
   }
   if (!response.body) {
     throw new Error('DeepSeek 未返回流式响应体。');

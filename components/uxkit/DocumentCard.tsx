@@ -1,5 +1,9 @@
 import React, { useMemo, useState } from 'react';
 
+import { renderChartsInBlocks } from '../../services/analysis/chartRenderer';
+import { parseAnalysisJson } from '../../services/analysis/parseAnalysisJson';
+import type { DocFormat } from '../../services/agents/types';
+import type { Block } from '../../services/docx/blocks';
 import { blocksToDocxBlob } from '../../services/docx/blocksToDocx';
 import { parseMarkdown } from '../../services/markdown/parseMarkdown';
 import { KIND_LABELS, type GeneratedDoc } from '../../services/uxkit/types';
@@ -14,6 +18,8 @@ import { BlockView } from './BlockView';
  */
 interface Props {
   doc: GeneratedDoc;
+  /** markdown（ux-kit）还是 analysis.json（ux-analysis），决定用哪个解析器与排版主题 */
+  format?: DocFormat;
   /** 正在流式写入时为 true，此时只滚动展示原文、不给下载按钮 */
   streaming?: boolean;
   /** 这份文档是等待用户确认的研究方案时，额外给确认/修改动作 */
@@ -27,13 +33,30 @@ const PREVIEW_COLLAPSE_THRESHOLD = 2400;
 
 export const DocumentCard: React.FC<Props> = ({
   doc,
+  format = 'markdown',
   streaming,
   awaitingConfirm,
   pending,
   onConfirm,
   onRevise
 }) => {
-  const parsed = useMemo(() => parseMarkdown(doc.markdown), [doc.markdown]);
+  /**
+   * 流式过程中 analysis.json 还不是合法 JSON，解析必然失败——
+   * 这时先按纯文本展示，等流结束再正式解析。
+   */
+  const parsed = useMemo((): {
+    title: string | null;
+    subtitle?: string;
+    blocks: Block[];
+    raw?: string;
+  } => {
+    if (format === 'markdown') return parseMarkdown(doc.markdown);
+    try {
+      return parseAnalysisJson(doc.markdown);
+    } catch {
+      return { title: null, blocks: [], raw: doc.markdown };
+    }
+  }, [doc.markdown, format]);
   const isLong = doc.markdown.length > PREVIEW_COLLAPSE_THRESHOLD;
   const [expanded, setExpanded] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
@@ -43,30 +66,39 @@ export const DocumentCard: React.FC<Props> = ({
 
   const collapsed = isLong && !expanded && !streaming;
 
+  const rawExt = format === 'analysisJson' ? '.json' : '.md';
+  const rawMime = format === 'analysisJson' ? 'application/json' : 'text/markdown';
+
   const downloadDocx = async () => {
     setBusy(true);
     setDownloadError(null);
     try {
-      const blob = await blocksToDocxBlob(parsed.title, parsed.blocks);
+      // 图表要先画成 PNG——docx 需要图片字节，不能等渲染时再画
+      const blocks =
+        format === 'analysisJson' ? renderChartsInBlocks(parsed.blocks) : parsed.blocks;
+      const blob = await blocksToDocxBlob(parsed.title, blocks, {
+        theme: format === 'analysisJson' ? 'analysis' : 'uxkit',
+        subtitle: parsed.subtitle
+      });
       saveFile(blob, doc.filename);
     } catch (err) {
       // 技能「异常处理」规定的降级路径：保留 markdown 作为交付物并说明原因
       setDownloadError(
-        `DOCX 转换未成功（${(err as Error).message}）。已为你提供 Markdown 文件，可手动转换或复制到 Word 中编辑。`
+        `DOCX 转换未成功（${(err as Error).message}）。已为你提供 ${rawExt} 文件作为降级交付物。`
       );
       saveFile(
-        new Blob([doc.markdown], { type: 'text/markdown;charset=utf-8' }),
-        doc.filename.replace(/\.docx$/, '.md')
+        new Blob([doc.markdown], { type: `${rawMime};charset=utf-8` }),
+        doc.filename.replace(/\.docx$/, rawExt)
       );
     } finally {
       setBusy(false);
     }
   };
 
-  const downloadMd = () =>
+  const downloadRaw = () =>
     saveFile(
-      new Blob([doc.markdown], { type: 'text/markdown;charset=utf-8' }),
-      doc.filename.replace(/\.docx$/, '.md')
+      new Blob([doc.markdown], { type: `${rawMime};charset=utf-8` }),
+      doc.filename.replace(/\.docx$/, rawExt)
     );
 
   return (
@@ -94,10 +126,10 @@ export const DocumentCard: React.FC<Props> = ({
               {busy ? '生成中…' : '下载 .docx'}
             </button>
             <button
-              onClick={downloadMd}
+              onClick={downloadRaw}
               className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-700"
             >
-              下载 .md
+              下载 {rawExt}
             </button>
           </div>
         )}
@@ -127,7 +159,16 @@ export const DocumentCard: React.FC<Props> = ({
               {parsed.title}
             </div>
           )}
-          <BlockView blocks={parsed.blocks} />
+          {parsed.subtitle && (
+            <div className="mb-3 text-center text-xs text-slate-500">{parsed.subtitle}</div>
+          )}
+          {parsed.raw !== undefined ? (
+            <pre className="whitespace-pre-wrap break-all font-mono text-[11px] leading-5 text-slate-500">
+              {parsed.raw}
+            </pre>
+          ) : (
+            <BlockView blocks={parsed.blocks} />
+          )}
           {streaming && <span className="ml-0.5 inline-block animate-pulse text-slate-400">▍</span>}
         </div>
         {collapsed && (

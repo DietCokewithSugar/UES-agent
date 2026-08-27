@@ -4,6 +4,8 @@
  * 旧的五步向导没有任何多轮记忆——它把历史压成 `clarifications[]` 字符串再塞进
  * 一次性的 prompt 里。这里换成真正的 user/assistant 交替，模型能看到完整的追问上下文。
  */
+import type { Attachment } from '../../utils/attachments';
+import type { DocFormat, Proposal } from '../agents/types';
 import type { DeepSeekMessage } from '../deepseekService';
 import type {
   ClarifyOption,
@@ -20,7 +22,7 @@ export interface ClarifyAnswer {
 }
 
 export type ChatMessage =
-  | { id: string; role: 'user'; kind: 'text'; text: string }
+  | { id: string; role: 'user'; kind: 'text'; text: string; attachments?: Attachment[] }
   | { id: string; role: 'user'; kind: 'answer'; answer: ClarifyAnswer }
   | { id: string; role: 'assistant'; kind: 'text'; text: string }
   | {
@@ -29,8 +31,25 @@ export type ChatMessage =
       kind: 'clarify';
       question: string;
       options: ClarifyOption[];
+      /** false 时渲染成单选 */
+      multiple: boolean;
       note?: string;
       answer?: ClarifyAnswer;
+    }
+  | {
+      id: string;
+      role: 'assistant';
+      kind: 'proposal';
+      proposal: Proposal;
+      status: 'pending' | 'confirmed';
+    }
+  | {
+      id: string;
+      role: 'assistant';
+      kind: 'request_files';
+      prompt: string;
+      hint?: string;
+      satisfied?: boolean;
     }
   | {
       id: string;
@@ -44,8 +63,11 @@ export type ChatMessage =
       role: 'assistant';
       kind: 'document';
       doc: GeneratedDoc;
+      format: DocFormat;
       streaming?: boolean;
       awaitingConfirm?: boolean;
+      /** ux-kit 产出材料后，引导去 ux-analysis 做分析 */
+      offerAnalysis?: boolean;
     }
   | { id: string; role: 'assistant'; kind: 'trace'; trace: SkillTrace; running?: boolean }
   | { id: string; role: 'assistant'; kind: 'error'; message: string };
@@ -80,9 +102,18 @@ export const toDeepSeekMessages = (messages: ChatMessage[]): DeepSeekMessage[] =
   const out: DeepSeekMessage[] = [];
   for (const m of messages) {
     switch (m.kind) {
-      case 'text':
-        out.push({ role: m.role, content: m.text });
+      case 'text': {
+        const files = m.role === 'user' ? m.attachments : undefined;
+        out.push({
+          role: m.role,
+          content: files?.length
+            ? `${m.text}\n（本条消息附带 ${files.length} 个文件：${files
+                .map(a => a.name)
+                .join('、')}）`
+            : m.text
+        });
         break;
+      }
       case 'answer':
         out.push({ role: 'user', content: describeAnswer(m.answer) });
         break;
@@ -102,6 +133,23 @@ export const toDeepSeekMessages = (messages: ChatMessage[]): DeepSeekMessage[] =
           content: JSON.stringify({ action: 'confirm_intent', intent: m.intent })
         });
         break;
+      case 'proposal':
+        out.push({
+          role: 'assistant',
+          content: JSON.stringify({ action: 'propose', proposal: m.proposal })
+        });
+        if (m.status === 'confirmed') {
+          out.push({ role: 'user', content: '确认，继续下一步。' });
+        }
+        break;
+
+      case 'request_files':
+        out.push({
+          role: 'assistant',
+          content: JSON.stringify({ action: 'request_files', prompt: m.prompt })
+        });
+        break;
+
       case 'document':
         out.push({
           role: 'assistant',
@@ -118,6 +166,21 @@ export const toDeepSeekMessages = (messages: ChatMessage[]): DeepSeekMessage[] =
 
 /** 已经追问过几轮，用来卡住澄清上限。 */
 export const countClarifyRounds = (messages: ChatMessage[]): number =>
-  messages.filter(m => m.kind === 'clarify').length;
+  messages.filter(m => m.kind === 'clarify' || m.kind === 'proposal').length;
+
+/** 本会话已上传的全部附件（去重按 id）。 */
+export const collectAttachments = (messages: ChatMessage[]): Attachment[] => {
+  const seen = new Set<string>();
+  const out: Attachment[] = [];
+  for (const m of messages) {
+    if (m.kind !== 'text' || m.role !== 'user' || !m.attachments) continue;
+    for (const a of m.attachments) {
+      if (seen.has(a.id)) continue;
+      seen.add(a.id);
+      out.push(a);
+    }
+  }
+  return out;
+};
 
 export const isPlanDeliverable = (d: Deliverable): boolean => d.kind === 'researchPlan';
