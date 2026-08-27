@@ -23,21 +23,22 @@
   - 支持当前报告 PNG 导出与批量 ZIP 导出
   - 可选生成“AI 优化效果图”（视频模式下禁用）
 
-- **AI 体验伙伴（新）**
-  - 由 DeepSeek 驱动，引导非专业人员完成一次完整的用户研究设计
-  - 四步对话流程：收集需求 → 澄清并转化研究问题 → 推荐研究方案 → 生成执行指南
-  - 每个阶段当 AI 理解存在歧义时，会给出 2-6 个可多选的方向选项 + 自定义补充 / 跳过校准，降低偏差；
-    研究问题阶段按 problem-clarifier 技能的五维度（方向/动机/人群/范围/约束）多轮澄清收敛
-  - 自动生成访谈/调研提纲（访谈含铺垫与追问设计、探询指南；问卷含完整选项）、用户配额、筛选标准与执行注意事项；输出不带任何方法标签
-  - 完成线下调研后可继续上传访谈记录（.txt/.md/.csv/.docx/.pdf），由 AI 输出结构化研究报告
+- **AI 研究助手（对话式技能调用）**
+  - 由 DeepSeek 驱动，把 `skills/ux-kit` 技能"套壳"成一场对话
+  - 流程：用户一句话 → AI 多选题追问 → AI 归纳意图请你确认 → 确认后产出 **.docx**
+  - **两种交互卡片**：
+    - *意图澄清卡* —— 多选选项 + 自定义补充 + 跳过兜底（对应技能里的 `question` 工具）
+    - *意图确认卡* —— 研究对象 / 目标人群 / 研究意图 + 输出模式 + **即将产出的文件名**
+  - **两条分支**（由技能 Phase 0 的产物词判定表决定）：
+    - 明确说了要问卷 / 访谈提纲 / 可用性测试方案 → 确认后**直接产出那份材料，没有研究方案这一步**
+    - 诉求模糊或涉及多种材料 → 先产出研究方案，确认方案后再按阶段生成材料
+  - 界面上有 Claude Code 风格的**技能调用轨迹**：这一步调了哪个技能、处在哪个 Phase、
+    实际读了技能目录下的哪些 `templates/` 与 `references/` 文件
+  - 产出正文流式输出；.docx 在浏览器端生成（全文微软雅黑、标题深蓝、表格带框线），
+    转换失败时按技能规定降级为 Markdown 交付
   - **可插拔研究技能（Skills）**：`skills/` 目录下按 [Anthropic Agent Skills](https://www.anthropic.com/news/agent-skills)
-    约定存放技能（每个技能一个文件夹 + `SKILL.md`），来源均为 [github.com/Evelyn32/skills](https://github.com/Evelyn32/skills)。
-    技能分两类角色：**流程技能**（`problem-clarifier` 驱动研究问题澄清、`research-plan-generator` 驱动研究方案设计，
-    由对应阶段显式注入）与**方法技能**（`interview-guide-generator` 访谈提纲、`questionnaire-generator` 问卷编制，
-    仅在执行指南阶段按所选方法自动路由注入）。**各阶段技能严格隔离**：一个阶段只注入一个技能，
-    注入时自动剥离技能文档中的"协作"章节，互不串扰。`services/skills/skillRegistry.ts`
-    在构建期自动加载全部技能；新增研究方法只需往 `skills/` 放一个技能文件夹，无需改代码。
-    详见 [`skills/README.md`](./skills/README.md)。
+    约定存放技能。当前安装 `ux-kit` 一个技能，`services/skills/skillRegistry.ts` 在构建期
+    自动加载其 `SKILL.md` / `references/` / `templates/`。详见 [`skills/README.md`](./skills/README.md)。
 
 ---
 
@@ -62,7 +63,7 @@ DEEPSEEK_API_BASE_URL=https://api.deepseek.com
 ```
 
 > 仅使用 Google Provider 时，`OPENROUTER_API_KEY` 可留空。
-> `DEEPSEEK_API_KEY` 仅用于"AI 体验伙伴"功能，未配置时其他评测功能不受影响。
+> `DEEPSEEK_API_KEY` 仅用于"AI 研究助手"功能，未配置时其他评测功能不受影响。
 
 ### 3) 启动开发环境
 
@@ -118,6 +119,7 @@ npm run build
 ## 技术栈
 
 - React 19 + TypeScript + Vite
-- Google Gemini / OpenRouter（前端直连）
+- Google Gemini / OpenRouter（前端直连）；DeepSeek（AI 研究助手，含流式）
 - Recharts（图表）
 - html-to-image + JSZip + file-saver（导出）
+- docx（浏览器端生成 Word 文档）

@@ -93,16 +93,16 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               新功能 · 由 DeepSeek 驱动
             </span>
             <h2 className="text-xl md:text-2xl font-semibold tracking-tight text-slate-900">
-              AI 体验伙伴 — 帮非专业人员设计一次完整的用户研究
+              AI 研究助手 — 一句话产出用户研究材料
             </h2>
             <p className="text-sm md:text-base text-slate-600 leading-7">
-              从需求澄清、转化研究问题、推荐研究方法，到生成可执行的访谈/调研指南，再到访谈结果分析。AI 会通过可多选的理解校准帮你避免"理解偏差"，全程对话引导。
+              对话式地调用 ux-kit 研究技能：你说一句诉求，AI 用可多选的问题跟你校准方向，归纳出研究问题陈述请你确认，确认后直接产出 Word 文档。
             </p>
             <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-600 leading-6">
-              <li>· 把"业务问题"翻译成"研究问题"</li>
-              <li>· 推荐方法 / 样本 / 周期</li>
-              <li>· 生成提纲与招募配额</li>
-              <li>· 上传访谈结果，AI 输出研究报告</li>
+              <li>· 多选题式追问，避免"理解偏差"</li>
+              <li>· 明确说要问卷/提纲，就直接出材料</li>
+              <li>· 诉求模糊时先出研究方案再出材料</li>
+              <li>· 产出 .docx，全文微软雅黑排版</li>
             </ul>
           </div>
           <div className="flex flex-col items-end gap-2">
@@ -110,7 +110,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               onClick={onStartCompanion}
               className="rounded-lg bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-violet-700"
             >
-              进入 AI 体验伙伴
+              进入 AI 研究助手
             </button>
             <span className="text-[11px] text-slate-500">需要在 .env.local 配置 DEEPSEEK_API_KEY</span>
           </div>
