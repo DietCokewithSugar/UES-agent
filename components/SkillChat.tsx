@@ -550,13 +550,10 @@ export const SkillChat: React.FC<Props> = ({
     persistCurrent();
     const stored = getSession(id);
     if (!stored) return;
-    setSessionId(stored.id);
+    resetTo(stored.id);
     setMessages(stored.messages);
     setIntent(stored.intent);
     setPlanMarkdown(stored.planMarkdown);
-    setPendingFiles([]);
-    setInput('');
-    setBusy(false);
     setHistoryOpen(false);
     refreshSessions();
   };
