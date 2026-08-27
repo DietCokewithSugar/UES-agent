@@ -123,6 +123,8 @@ export interface GenerateOptions {
 /** 首页入口与空态的展示信息。 */
 export interface AgentNav {
   title: string;
+  /** 对话空态主标题，缺省沿用 title。 */
+  chatHeading?: string;
   tagline: string;
   /** 空态的极淡字标 */
   wordmark: string;

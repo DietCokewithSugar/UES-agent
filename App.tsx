@@ -1444,6 +1444,7 @@ export default function App() {
         />
       ) : pageMode === 'companion' ? (
         <SkillChat
+          key="ux-kit"
           agent={uxKitAgent}
           onBack={() => setPageMode('landing')}
           onGoToAnalysis={handoff => {
@@ -1453,6 +1454,7 @@ export default function App() {
         />
       ) : pageMode === 'analysis' ? (
         <SkillChat
+          key="ux-analysis"
           agent={uxAnalysisAgent}
           onBack={() => setPageMode('landing')}
           handoff={analysisHandoff}
