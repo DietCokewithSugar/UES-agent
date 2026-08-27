@@ -182,6 +182,13 @@ export const SkillChat: React.FC<Props> = ({
       rounds: countClarifyRounds(history),
       intent,
       planMarkdown,
+      milestones: {
+        hasHandoff: history.some(m => m.kind === 'handoff'),
+        confirmedIntent: history.some(m => m.kind === 'intent' && m.status === 'confirmed'),
+        confirmedProposals: history
+          .filter(m => m.kind === 'proposal' && m.status === 'confirmed')
+          .map(m => (m.kind === 'proposal' ? m.proposal.title : ''))
+      },
       signal
     }),
     [intent, planMarkdown]
@@ -409,9 +416,16 @@ export const SkillChat: React.FC<Props> = ({
     await runControl(confirmed);
   };
 
-  const handleFeedback = async (feedback: string) => {
+  const handleFeedback = async (sourceId: string, feedback: string) => {
+    const superseded = messages.map(m =>
+      m.id === sourceId &&
+      ((m.kind === 'intent' && m.status === 'pending') ||
+        (m.kind === 'proposal' && m.status === 'pending'))
+        ? { ...m, status: 'superseded' as const }
+        : m
+    );
     const history: ChatMessage[] = [
-      ...messages,
+      ...superseded,
       { id: nextId('u'), role: 'user', kind: 'text', text: feedback }
     ];
     setMessages(history);
@@ -632,7 +646,7 @@ export const SkillChat: React.FC<Props> = ({
                 status={m.status}
                 pending={busy}
                 onConfirm={() => handleProposalConfirm(m.id)}
-                onRevise={handleFeedback}
+                onRevise={feedback => handleFeedback(m.id, feedback)}
               />
             </div>
           </div>
@@ -660,7 +674,7 @@ export const SkillChat: React.FC<Props> = ({
                 status={m.status}
                 pending={busy}
                 onConfirm={() => handleIntentConfirm(m.id, m.intent)}
-                onRevise={handleFeedback}
+                onRevise={feedback => handleFeedback(m.id, feedback)}
               />
             </div>
           </div>

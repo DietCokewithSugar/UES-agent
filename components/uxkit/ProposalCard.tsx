@@ -13,7 +13,7 @@ import type { Proposal } from '../../services/agents/types';
  */
 interface Props {
   proposal: Proposal;
-  status: 'pending' | 'confirmed';
+  status: 'pending' | 'confirmed' | 'superseded';
   pending?: boolean;
   onConfirm?: () => void;
   onRevise?: (feedback: string) => void;
@@ -44,6 +44,11 @@ export const ProposalCard: React.FC<Props> = ({
         {status === 'confirmed' && (
           <span className="inline-flex rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-sky-700 ring-1 ring-sky-300">
             已确认
+          </span>
+        )}
+        {status === 'superseded' && (
+          <span className="inline-flex rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-500 ring-1 ring-slate-300">
+            已更新
           </span>
         )}
       </div>

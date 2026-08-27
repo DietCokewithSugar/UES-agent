@@ -92,6 +92,12 @@ export interface AgentContext {
   intent?: IntentSummary;
   /** 已确认的研究方案正文（ux-kit 方案模式）*/
   planMarkdown?: string;
+  /** 从消息历史确定性推导的已完成状态，防止模型重复发同类确认卡。 */
+  milestones: {
+    hasHandoff: boolean;
+    confirmedIntent: boolean;
+    confirmedProposals: string[];
+  };
   signal?: AbortSignal;
 }
 
