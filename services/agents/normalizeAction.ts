@@ -38,6 +38,10 @@ const normalizeProposal = (raw: unknown): Proposal | null => {
     : [];
 
   return {
+    purpose:
+      str(p.purpose) === 'analysis_plan' || /分析.*方案|执行方案/.test(title)
+        ? 'analysis_plan'
+        : undefined,
     title,
     badge: str(p.badge) || undefined,
     summary: str(p.summary) || undefined,

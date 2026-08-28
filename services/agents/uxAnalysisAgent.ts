@@ -107,7 +107,8 @@ const CONTROL_RULES = `你现在处于**控制轮**。输出严格 JSON，不要
 先结合用户输入、当前对话、上游带入的需求记忆、附件内容与技能要求，判断当前最合适的动作。
 
 核心交互规则：
-- **没有固定卡片数、固定确认次数或最低轮数。**资料齐全时可以直接 action:"generate"。
+- **正式分析前必须确认一次分析执行方案。**已有数据且关键背景明确时，先返回 purpose:"analysis_plan" 的 propose；用户确认后才能 action:"generate"。
+- 只需要这一张执行方案卡，不要再串行展示研究类型确认、数据清单确认等例行卡片。
 - ask 只用于无法可靠推断、且缺失后会让计算或结论明显不可靠的必要信息；可选字段缺失时采用专业默认值并在结论中说明限制。
 - request_files 只用于没有可分析的数据；已有附件时不得重复索要。
 - propose 只用于“用户必须做选择”或“AI 的关键判断存在实质歧义”的情况，不用于例行汇报每一步，也不应连续展示研究类型、数据清单、分析方案三张确认卡。
@@ -132,22 +133,29 @@ const CONTROL_RULES = `你现在处于**控制轮**。输出严格 JSON，不要
 { "action": "request_files", "prompt": "请上传……", "hint": "命名建议：数据类型_描述.扩展名，如 问卷_满意度调查.xlsx" }
 用户还没上传任何数据、而流程需要数据时用这个。已经有数据了就不要重复要。
 
-【3. 提案确认】确有高影响歧义或用户主动要求预览时：
+【3. 提案确认】数据上传完成后，正式分析前必须给出一次分析执行方案：
 {
   "action": "propose",
   "proposal": {
-    "title": "卡片标题，如「数据清单确认」",
-    "badge": "Step 2",
-    "summary": "可选，一句话概述",
-    "fields": [{ "label": "研究类型", "value": "体验评估 + 竞品分析" }],
-    "items": [{ "title": "问卷_满意度调查.xlsx", "detail": "问卷数据 · 156 行 · 含 3 道开放题" }],
-    "note": "可选说明",
-    "confirmLabel": "确认，继续",
-    "reviseLabel": "需要调整"
+    "purpose": "analysis_plan",
+    "title": "分析执行方案",
+    "badge": "分析前确认",
+    "summary": "一句话说明本次分析如何回答研究目标",
+    "fields": [
+      { "label": "分析目标", "value": "本次重点回答的问题" },
+      { "label": "分析方法", "value": "将采用的统计/定性/跨源方法" },
+      { "label": "输出内容", "value": "结论、数据表、图表与建议" }
+    ],
+    "items": [{ "title": "执行步骤", "detail": "数据检查 → 计算与分析 → 主题综合 → 生成结论" }],
+    "note": "说明数据限制或不会执行的分析（如有）",
+    "confirmLabel": "确认方案，开始分析",
+    "reviseLabel": "调整执行方案"
   }
 }
+- 方案必须结合实际附件与上游需求，不得只复述通用模板。
+- 用户修改方案后，更新同一类方案并重新确认。
 
-【4. 生成分析结论】必要背景与可分析数据已具备时：
+【4. 生成分析结论】必要背景、可分析数据均已具备，且 purpose:"analysis_plan" 的方案已确认时：
 { "action": "generate", "deliverables": [{ "kind": "researchPlan", "filename": "[主题]分析结论.docx", "summary": "覆盖哪些核心结论" }] }
 （kind 固定填 "researchPlan"，本技能只产出一份分析结论文件。）
 
@@ -227,7 +235,10 @@ const attachToLastUserMessage = (
 
 const runControlTurn = async (ctx: AgentContext): Promise<ControlTurnResult> => {
   const skill = getAnalysisSkill();
-  const forceConverge = ctx.rounds >= MAX_ROUNDS && ctx.attachments.length > 0;
+  const hasConfirmedAnalysisPlan =
+    ctx.milestones.confirmedProposalPurposes.includes('analysis_plan');
+  const forceConverge =
+    ctx.rounds >= MAX_ROUNDS && ctx.attachments.length > 0 && hasConfirmedAnalysisPlan;
 
   const messages: DeepSeekMessage[] = [
     { role: 'system', content: buildControlSystem(skill) },
@@ -240,6 +251,8 @@ const runControlTurn = async (ctx: AgentContext): Promise<ControlTurnResult> => 
         ctx.milestones.confirmedProposals.length
           ? ctx.milestones.confirmedProposals.join('、')
           : '无'
+      }\n分析执行方案：${
+        hasConfirmedAnalysisPlan ? '已确认，可以开始正式分析' : '尚未确认，禁止 generate'
       }\n禁止再次询问或提议上述已确认事项。\n已交互轮次：${ctx.rounds}${
         forceConverge
           ? '\n已达交互安全上限且已有数据，请采用合理默认值，不要再提问，直接给出 action:"generate"。'
@@ -256,12 +269,36 @@ const runControlTurn = async (ctx: AgentContext): Promise<ControlTurnResult> => 
     references: CONTROL_REFS
   };
 
-  const action = await normalizeAgentAction(retryHint =>
+  let action = await normalizeAgentAction(retryHint =>
     deepseekJson(
       retryHint ? [...messages, { role: 'user', content: `（系统提示：${retryHint}）` }] : messages,
       { temperature: retryHint ? 0.2 : 0.35, maxTokens: 2500, signal: ctx.signal }
     )
   );
+
+  // 确定性门禁：即使模型忽略提示，也不能绕过执行方案确认直接开始分析。
+  if (
+    ctx.attachments.length > 0 &&
+    !hasConfirmedAnalysisPlan &&
+    action.action === 'generate'
+  ) {
+    const gateMessage: DeepSeekMessage = {
+      role: 'user',
+      content:
+        '（系统门禁：已有数据，但用户尚未确认分析执行方案。禁止 generate。请返回 action:"propose"，proposal.purpose 必须为 "analysis_plan"，title 必须为“分析执行方案”，并结合附件列出分析目标、方法、步骤、输出内容与数据限制。）'
+    };
+    action = await normalizeAgentAction(retryHint =>
+      deepseekJson(
+        retryHint
+          ? [...messages, gateMessage, { role: 'user', content: `（系统提示：${retryHint}）` }]
+          : [...messages, gateMessage],
+        { temperature: retryHint ? 0.2 : 0.3, maxTokens: 2500, signal: ctx.signal }
+      )
+    );
+    if (action.action === 'generate') {
+      throw new Error('分析执行方案尚未确认，已阻止提前开始分析。请重试。');
+    }
+  }
   return { action, trace };
 };
 
