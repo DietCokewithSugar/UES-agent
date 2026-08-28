@@ -109,6 +109,7 @@ export const SkillChat: React.FC<Props> = ({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [sessions, setSessions] = useState<StoredSession[]>([]);
 
+  const sessionIdRef = useRef(sessionId);
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const configured = isDeepSeekConfigured();
@@ -124,7 +125,9 @@ export const SkillChat: React.FC<Props> = ({
   // 切换技能入口时彻底重置，绝不把上一个技能的会话带过来
   useEffect(() => {
     abortRef.current?.abort();
-    setSessionId(newSessionId());
+    const id = newSessionId();
+    sessionIdRef.current = id;
+    setSessionId(id);
     setMessages([]);
     setIntent(undefined);
     setPlanMarkdown(undefined);
@@ -182,6 +185,13 @@ export const SkillChat: React.FC<Props> = ({
       rounds: countClarifyRounds(history),
       intent,
       planMarkdown,
+      milestones: {
+        hasHandoff: history.some(m => m.kind === 'handoff'),
+        confirmedIntent: history.some(m => m.kind === 'intent' && m.status === 'confirmed'),
+        confirmedProposals: history
+          .filter(m => m.kind === 'proposal' && m.status === 'confirmed')
+          .map(m => (m.kind === 'proposal' ? m.proposal.title : ''))
+      },
       signal
     }),
     [intent, planMarkdown]
@@ -191,6 +201,7 @@ export const SkillChat: React.FC<Props> = ({
 
   const runControl = useCallback(
     async (history: ChatMessage[]) => {
+      const turnSessionId = sessionIdRef.current;
       setBusy(true);
       const signal = newAbort();
       const traceId = nextId('trace');
@@ -210,6 +221,7 @@ export const SkillChat: React.FC<Props> = ({
         });
 
         const { action, trace } = await agent.runControlTurn(buildCtx(history, signal));
+        if (sessionIdRef.current !== turnSessionId) return;
         patch(traceId, m => (m.kind === 'trace' ? { ...m, trace, running: false } : m));
 
         switch (action.action) {
@@ -264,10 +276,11 @@ export const SkillChat: React.FC<Props> = ({
             break;
         }
       } catch (err) {
+        if (sessionIdRef.current !== turnSessionId) return;
         setMessages(prev => prev.filter(m => m.id !== traceId));
         pushError(err);
       } finally {
-        setBusy(false);
+        if (sessionIdRef.current === turnSessionId) setBusy(false);
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -282,6 +295,7 @@ export const SkillChat: React.FC<Props> = ({
       deliverable: Deliverable,
       opts: { feedback?: string } = {}
     ): Promise<GeneratedDoc | null> => {
+      const turnSessionId = sessionIdRef.current;
       setBusy(true);
       const signal = newAbort();
       const traceId = nextId('trace');
@@ -318,6 +332,7 @@ export const SkillChat: React.FC<Props> = ({
             feedback: opts.feedback,
             signal,
             onDelta: chunk => {
+              if (sessionIdRef.current !== turnSessionId) return;
               acc += chunk;
               patch(docId, m =>
                 m.kind === 'document' ? { ...m, doc: { ...m.doc, markdown: acc } } : m
@@ -326,6 +341,7 @@ export const SkillChat: React.FC<Props> = ({
           }
         );
 
+        if (sessionIdRef.current !== turnSessionId) return null;
         patch(traceId, m => (m.kind === 'trace' ? { ...m, trace, running: false } : m));
         const doc: GeneratedDoc = {
           id: docId,
@@ -350,11 +366,12 @@ export const SkillChat: React.FC<Props> = ({
         );
         return doc;
       } catch (err) {
+        if (sessionIdRef.current !== turnSessionId) return null;
         setMessages(prev => prev.filter(m => m.id !== traceId && m.id !== docId));
         pushError(err);
         return null;
       } finally {
-        setBusy(false);
+        if (sessionIdRef.current === turnSessionId) setBusy(false);
       }
     },
     [agent, buildCtx, patch, push, pushError]
@@ -363,12 +380,14 @@ export const SkillChat: React.FC<Props> = ({
   // ===== 交互回调 ===== //
 
   const addFiles = async (files: File[]) => {
+    const targetSessionId = sessionIdRef.current;
     setParsingFiles(true);
     try {
       const parsed = await readAttachments(files);
+      if (sessionIdRef.current !== targetSessionId) return;
       setPendingFiles(prev => [...prev, ...parsed]);
     } finally {
-      setParsingFiles(false);
+      if (sessionIdRef.current === targetSessionId) setParsingFiles(false);
     }
   };
 
@@ -409,9 +428,16 @@ export const SkillChat: React.FC<Props> = ({
     await runControl(confirmed);
   };
 
-  const handleFeedback = async (feedback: string) => {
+  const handleFeedback = async (sourceId: string, feedback: string) => {
+    const superseded = messages.map(m =>
+      m.id === sourceId &&
+      ((m.kind === 'intent' && m.status === 'pending') ||
+        (m.kind === 'proposal' && m.status === 'pending'))
+        ? { ...m, status: 'superseded' as const }
+        : m
+    );
     const history: ChatMessage[] = [
-      ...messages,
+      ...superseded,
       { id: nextId('u'), role: 'user', kind: 'text', text: feedback }
     ];
     setMessages(history);
@@ -441,17 +467,21 @@ export const SkillChat: React.FC<Props> = ({
 
   const handlePlanConfirm = async (msgId: string) => {
     if (!intent || !planMarkdown) return;
+    const targetSessionId = sessionIdRef.current;
     patch(msgId, m => (m.kind === 'document' ? { ...m, awaitingConfirm: false } : m));
 
     setBusy(true);
     let deliverables: Deliverable[] = [];
     try {
       deliverables = await derivePlanDeliverables(intent, planMarkdown, { signal: newAbort() });
+      if (sessionIdRef.current !== targetSessionId) return;
     } catch (err) {
+      if (sessionIdRef.current !== targetSessionId) return;
       pushError(err);
       setBusy(false);
       return;
     }
+    if (sessionIdRef.current !== targetSessionId) return;
     setBusy(false);
 
     if (deliverables.length === 0) {
@@ -494,6 +524,7 @@ export const SkillChat: React.FC<Props> = ({
   };
 
   const resetTo = (id: string) => {
+    sessionIdRef.current = id;
     setSessionId(id);
     setMessages([]);
     setIntent(undefined);
@@ -519,13 +550,10 @@ export const SkillChat: React.FC<Props> = ({
     persistCurrent();
     const stored = getSession(id);
     if (!stored) return;
-    setSessionId(stored.id);
+    resetTo(stored.id);
     setMessages(stored.messages);
     setIntent(stored.intent);
     setPlanMarkdown(stored.planMarkdown);
-    setPendingFiles([]);
-    setInput('');
-    setBusy(false);
     setHistoryOpen(false);
     refreshSessions();
   };
@@ -632,7 +660,7 @@ export const SkillChat: React.FC<Props> = ({
                 status={m.status}
                 pending={busy}
                 onConfirm={() => handleProposalConfirm(m.id)}
-                onRevise={handleFeedback}
+                onRevise={feedback => handleFeedback(m.id, feedback)}
               />
             </div>
           </div>
@@ -660,7 +688,7 @@ export const SkillChat: React.FC<Props> = ({
                 status={m.status}
                 pending={busy}
                 onConfirm={() => handleIntentConfirm(m.id, m.intent)}
-                onRevise={handleFeedback}
+                onRevise={feedback => handleFeedback(m.id, feedback)}
               />
             </div>
           </div>
@@ -819,7 +847,7 @@ export const SkillChat: React.FC<Props> = ({
                   {agent.nav.wordmark}
                 </div>
                 <h1 className="-mt-3 text-lg font-semibold tracking-tight text-slate-800 md:text-xl">
-                  {agent.nav.title}
+                  {agent.nav.chatHeading || agent.nav.title}
                 </h1>
                 <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-slate-500">
                   {agent.nav.intro}

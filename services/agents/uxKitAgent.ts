@@ -20,10 +20,11 @@ export const uxKitAgent: AgentDefinition = {
   skillId: 'ux-kit',
   nav: {
     title: 'AI 研究助手',
+    chatHeading: '你的用户研究，一句话启动',
     tagline: '由 DeepSeek 驱动 · 调用 ux-kit 技能，一句话产出研究材料',
-    wordmark: 'ux·kit',
+    wordmark: 'AI用户研究助手',
     intro:
-      '明确说要问卷 / 访谈提纲 / 可用性测试方案，我先跟你确认需求，然后直接产出那份文档；诉求还比较模糊、或者要好几种材料，我会先出一份研究方案，等你确认后再按阶段生成。',
+      '用户研究全流程智能助手，覆盖需求澄清-方案设计-研究材料全链路，内置10种专业方法论（问卷调查、深度访谈、可用性评估、灵犀旅程、ETS体验评估等），帮你一键搞定研究执行前的准备工作',
     landing: {
       heading: 'AI 研究助手 — 一句话产出用户研究材料',
       description:
@@ -39,7 +40,8 @@ export const uxKitAgent: AgentDefinition = {
   },
   composer: {
     placeholder: '继续补充或提出修改…',
-    emptyPlaceholder: '说一句你想做的研究，比如「帮我编一个外卖 App 的满意度问卷」…',
+    emptyPlaceholder:
+      '告诉我你想做什么：我想调研一下用户对XX产品有什么需求/我想做一个关于XX的研究/帮我编制一份调查问卷...',
     // ux-kit 是设计研究材料，不需要数据文件
     acceptsFiles: false
   },

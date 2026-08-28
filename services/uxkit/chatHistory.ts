@@ -42,7 +42,7 @@ export type ChatMessage =
       role: 'assistant';
       kind: 'proposal';
       proposal: Proposal;
-      status: 'pending' | 'confirmed';
+      status: 'pending' | 'confirmed' | 'superseded';
     }
   | {
       id: string;
@@ -57,7 +57,7 @@ export type ChatMessage =
       role: 'assistant';
       kind: 'intent';
       intent: IntentSummary;
-      status: 'pending' | 'confirmed';
+      status: 'pending' | 'confirmed' | 'superseded';
     }
   | {
       id: string;
@@ -150,6 +150,11 @@ export const toDeepSeekMessages = (messages: ChatMessage[]): DeepSeekMessage[] =
           role: 'assistant',
           content: JSON.stringify({ action: 'confirm_intent', intent: m.intent })
         });
+        if (m.status === 'confirmed') {
+          out.push({ role: 'user', content: '确认，按此理解开始生成。' });
+        } else if (m.status === 'superseded') {
+          out.push({ role: 'user', content: '以上理解需要修改，请结合我接下来的补充重新判断。' });
+        }
         break;
       case 'proposal':
         out.push({
@@ -158,6 +163,8 @@ export const toDeepSeekMessages = (messages: ChatMessage[]): DeepSeekMessage[] =
         });
         if (m.status === 'confirmed') {
           out.push({ role: 'user', content: '确认，继续下一步。' });
+        } else if (m.status === 'superseded') {
+          out.push({ role: 'user', content: '以上提案需要修改，请结合我接下来的补充更新判断。' });
         }
         break;
 

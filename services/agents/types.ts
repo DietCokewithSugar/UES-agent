@@ -92,6 +92,12 @@ export interface AgentContext {
   intent?: IntentSummary;
   /** 已确认的研究方案正文（ux-kit 方案模式）*/
   planMarkdown?: string;
+  /** 从消息历史确定性推导的已完成状态，防止模型重复发同类确认卡。 */
+  milestones: {
+    hasHandoff: boolean;
+    confirmedIntent: boolean;
+    confirmedProposals: string[];
+  };
   signal?: AbortSignal;
 }
 
@@ -117,6 +123,8 @@ export interface GenerateOptions {
 /** 首页入口与空态的展示信息。 */
 export interface AgentNav {
   title: string;
+  /** 对话空态主标题，缺省沿用 title。 */
+  chatHeading?: string;
   tagline: string;
   /** 空态的极淡字标 */
   wordmark: string;

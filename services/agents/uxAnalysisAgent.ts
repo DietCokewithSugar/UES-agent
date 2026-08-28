@@ -236,7 +236,11 @@ const runControlTurn = async (ctx: AgentContext): Promise<ControlTurnResult> => 
       role: 'user',
       content: `（系统状态，不是用户发言）\n当前数据清单：\n${describeDataInventory(
         ctx.attachments
-      )}\n已交互轮次：${ctx.rounds}${
+      )}\n上游需求记忆：${ctx.milestones.hasHandoff ? '已带入并确认' : '无'}\n已确认提案：${
+        ctx.milestones.confirmedProposals.length
+          ? ctx.milestones.confirmedProposals.join('、')
+          : '无'
+      }\n禁止再次询问或提议上述已确认事项。\n已交互轮次：${ctx.rounds}${
         forceConverge
           ? '\n已达交互安全上限且已有数据，请采用合理默认值，不要再提问，直接给出 action:"generate"。'
           : ''
