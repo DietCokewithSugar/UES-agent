@@ -39,6 +39,8 @@ export interface ProposalItem {
  * 主题结构审查）形状一致，都用这一张卡，不为每个节点写一个组件。
  */
 export interface Proposal {
+  /** 用于确定性流程门禁；标题仅用于展示，不能承担状态判断。 */
+  purpose?: 'analysis_plan';
   /** 卡片标题，如「研究背景与研究类型」 */
   title: string;
   /** 徽章，如「Step 1」 */
@@ -97,6 +99,7 @@ export interface AgentContext {
     hasHandoff: boolean;
     confirmedIntent: boolean;
     confirmedProposals: string[];
+    confirmedProposalPurposes: Array<NonNullable<Proposal['purpose']>>;
   };
   signal?: AbortSignal;
 }

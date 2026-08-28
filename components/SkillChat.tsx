@@ -190,7 +190,11 @@ export const SkillChat: React.FC<Props> = ({
         confirmedIntent: history.some(m => m.kind === 'intent' && m.status === 'confirmed'),
         confirmedProposals: history
           .filter(m => m.kind === 'proposal' && m.status === 'confirmed')
-          .map(m => (m.kind === 'proposal' ? m.proposal.title : ''))
+          .map(m => (m.kind === 'proposal' ? m.proposal.title : '')),
+        confirmedProposalPurposes: history
+          .filter(m => m.kind === 'proposal' && m.status === 'confirmed')
+          .map(m => (m.kind === 'proposal' ? m.proposal.purpose : undefined))
+          .filter((purpose): purpose is 'analysis_plan' => purpose === 'analysis_plan')
       },
       signal
     }),
