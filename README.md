@@ -166,3 +166,8 @@ npm run build
 直连 DeepSeek，并通过 E2B 出站白名单限制为只能访问 DeepSeek API。仅管理员能上传 Skill，
 整个网站也受 `APP_ACCESS_TOKEN` 保护。产出文件会立即流式复制到 Render 持久盘，并限制
 单文件与单轮总大小，因此沙箱到期后仍可下载。
+
+出现模型认证问题时，可在登录后访问 `/api/runtime/diagnostics`。服务会先从 Render 调用
+DeepSeek `/user/balance` 验证凭据，再在新建 E2B 沙箱中用同一 Key 复检；界面仅显示不可逆
+哈希片段和末四位，便于确认 Render 实际加载的是哪一个 Key。`DEEPSEEK_API_BASE_URL` 应填写
+`https://api.deepseek.com`，不要追加 `/v1`。

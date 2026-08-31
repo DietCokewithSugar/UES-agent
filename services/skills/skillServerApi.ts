@@ -10,6 +10,7 @@ export interface RuntimeInfo {
   mode: 'e2b' | 'workspace';
   template?: string;
   model?: string;
+  credentialFingerprint?: string;
   isolated: boolean;
   note: string;
 }

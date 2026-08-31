@@ -18,6 +18,54 @@ const deepseekBaseUrl = (process.env.DEEPSEEK_API_BASE_URL || 'https://api.deeps
 const sandboxCreationTimes = [];
 export const sandboxWorkdir = process.env.E2B_WORKDIR || '/home/user/ues-workspace';
 export const sandboxOutputDir = `${sandboxWorkdir}/output`;
+let credentialCheckCache;
+
+const deepseekApiKey = () => {
+  const raw = process.env.DEEPSEEK_API_KEY?.trim() || '';
+  if (
+    raw.length >= 2 &&
+    ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'")))
+  ) {
+    return raw.slice(1, -1).trim();
+  }
+  return raw;
+};
+
+const credentialFingerprint = key => {
+  if (!key) return 'missing';
+  const digest = crypto.createHash('sha256').update(key).digest('hex').slice(0, 8);
+  return `sha256:${digest}…${key.slice(-4)}`;
+};
+
+export const validateDeepSeekCredential = async () => {
+  const key = deepseekApiKey();
+  if (!key) throw Object.assign(new Error('Render 尚未配置 DEEPSEEK_API_KEY。'), { status: 503 });
+  const fingerprint = credentialFingerprint(key);
+  if (
+    credentialCheckCache?.fingerprint === fingerprint &&
+    credentialCheckCache.expiresAt > Date.now()
+  ) {
+    return credentialCheckCache.result;
+  }
+  const response = await fetch(`${deepseekBaseUrl}/user/balance`, {
+    headers: { Authorization: `Bearer ${key}` }
+  });
+  if (response.status === 401 || response.status === 403) {
+    throw Object.assign(
+      new Error(`Render 中的 DeepSeek Key 未通过官方 API 验证（${fingerprint}）。请检查 Key 所属平台及环境变量值。`),
+      { status: 502 }
+    );
+  }
+  if (!response.ok) {
+    throw Object.assign(
+      new Error(`DeepSeek 凭据自检失败 (${response.status})，请稍后重试。`),
+      { status: 502 }
+    );
+  }
+  const result = { ok: true, fingerprint };
+  credentialCheckCache = { fingerprint, expiresAt: Date.now() + 5 * 60 * 1000, result };
+  return result;
+};
 
 export const isE2BConfigured = () => Boolean(process.env.E2B_API_KEY);
 export const runtimeMode = () => isE2BConfigured() ? 'e2b' : 'workspace';
@@ -26,6 +74,7 @@ export const getRuntimeInfo = () => ({
   isolated: isE2BConfigured(),
   template: isE2BConfigured() ? template : undefined,
   model: `${providerId}/${modelId}`,
+  credentialFingerprint: credentialFingerprint(deepseekApiKey()),
   note: isE2BConfigured()
     ? `每个对话使用独立 E2B「${template}」沙箱，由 OpenCode 调用 ${modelId}。`
     : '未配置 E2B_API_KEY；可以管理 Skills，但无法运行 OpenCode。'
@@ -39,10 +88,8 @@ const createSandbox = async conversation => {
     throw Object.assign(new Error('E2B 沙箱创建已达到每小时安全上限。'), { status: 429 });
   }
   sandboxCreationTimes.push(Date.now());
-  const deepseekApiKey = process.env.DEEPSEEK_API_KEY?.trim();
-  if (!deepseekApiKey) {
-    throw Object.assign(new Error('Render 尚未配置 DEEPSEEK_API_KEY。'), { status: 503 });
-  }
+  const credential = await validateDeepSeekCredential();
+  const apiKey = deepseekApiKey();
   const deepseekHost = new URL(deepseekBaseUrl).hostname;
   const sandbox = await Sandbox.create(template, {
     timeoutMs,
@@ -58,10 +105,24 @@ const createSandbox = async conversation => {
       denyOut: ({ allTraffic }) => [allTraffic]
     },
     envs: {
-      DEEPSEEK_API_KEY: deepseekApiKey,
+      DEEPSEEK_API_KEY: apiKey,
+      DEEPSEEK_API_BASE_URL: deepseekBaseUrl,
       OPENCODE_DISABLE_MODELS_FETCH: '1'
     }
   });
+  try {
+    const sandboxCheck = await sandbox.commands.run(
+      `node -e 'fetch(process.env.DEEPSEEK_API_BASE_URL + "/user/balance", {headers:{Authorization:"Bearer " + process.env.DEEPSEEK_API_KEY}}).then(r=>{console.log(r.status);process.exit(r.ok?0:1)})'`,
+      { timeoutMs: 20_000 }
+    );
+    if (sandboxCheck.stdout.trim() !== '200') throw new Error(`HTTP ${sandboxCheck.stdout.trim()}`);
+  } catch (error) {
+    await sandbox.kill().catch(() => {});
+    throw Object.assign(
+      new Error(`E2B 沙箱中的 DeepSeek Key 自检失败（Render 指纹 ${credential.fingerprint}）：${error.result?.stderr || error.message}`),
+      { status: 502 }
+    );
+  }
   conversation.sandboxId = sandbox.sandboxId;
   conversation.openCodeSessionId = undefined;
   conversation.runtime = 'e2b';
@@ -104,7 +165,7 @@ export const configureSandbox = async sandbox => {
     provider: {
       [providerId]: {
         options: {
-          baseURL: `${deepseekBaseUrl}/v1`,
+          baseURL: deepseekBaseUrl,
           apiKey: '{env:DEEPSEEK_API_KEY}',
           timeout: commandTimeoutMs
         },
@@ -228,6 +289,8 @@ export const runOpenCode = async (sandbox, conversation, skillId, prompt) => {
       {
         timeoutMs: commandTimeoutMs,
         envs: {
+          DEEPSEEK_API_KEY: deepseekApiKey(),
+          DEEPSEEK_API_BASE_URL: deepseekBaseUrl,
           OPENCODE_MODEL: `${providerId}/${modelId}`
         }
       }

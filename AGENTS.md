@@ -27,6 +27,7 @@ Configured in `.env.local` at the project root. Vite injects them at build/dev t
   the default name is wrong for an account, change it here rather than in code — the API error
   points at this variable.
 - `DEEPSEEK_API_BASE_URL` — optional override, defaults to `https://api.deepseek.com`.
+  Do not append `/v1`; current DeepSeek V4 endpoints are rooted at this base URL.
 - `DEEPSEEK_MODEL` — Skills Workspace model, defaults to `deepseek-v4-flash`.
 - `E2B_API_KEY` — creates one E2B OpenCode sandbox per Skills Workspace conversation.
 - `E2B_TEMPLATE` — defaults to E2B's public `opencode` template.

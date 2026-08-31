@@ -20,7 +20,8 @@ import {
   runOpenCode,
   runtimeMode,
   sandboxOutputDir,
-  uploadSkill
+  uploadSkill,
+  validateDeepSeekCredential
 } from './e2bRuntime.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -348,7 +349,13 @@ const extractZip = async buffer => {
 };
 
 const proxyDeepSeek = async (request, response, { allowVision = false } = {}) => {
-  const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
+  const rawApiKey = process.env.DEEPSEEK_API_KEY?.trim() || '';
+  const apiKey =
+    rawApiKey.length >= 2 &&
+    ((rawApiKey.startsWith('"') && rawApiKey.endsWith('"')) ||
+      (rawApiKey.startsWith("'") && rawApiKey.endsWith("'")))
+      ? rawApiKey.slice(1, -1).trim()
+      : rawApiKey;
   if (!apiKey) {
     return response.status(503).json({ error: { message: '服务端尚未配置 DEEPSEEK_API_KEY。' } });
   }
@@ -357,7 +364,7 @@ const proxyDeepSeek = async (request, response, { allowVision = false } = {}) =>
     ? requestedModel
     : process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
   const baseUrl = (process.env.DEEPSEEK_API_BASE_URL || 'https://api.deepseek.com').replace(/\/$/, '');
-  const upstream = await fetch(`${baseUrl}/v1/chat/completions`, {
+  const upstream = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -407,7 +414,15 @@ app.post('/api/auth/logout', (_request, response) => {
   );
   response.status(204).end();
 });
-app.get('/api/runtime', (_request, response) => response.json(getRuntimeInfo()));
+app.get('/api/runtime', requireAppAccess, (_request, response) => response.json(getRuntimeInfo()));
+app.get('/api/runtime/diagnostics', requireAppAccess, async (_request, response, next) => {
+  try {
+    response.json({
+      deepseek: await validateDeepSeekCredential(),
+      e2bConfigured: Boolean(process.env.E2B_API_KEY)
+    });
+  } catch (error) { next(error); }
+});
 app.post('/api/deepseek/v1/chat/completions', requireAppAccess, modelCallLimiter, async (request, response, next) => {
   try { await proxyDeepSeek(request, response, { allowVision: true }); } catch (error) { next(error); }
 });
