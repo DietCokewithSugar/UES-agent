@@ -14,6 +14,7 @@ const timeoutMs = Math.min(
 const commandTimeoutMs = Number(process.env.OPENCODE_COMMAND_TIMEOUT_MS || 10 * 60 * 1000);
 const modelId = process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
 const providerId = 'deepseek';
+const deepseekBaseUrl = (process.env.DEEPSEEK_API_BASE_URL || 'https://api.deepseek.com').replace(/\/$/, '');
 const sandboxCreationTimes = [];
 export const sandboxWorkdir = process.env.E2B_WORKDIR || '/home/user/ues-workspace';
 export const sandboxOutputDir = `${sandboxWorkdir}/output`;
@@ -30,19 +31,6 @@ export const getRuntimeInfo = () => ({
     : '未配置 E2B_API_KEY；可以管理 Skills，但无法运行 OpenCode。'
 });
 
-const proxyBaseUrl = conversationId => {
-  const publicBaseUrl = (process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL || '').replace(/\/$/, '');
-  if (!publicBaseUrl) {
-    throw Object.assign(
-      new Error('E2B 模式需要配置 PUBLIC_BASE_URL（例如 https://your-app.onrender.com）。'),
-      { status: 503 }
-    );
-  }
-  return `${publicBaseUrl}/api/internal/deepseek/${encodeURIComponent(conversationId)}/v1`;
-};
-
-const tokenHash = token => crypto.createHash('sha256').update(token).digest('hex');
-
 const createSandbox = async conversation => {
   const cutoff = Date.now() - 60 * 60 * 1000;
   while (sandboxCreationTimes.length && sandboxCreationTimes[0] < cutoff) sandboxCreationTimes.shift();
@@ -51,8 +39,11 @@ const createSandbox = async conversation => {
     throw Object.assign(new Error('E2B 沙箱创建已达到每小时安全上限。'), { status: 429 });
   }
   sandboxCreationTimes.push(Date.now());
-  const proxyToken = crypto.randomBytes(32).toString('base64url');
-  const proxyHost = new URL(proxyBaseUrl(conversation.id)).hostname;
+  const deepseekApiKey = process.env.DEEPSEEK_API_KEY?.trim();
+  if (!deepseekApiKey) {
+    throw Object.assign(new Error('Render 尚未配置 DEEPSEEK_API_KEY。'), { status: 503 });
+  }
+  const deepseekHost = new URL(deepseekBaseUrl).hostname;
   const sandbox = await Sandbox.create(template, {
     timeoutMs,
     metadata: {
@@ -63,17 +54,15 @@ const createSandbox = async conversation => {
       onTimeout: 'kill'
     },
     network: {
-      allowOut: [proxyHost],
+      allowOut: [deepseekHost],
       denyOut: ({ allTraffic }) => [allTraffic]
     },
     envs: {
-      DEEPSEEK_API_KEY: proxyToken,
+      DEEPSEEK_API_KEY: deepseekApiKey,
       OPENCODE_DISABLE_MODELS_FETCH: '1'
     }
   });
   conversation.sandboxId = sandbox.sandboxId;
-  conversation.sandboxTokenHash = tokenHash(proxyToken);
-  conversation.sandboxTokenExpiresAt = new Date(Date.now() + timeoutMs).toISOString();
   conversation.openCodeSessionId = undefined;
   conversation.runtime = 'e2b';
   return { sandbox, created: true };
@@ -86,7 +75,6 @@ export const ensureSandbox = async conversation => {
     try {
       existing = await Sandbox.connect(conversation.sandboxId);
       await existing.setTimeout(timeoutMs);
-      conversation.sandboxTokenExpiresAt = new Date(Date.now() + timeoutMs).toISOString();
       return { sandbox: existing, created: false };
     } catch {
       await existing?.kill().catch(() => {});
@@ -108,7 +96,7 @@ const walkFiles = async (directory, prefix = '') => {
   return files;
 };
 
-export const configureSandbox = async (sandbox, conversationId) => {
+export const configureSandbox = async sandbox => {
   const config = {
     $schema: 'https://opencode.ai/config.json',
     model: `${providerId}/${modelId}`,
@@ -116,7 +104,7 @@ export const configureSandbox = async (sandbox, conversationId) => {
     provider: {
       [providerId]: {
         options: {
-          baseURL: proxyBaseUrl(conversationId),
+          baseURL: `${deepseekBaseUrl}/v1`,
           apiKey: '{env:DEEPSEEK_API_KEY}',
           timeout: commandTimeoutMs
         },
@@ -244,6 +232,20 @@ export const runOpenCode = async (sandbox, conversation, skillId, prompt) => {
         }
       }
     );
+  } catch (error) {
+    const stdout = error.result?.stdout || '';
+    if (stdout) {
+      try {
+        parseOpenCodeEvents(stdout);
+      } catch (parsedError) {
+        throw Object.assign(
+          new Error(`OpenCode 调用失败：${parsedError.message}`),
+          { status: parsedError.message.includes('Authentication') ? 401 : 502 }
+        );
+      }
+    }
+    const detail = error.result?.stderr || error.result?.error || error.message || '未知错误';
+    throw Object.assign(new Error(`OpenCode 执行失败：${String(detail).slice(0, 2000)}`), { status: 502 });
   } finally {
     await sandbox.commands.run(`rm -f '${promptPath}'`).catch(() => {});
   }
@@ -270,12 +272,4 @@ export const destroySandbox = async conversation => {
   } catch {
     // An expired sandbox is already destroyed.
   }
-};
-
-export const verifySandboxToken = (conversation, token) => {
-  if (!conversation.sandboxTokenHash || !token || !conversation.sandboxTokenExpiresAt) return false;
-  if (Date.parse(conversation.sandboxTokenExpiresAt) < Date.now()) return false;
-  const supplied = Buffer.from(tokenHash(token));
-  const expected = Buffer.from(conversation.sandboxTokenHash);
-  return supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected);
 };

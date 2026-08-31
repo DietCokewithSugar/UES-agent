@@ -31,8 +31,6 @@ Configured in `.env.local` at the project root. Vite injects them at build/dev t
 - `E2B_API_KEY` — creates one E2B OpenCode sandbox per Skills Workspace conversation.
 - `E2B_TEMPLATE` — defaults to E2B's public `opencode` template.
 - `E2B_SANDBOX_TIMEOUT_MS` — defaults to 30 minutes and is capped at one hour.
-- `PUBLIC_BASE_URL` — public server origin for local/tunnel deployments. Render uses its automatic
-  `RENDER_EXTERNAL_URL`.
 - `DATA_DIR` — uploaded Skills and conversation metadata; defaults to `data/`.
 - `APP_ACCESS_TOKEN` — when set, required to log into the site; protects model, conversation,
   artifact, and Skill APIs with an HttpOnly signed cookie.
@@ -72,7 +70,8 @@ register it in `services/agents/registry.ts`. The shell needs no changes.
 `server/index.mjs` and `server/e2bRuntime.mjs`. Uploaded ZIPs are validated and stored under
 `DATA_DIR/skills`, then synchronized to `.opencode/skills/<id>` in the conversation's E2B sandbox.
 OpenCode loads the selected Skill through its native `skill` tool and runs with DeepSeek V4 Flash.
-The sandbox receives only a conversation-scoped proxy token, never the real DeepSeek API key.
+Following E2B's official integration, the protected sandbox receives the DeepSeek key directly and
+its egress allowlist only permits the configured DeepSeek API host.
 Generated files are streamed into `DATA_DIR/conversations/<id>/outputs` with per-file/turn limits.
 
 **Context isolation** (an explicit product requirement): each session owns its own `messages`,

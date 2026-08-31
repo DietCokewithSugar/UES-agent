@@ -20,8 +20,7 @@ import {
   runOpenCode,
   runtimeMode,
   sandboxOutputDir,
-  uploadSkill,
-  verifySandboxToken
+  uploadSkill
 } from './e2bRuntime.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -55,14 +54,6 @@ const modelCallLimiter = rateLimit({
   standardHeaders: 'draft-8',
   legacyHeaders: false,
   message: { error: '模型调用过于频繁，请稍后再试。' }
-});
-const sandboxModelLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: Number(process.env.SANDBOX_MODEL_RATE_LIMIT || 120),
-  keyGenerator: request => String(request.params.conversationId || 'unknown'),
-  standardHeaders: 'draft-8',
-  legacyHeaders: false,
-  message: { error: { message: '当前对话的模型调用过于频繁。' } }
 });
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -285,7 +276,7 @@ const ensureConversationRuntime = async conversation => {
   const { sandbox, created } = await ensureSandbox(conversation);
   if (sandbox && created) {
     try {
-      await configureSandbox(sandbox, conversation.id);
+      await configureSandbox(sandbox);
       for (const skillId of conversation.skills || []) {
         await uploadSkill(sandbox, path.join(skillsDir, skillId), skillId);
       }
@@ -293,7 +284,6 @@ const ensureConversationRuntime = async conversation => {
       await destroySandbox(conversation);
       conversation.sandboxId = undefined;
       conversation.openCodeSessionId = undefined;
-      conversation.sandboxTokenHash = undefined;
       throw error;
     }
   }
@@ -358,7 +348,7 @@ const extractZip = async buffer => {
 };
 
 const proxyDeepSeek = async (request, response, { allowVision = false } = {}) => {
-  const apiKey = process.env.DEEPSEEK_API_KEY;
+  const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
   if (!apiKey) {
     return response.status(503).json({ error: { message: '服务端尚未配置 DEEPSEEK_API_KEY。' } });
   }
@@ -420,16 +410,6 @@ app.post('/api/auth/logout', (_request, response) => {
 app.get('/api/runtime', (_request, response) => response.json(getRuntimeInfo()));
 app.post('/api/deepseek/v1/chat/completions', requireAppAccess, modelCallLimiter, async (request, response, next) => {
   try { await proxyDeepSeek(request, response, { allowVision: true }); } catch (error) { next(error); }
-});
-app.post('/api/internal/deepseek/:conversationId/v1/chat/completions', sandboxModelLimiter, async (request, response, next) => {
-  try {
-    const conversation = await loadConversation(request.params.conversationId);
-    const token = request.get('authorization')?.replace(/^Bearer\s+/i, '');
-    if (!verifySandboxToken(conversation, token)) {
-      return response.status(401).json({ error: { message: 'Sandbox token 无效或已过期。' } });
-    }
-    await proxyDeepSeek(request, response);
-  } catch (error) { next(error); }
 });
 app.use('/api/skills', requireAppAccess);
 app.use('/api/conversations', requireAppAccess);

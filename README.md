@@ -100,8 +100,6 @@ npm run dev
 
 > 应用默认先进入落地页，点击「开始评测」进入评测配置流程。
 > `npm run dev` 会同时启动 Vite（3000）和 Skills API（3001）。
-> 本地调用 E2B 时，需用 Cloudflare Tunnel/ngrok 暴露 API，并把公网地址填入
-> `PUBLIC_BASE_URL`；Render 会自动提供 `RENDER_EXTERNAL_URL`，无需额外配置。
 
 ### 4) 生产构建
 
@@ -164,6 +162,7 @@ npm run build
 后者在上传或删除 Skill 时填写，避免公开部署被任意改写。
 
 每条新对话会从 E2B 官方 `opencode` Template 创建独立沙箱。后端把选中的 Skill
-同步到沙箱，再调用 OpenCode；OpenCode 通过一枚限当前对话、限时有效的代理令牌访问
-Render 上的 DeepSeek 代理，真实 `DEEPSEEK_API_KEY` 不会进入沙箱。产出文件会立即流式复制到
-Render 持久盘，并限制单文件与单轮总大小，因此沙箱到期后仍可下载。
+同步到沙箱，再调用 OpenCode。OpenCode 按 E2B 官方推荐方式使用 `DEEPSEEK_API_KEY`
+直连 DeepSeek，并通过 E2B 出站白名单限制为只能访问 DeepSeek API。仅管理员能上传 Skill，
+整个网站也受 `APP_ACCESS_TOKEN` 保护。产出文件会立即流式复制到 Render 持久盘，并限制
+单文件与单轮总大小，因此沙箱到期后仍可下载。
