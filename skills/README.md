@@ -12,7 +12,7 @@
 | 技能 | 角色 | 入口 | 说明 |
 |------|------|------|------|
 | `ux-kit` | process | AI 研究助手 | 一句话产出用户研究材料：输出模式识别 → 问题澄清 → 按模式产出（问卷 / 访谈提纲 / 可用性评估方案 / 研究方案） |
-| `ux-analysis` | process | AI 分析助手 | 数据回来之后的分析：6 步引导式流程、12 个确认节点，多源三角验证 → Word 分析结论 |
+| `ux-analysis` | process | AI 分析助手 | 数据回来之后的分析：自适应流程 + 两道固定确认门禁（分析执行方案 → 分析摘要），多源三角验证 → Word 分析结论 |
 
 两者是一条研究链路的上下游：ux-kit 设计研究材料，ux-analysis 分析回收的数据。
 研究助手产出材料后会给一个「去做分析」入口，把研究背景带进分析助手的新会话
@@ -50,9 +50,9 @@ Markdown → services/markdown/parseMarkdown.ts → services/docx/blocksToDocx.t
    ↓
 Step 1 研究背景录入 / 研究类型确认   ─┐
 Step 2 数据上传与识别                ├─ services/agents/uxAnalysisAgent.ts
-Step 3 分析方案预览                  │   runControlTurn()：非流式 + json_object
+Step 3 分析执行方案 ★门禁①           │   runControlTurn()：非流式 + json_object
 Step 4 分析执行 + 主题聚类           │   注入 SKILL.md + research_types.md + frameworks.md
-Step 5 主题结构与洞察审查            ─┘   每次只推进一个节点，等用户确认
+Step 5 分析摘要审查 ★门禁②          ─┘   其余节点条件性触发，不为凑流程弹卡
    ↓
 Step 6 分析结论生成 ── runGenerateTurn()：流式 + analysis.json
    ↓
@@ -63,6 +63,12 @@ analysis.json → services/analysis/parseAnalysisJson.ts → services/docx/block
 **流程写在 SKILL.md 里，不写在 TS 里**：控制轮把技能正文 + 当前对话 + 数据清单交给模型，
 让它判断走到哪一步；代码只提供动作词汇表（ask / propose / request_files / generate / done）。
 技能改了流程，`uxAnalysisAgent.ts` 不用动。
+
+**例外是两道固定门禁**：★ 那两步不能只靠提示词——`uxAnalysisAgent.ts` 里有确定性门禁，
+`analysis_plan` 与 `insight_review` 两张卡都被用户确认之前，`generate` 一律拦下并要求模型补上对应的卡。
+门禁读的是 `Proposal.purpose`（不是标题），所以新增一道门禁要同时改：SKILL.md、`types.ts` 的 purpose 取值、
+`normalizeAction.ts` 的识别、`uxAnalysisAgent.ts` 的门禁与提示词、以及 `SkillChat.tsx` 里收集
+`confirmedProposalPurposes` 的那段。
 
 ## 参考文件的按需注入
 

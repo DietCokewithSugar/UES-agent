@@ -12,6 +12,17 @@ import type { AgentAction, Proposal } from './types';
 
 const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
 
+/**
+ * purpose 驱动确定性门禁，所以不能全指望模型填对——标题也参与识别。
+ * 先认更具体的分析摘要（洞察/主题结构），再认分析执行方案。
+ */
+const proposalPurpose = (raw: string, title: string): Proposal['purpose'] => {
+  if (raw === 'analysis_plan' || raw === 'insight_review') return raw;
+  if (/洞察|主题结构|分析摘要/.test(title)) return 'insight_review';
+  if (/分析.*方案|执行方案/.test(title)) return 'analysis_plan';
+  return undefined;
+};
+
 const normalizeProposal = (raw: unknown): Proposal | null => {
   if (!raw || typeof raw !== 'object') return null;
   const p = raw as Record<string, unknown>;
@@ -38,10 +49,7 @@ const normalizeProposal = (raw: unknown): Proposal | null => {
     : [];
 
   return {
-    purpose:
-      str(p.purpose) === 'analysis_plan' || /分析.*方案|执行方案/.test(title)
-        ? 'analysis_plan'
-        : undefined,
+    purpose: proposalPurpose(str(p.purpose), title),
     title,
     badge: str(p.badge) || undefined,
     summary: str(p.summary) || undefined,

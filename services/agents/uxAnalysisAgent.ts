@@ -107,11 +107,14 @@ const CONTROL_RULES = `你现在处于**控制轮**。输出严格 JSON，不要
 先结合用户输入、当前对话、上游带入的需求记忆、附件内容与技能要求，判断当前最合适的动作。
 
 核心交互规则：
-- **正式分析前必须确认一次分析执行方案。**已有数据且关键背景明确时，先返回 purpose:"analysis_plan" 的 propose；用户确认后才能 action:"generate"。
-- 只需要这一张执行方案卡，不要再串行展示研究类型确认、数据清单确认等例行卡片。
+- **两道固定门禁，顺序不可颠倒、不可跳过**：
+  1. **正式分析前**必须确认一次分析执行方案——已有数据且关键背景明确时，先返回 purpose:"analysis_plan" 的 propose；
+  2. **生成结论前**必须确认一次分析摘要——方案确认后先把分析做完，再返回 purpose:"insight_review" 的 propose，把主题结构与洞察摊给用户看；
+  两张卡都确认之后，才允许 action:"generate"。
+- 固定确认卡就这两张，不要再串行展示研究类型确认、数据清单确认等例行卡片。
 - ask 只用于无法可靠推断、且缺失后会让计算或结论明显不可靠的必要信息；可选字段缺失时采用专业默认值并在结论中说明限制。
 - request_files 只用于没有可分析的数据；已有附件时不得重复索要。
-- propose 只用于“用户必须做选择”或“AI 的关键判断存在实质歧义”的情况，不用于例行汇报每一步，也不应连续展示研究类型、数据清单、分析方案三张确认卡。
+- 除这两道门禁外，propose 只用于“用户必须做选择”或“AI 的关键判断存在实质歧义”的情况，不用于例行汇报每一步。
 - 从 ux-kit 带入的需求摘要视为已确认背景，不追问方案全文，不重复确认已有字段。
 - 研究类型、适用分析引擎、统计方法、图表与框架应优先由你根据技能和数据自动选择。
 - 用户要求修改时吸收修改后继续，不要把同一张卡换个标题再次确认。
@@ -133,7 +136,7 @@ const CONTROL_RULES = `你现在处于**控制轮**。输出严格 JSON，不要
 { "action": "request_files", "prompt": "请上传……", "hint": "命名建议：数据类型_描述.扩展名，如 问卷_满意度调查.xlsx" }
 用户还没上传任何数据、而流程需要数据时用这个。已经有数据了就不要重复要。
 
-【3. 提案确认】数据上传完成后，正式分析前必须给出一次分析执行方案：
+【3. 分析执行方案确认】数据上传完成后，正式分析前必须给出一次分析执行方案：
 {
   "action": "propose",
   "proposal": {
@@ -155,11 +158,36 @@ const CONTROL_RULES = `你现在处于**控制轮**。输出严格 JSON，不要
 - 方案必须结合实际附件与上游需求，不得只复述通用模板。
 - 用户修改方案后，更新同一类方案并重新确认。
 
-【4. 生成分析结论】必要背景、可分析数据均已具备，且 purpose:"analysis_plan" 的方案已确认时：
+【4. 分析摘要确认】分析执行方案已确认、分析已经做完，生成结论前必须给出这一张（技能 Step 5）：
+{
+  "action": "propose",
+  "proposal": {
+    "purpose": "insight_review",
+    "title": "分析摘要",
+    "badge": "生成前确认",
+    "summary": "一句话概括本次分析得出的整体图景",
+    "fields": [
+      { "label": "主题数量", "value": "共 N 个主题，按相关度 × 数据支撑 × 影响面排序" },
+      { "label": "证据来源", "value": "各主题分别由哪些数据源支撑" },
+      { "label": "结论可信度", "value": "高 / 中高 / 中 / 中低 / 低 的分布，单源永不为高" }
+    ],
+    "items": [
+      { "title": "主题一：注册流程门槛较高", "detail": "支撑证据（问卷 N=156 / 受访者 P03…）＋ 洞察分级 L1/L2/L3；有言行矛盾时在此注明" }
+    ],
+    "note": "待验证洞察、证据薄弱之处，或用户可调整的方向（合并/拆分/重命名/增删主题、调整优先级、补充专业判断）",
+    "confirmLabel": "结构 OK，生成结论",
+    "reviseLabel": "调整主题或洞察"
+  }
+}
+- items 必须逐条列真实主题，带上实际数据点，**不得只给"主题一/主题二"这种占位**。
+- 主题名直接用结论式短语（如"注册流程门槛较高"），不要出现"聚类/三角验证/编码"这些内部术语。
+- 用户要求调整时更新同一张摘要卡重新确认，不要换个标题再确认一遍。
+
+【5. 生成分析结论】必要背景、可分析数据均已具备，且 analysis_plan 与 insight_review 两张卡都已确认时：
 { "action": "generate", "deliverables": [{ "kind": "researchPlan", "filename": "[主题]分析结论.docx", "summary": "覆盖哪些核心结论" }] }
 （kind 固定填 "researchPlan"，本技能只产出一份分析结论文件。）
 
-【5. 收尾】流程结束、无需再产出时：
+【6. 收尾】流程结束、无需再产出时：
 { "action": "done", "text": "给用户的一句话收尾" }`;
 
 const buildControlSystem = (skill: SkillMeta): string =>
@@ -237,8 +265,14 @@ const runControlTurn = async (ctx: AgentContext): Promise<ControlTurnResult> => 
   const skill = getAnalysisSkill();
   const hasConfirmedAnalysisPlan =
     ctx.milestones.confirmedProposalPurposes.includes('analysis_plan');
+  const hasConfirmedInsightReview =
+    ctx.milestones.confirmedProposalPurposes.includes('insight_review');
+  // 交互上限只有在两道门禁都过了之后才允许收敛到产出，否则会绕过确认。
   const forceConverge =
-    ctx.rounds >= MAX_ROUNDS && ctx.attachments.length > 0 && hasConfirmedAnalysisPlan;
+    ctx.rounds >= MAX_ROUNDS &&
+    ctx.attachments.length > 0 &&
+    hasConfirmedAnalysisPlan &&
+    hasConfirmedInsightReview;
 
   const messages: DeepSeekMessage[] = [
     { role: 'system', content: buildControlSystem(skill) },
@@ -251,8 +285,14 @@ const runControlTurn = async (ctx: AgentContext): Promise<ControlTurnResult> => 
         ctx.milestones.confirmedProposals.length
           ? ctx.milestones.confirmedProposals.join('、')
           : '无'
-      }\n分析执行方案：${
+      }\n分析执行方案（门禁①）：${
         hasConfirmedAnalysisPlan ? '已确认，可以开始正式分析' : '尚未确认，禁止 generate'
+      }\n分析摘要（门禁②）：${
+        hasConfirmedInsightReview
+          ? '已确认，可以生成结论'
+          : hasConfirmedAnalysisPlan
+            ? '尚未确认，禁止 generate——请先做完分析，再返回 purpose:"insight_review" 的 propose'
+            : '尚未确认（需先过门禁①）'
       }\n禁止再次询问或提议上述已确认事项。\n已交互轮次：${ctx.rounds}${
         forceConverge
           ? '\n已达交互安全上限且已有数据，请采用合理默认值，不要再提问，直接给出 action:"generate"。'
@@ -276,16 +316,20 @@ const runControlTurn = async (ctx: AgentContext): Promise<ControlTurnResult> => 
     )
   );
 
-  // 确定性门禁：即使模型忽略提示，也不能绕过执行方案确认直接开始分析。
-  if (
-    ctx.attachments.length > 0 &&
-    !hasConfirmedAnalysisPlan &&
-    action.action === 'generate'
-  ) {
+  // 确定性门禁：即使模型忽略提示，两道确认也都不能被绕过。
+  const missingGate = !hasConfirmedAnalysisPlan
+    ? ('analysis_plan' as const)
+    : !hasConfirmedInsightReview
+      ? ('insight_review' as const)
+      : null;
+
+  if (ctx.attachments.length > 0 && missingGate && action.action === 'generate') {
     const gateMessage: DeepSeekMessage = {
       role: 'user',
       content:
-        '（系统门禁：已有数据，但用户尚未确认分析执行方案。禁止 generate。请返回 action:"propose"，proposal.purpose 必须为 "analysis_plan"，title 必须为“分析执行方案”，并结合附件列出分析目标、方法、步骤、输出内容与数据限制。）'
+        missingGate === 'analysis_plan'
+          ? '（系统门禁：已有数据，但用户尚未确认分析执行方案。禁止 generate。请返回 action:"propose"，proposal.purpose 必须为 "analysis_plan"，title 必须为“分析执行方案”，并结合附件列出分析目标、方法、步骤、输出内容与数据限制。）'
+          : '（系统门禁：分析执行方案已确认，但用户尚未确认分析摘要。禁止 generate。请先完成分析，再返回 action:"propose"，proposal.purpose 必须为 "insight_review"，title 必须为“分析摘要”，用 items 逐条列出真实主题（含支撑数据点与洞察分级 L1/L2/L3），fields 给出主题数量、证据来源与结论可信度分布。）'
     };
     action = await normalizeAgentAction(retryHint =>
       deepseekJson(
@@ -296,7 +340,11 @@ const runControlTurn = async (ctx: AgentContext): Promise<ControlTurnResult> => 
       )
     );
     if (action.action === 'generate') {
-      throw new Error('分析执行方案尚未确认，已阻止提前开始分析。请重试。');
+      throw new Error(
+        missingGate === 'analysis_plan'
+          ? '分析执行方案尚未确认，已阻止提前开始分析。请重试。'
+          : '分析摘要尚未确认，已阻止提前生成结论。请重试。'
+      );
     }
   }
   return { action, trace };

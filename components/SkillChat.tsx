@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
-import type { AgentDefinition, HandoffContext } from '../services/agents/types';
+import type { AgentDefinition, HandoffContext, Proposal } from '../services/agents/types';
 import { isDeepSeekConfigured } from '../services/deepseekService';
 import {
   collectAttachments,
@@ -194,7 +194,7 @@ export const SkillChat: React.FC<Props> = ({
         confirmedProposalPurposes: history
           .filter(m => m.kind === 'proposal' && m.status === 'confirmed')
           .map(m => (m.kind === 'proposal' ? m.proposal.purpose : undefined))
-          .filter((purpose): purpose is 'analysis_plan' => purpose === 'analysis_plan')
+          .filter((purpose): purpose is NonNullable<Proposal['purpose']> => Boolean(purpose))
       },
       signal
     }),
