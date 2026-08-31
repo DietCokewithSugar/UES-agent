@@ -7,8 +7,9 @@ export interface ServerSkill {
 }
 
 export interface RuntimeInfo {
-  mode: 'container' | 'workspace';
-  containerImage?: string;
+  mode: 'e2b' | 'workspace';
+  template?: string;
+  model?: string;
   isolated: boolean;
   note: string;
 }
@@ -19,11 +20,11 @@ export interface ConversationInfo {
   createdAt: string;
   updatedAt: string;
   runtime: RuntimeInfo['mode'];
-  containerId?: string;
+  sandboxId?: string;
 }
 
 export interface SkillTraceEntry {
-  step: 'discover' | 'select' | 'load' | 'resource' | 'execute';
+  step: 'sandbox' | 'select' | 'load' | 'tool';
   detail: string;
 }
 
@@ -80,6 +81,7 @@ export const sendSkillMessage = async (
     message: { role: 'assistant'; content: string };
     skill: string;
     trace: SkillTraceEntry[];
+    artifacts: string[];
     runtime: RuntimeInfo['mode'];
   }>(`/api/conversations/${encodeURIComponent(conversationId)}/chat`, {
     method: 'POST',

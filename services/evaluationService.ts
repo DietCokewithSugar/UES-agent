@@ -2,7 +2,7 @@
  * 多模态体验评测服务。
  *
  * 全部走 DeepSeek：截图与流程图交给视觉模型（模型名见 deepseekService 的
- * DEEPSEEK_VISION_MODEL），纯文本调用走 deepseek-chat。没有 provider 可选，
+ * DEEPSEEK_VISION_MODEL），纯文本调用走 deepseek-v4-flash。没有 provider 可选，
  * 也没有图像生成——DeepSeek 没有出图模型，「AI 优化效果图」已随之移除。
  *
  * DeepSeek 只有 json_object 模式，没有 Gemini 那种 responseSchema，所以每个

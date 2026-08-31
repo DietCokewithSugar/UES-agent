@@ -7,18 +7,20 @@ services:
     envVars:
       - key: DEEPSEEK_API_KEY
         sync: false
+      - key: E2B_API_KEY
+        sync: false
+      - key: E2B_TEMPLATE
+        value: opencode
+      - key: DEEPSEEK_MODEL
+        value: deepseek-v4-flash
+      - key: E2B_SANDBOX_TIMEOUT_MS
+        value: "1800000"
       - key: SKILLS_ADMIN_TOKEN
         generateValue: true
       - key: DEEPSEEK_API_BASE_URL
         value: https://api.deepseek.com
       - key: DATA_DIR
         value: /var/data
-      - key: DOCKER_HOST
-        sync: false
-      - key: SANDBOX_IMAGE
-        value: node:22-alpine
-      - key: CONVERSATION_TTL_MS
-        value: "86400000"
     disk:
       name: ues-agent-data
       mountPath: /var/data

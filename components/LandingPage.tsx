@@ -103,8 +103,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </p>
             <ul className="grid grid-cols-1 gap-x-4 gap-y-1 text-xs leading-6 text-slate-600 sm:grid-cols-2">
               <li>· 运行时上传与更新 SKILL.md</li>
-              <li>· 每个对话分配独立容器或工作区</li>
-              <li>· 先发现元数据，再按需加载技能正文</li>
+              <li>· 每个对话分配独立 E2B 沙箱</li>
+              <li>· 云端 OpenCode 按需加载技能正文</li>
               <li>· 支持 references / templates / scripts</li>
             </ul>
           </div>

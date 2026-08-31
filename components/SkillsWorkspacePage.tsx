@@ -23,6 +23,7 @@ interface Message {
   content: string;
   trace?: SkillTraceEntry[];
   skill?: string;
+  artifacts?: string[];
 }
 
 export const SkillsWorkspacePage: React.FC<Props> = ({ onBack }) => {
@@ -38,6 +39,7 @@ export const SkillsWorkspacePage: React.FC<Props> = ({ onBack }) => {
   const [error, setError] = useState<string>();
   const fileRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const initialConversationId = useRef(`chat-${crypto.randomUUID()}`);
 
   const refreshSkills = async () => {
     const next = await listServerSkills();
@@ -54,7 +56,7 @@ export const SkillsWorkspacePage: React.FC<Props> = ({ onBack }) => {
   };
 
   useEffect(() => {
-    Promise.all([refreshSkills(), getRuntime(), createConversation()])
+    Promise.all([refreshSkills(), getRuntime(), createConversation(initialConversationId.current)])
       .then(([, runtimeInfo, conversationInfo]) => {
         setRuntime(runtimeInfo);
         setConversation(conversationInfo);
@@ -128,7 +130,8 @@ export const SkillsWorkspacePage: React.FC<Props> = ({ onBack }) => {
           role: 'assistant',
           content: result.message.content,
           trace: result.trace,
-          skill: result.skill
+          skill: result.skill,
+          artifacts: result.artifacts
         }
       ]);
     } catch (err) {
@@ -180,10 +183,13 @@ export const SkillsWorkspacePage: React.FC<Props> = ({ onBack }) => {
               <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
                 runtime?.isolated ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
               }`}>
-                {runtime?.mode === 'container' ? '独立容器' : '隔离工作区'}
+                {runtime?.mode === 'e2b' ? 'E2B · OpenCode' : '等待 E2B 配置'}
               </span>
             </div>
             <p className="mt-3 text-xs leading-5 text-slate-500">{runtime?.note || '正在检测运行时…'}</p>
+            {runtime?.model && (
+              <p className="mt-2 font-mono text-[11px] text-slate-400">模型：{runtime.model}</p>
+            )}
             {conversation && (
               <button onClick={closeCurrent} className="mt-3 text-xs text-rose-600 underline">
                 释放当前环境
@@ -252,7 +258,7 @@ export const SkillsWorkspacePage: React.FC<Props> = ({ onBack }) => {
               {skills.find(skill => skill.id === selectedSkillId)?.name || '请选择一个技能'}
             </p>
             <p className="mt-1 text-xs text-slate-500">
-              调用时先读取技能元数据，选中后再按需加载 SKILL.md，避免把全部技能塞入上下文。
+              Skill 会同步到云端沙箱，由 OpenCode 的原生 skill 工具按需加载并执行。
             </p>
           </div>
 
@@ -263,7 +269,7 @@ export const SkillsWorkspacePage: React.FC<Props> = ({ onBack }) => {
                   <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-100 text-xl">S</div>
                   <h2 className="mt-3 text-base font-semibold">用这个 Skill 完成任务</h2>
                   <p className="mt-1 max-w-md text-sm leading-6 text-slate-500">
-                    左侧选择技能，然后描述你要完成的工作。每条新对话都会获得独立运行环境。
+                    左侧选择技能，然后描述任务。每条新对话都会获得独立 E2B OpenCode 沙箱。
                   </p>
                 </div>
               </div>
@@ -286,6 +292,24 @@ export const SkillsWorkspacePage: React.FC<Props> = ({ onBack }) => {
                     </details>
                   )}
                   <div className="whitespace-pre-wrap">{message.content}</div>
+                  {message.artifacts && message.artifacts.length > 0 && conversation && (
+                    <div className="mt-3 border-t border-slate-200 pt-2">
+                      <p className="mb-1 text-[11px] font-medium text-slate-500">
+                        OpenCode 产出文件（请在沙箱到期前下载）
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {message.artifacts.map(artifact => (
+                          <a
+                            key={artifact}
+                            href={`/api/conversations/${encodeURIComponent(conversation.id)}/files?path=${encodeURIComponent(artifact)}`}
+                            className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-violet-700 hover:border-violet-300"
+                          >
+                            下载 {artifact}
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}

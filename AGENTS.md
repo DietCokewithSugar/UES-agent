@@ -23,13 +23,17 @@ Configured in `.env.local` at the project root. Vite injects them at build/dev t
   conversational entries (AI 研究助手 / AI 分析助手).
 - `DEEPSEEK_VISION_MODEL` — optional; the model used whenever images are sent (evaluation
   screenshots, analysis-assistant attachments).
-  Defaults to `deepseek-v4-flash-vision-exp`. `deepseek-chat` does NOT accept image input, so if
+  Defaults to `deepseek-v4-flash-vision-exp`. `deepseek-v4-flash` does NOT accept image input, so if
   the default name is wrong for an account, change it here rather than in code — the API error
   points at this variable.
 - `DEEPSEEK_API_BASE_URL` — optional override, defaults to `https://api.deepseek.com`.
-- `DATA_DIR` — uploaded Skills and conversation workspaces; defaults to `data/`.
-- `DOCKER_HOST` — optional Docker Engine endpoint. When available, each Skills Workspace
-  conversation gets an isolated container; otherwise the API explicitly reports workspace fallback.
+- `DEEPSEEK_MODEL` — Skills Workspace model, defaults to `deepseek-v4-flash`.
+- `E2B_API_KEY` — creates one E2B OpenCode sandbox per Skills Workspace conversation.
+- `E2B_TEMPLATE` — defaults to E2B's public `opencode` template.
+- `E2B_SANDBOX_TIMEOUT_MS` — defaults to 30 minutes and is capped at one hour.
+- `PUBLIC_BASE_URL` — public server origin for local/tunnel deployments. Render uses its automatic
+  `RENDER_EXTERNAL_URL`.
+- `DATA_DIR` — uploaded Skills and conversation metadata; defaults to `data/`.
 - `SKILLS_ADMIN_TOKEN` — when set, required as a bearer token for uploading/deleting Skills.
 
 ### Research skills (`skills/`)
@@ -63,9 +67,10 @@ Adding a third conversational entry = drop a skill folder in `skills/`, add an `
 register it in `services/agents/registry.ts`. The shell needs no changes.
 
 `components/SkillsWorkspacePage.tsx` is a separate runtime-upload experience backed by
-`server/index.mjs`. Uploaded ZIPs are validated and stored under `DATA_DIR/skills`. Calls follow
-progressive disclosure: route on metadata, load the selected `SKILL.md`, then expose scoped
-`read_skill_file` and container-only `run_command` tools.
+`server/index.mjs` and `server/e2bRuntime.mjs`. Uploaded ZIPs are validated and stored under
+`DATA_DIR/skills`, then synchronized to `.opencode/skills/<id>` in the conversation's E2B sandbox.
+OpenCode loads the selected Skill through its native `skill` tool and runs with DeepSeek V4 Flash.
+The sandbox receives only a conversation-scoped proxy token, never the real DeepSeek API key.
 
 **Context isolation** (an explicit product requirement): each session owns its own `messages`,
 `toDeepSeekMessages` only flattens the current session, and starting a new chat swaps the session id

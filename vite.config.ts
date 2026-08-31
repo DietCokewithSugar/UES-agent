@@ -14,8 +14,9 @@ export default defineConfig(({ mode }) => {
       },
       plugins: [react()],
       define: {
-        'process.env.DEEPSEEK_API_KEY': JSON.stringify(env.DEEPSEEK_API_KEY),
-        'process.env.DEEPSEEK_API_BASE_URL': JSON.stringify(env.DEEPSEEK_API_BASE_URL || 'https://api.deepseek.com'),
+        // Browser requests go through the Express proxy; never embed the real key in the bundle.
+        'process.env.DEEPSEEK_API_KEY': JSON.stringify('server-managed'),
+        'process.env.DEEPSEEK_API_BASE_URL': JSON.stringify('/api/deepseek'),
         'process.env.DEEPSEEK_VISION_MODEL': JSON.stringify(env.DEEPSEEK_VISION_MODEL || '')
       },
       resolve: {

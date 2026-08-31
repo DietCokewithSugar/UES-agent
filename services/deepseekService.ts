@@ -38,10 +38,10 @@ export interface DeepSeekChatOptions {
   signal?: AbortSignal;
 }
 
-const DEFAULT_MODEL = 'deepseek-chat';
+const DEFAULT_MODEL = 'deepseek-v4-flash';
 
 /**
- * 视觉模型。`deepseek-chat` 只接文本，图片要走这个模型。
+ * 视觉模型。`deepseek-v4-flash` 只接文本，图片要走这个模型。
  *
  * 做成环境变量是因为模型名可能变：改 `.env.local` 一行即可，不必改代码。
  * 被 API 拒绝时会明确报错指向这个变量，而不是静默退回纯文本——
@@ -65,23 +65,17 @@ export const pickModel = (messages: DeepSeekMessage[], override?: string): strin
 const describeApiError = (status: number, body: string, model: string, usedVision: boolean): string => {
   const head = `DeepSeek API 调用失败 (${status}): ${body.slice(0, 500)}`;
   if (usedVision && (status === 400 || status === 404 || /model/i.test(body))) {
-    return `${head}\n\n看起来视觉模型「${model}」不可用。请在 .env.local 里用 DEEPSEEK_VISION_MODEL 指定你账号可用的视觉模型名，然后重启开发服务。（图片必须走视觉模型，deepseek-chat 不接受图片输入。）`;
+    return `${head}\n\n看起来视觉模型「${model}」不可用。请在 .env.local 里用 DEEPSEEK_VISION_MODEL 指定你账号可用的视觉模型名，然后重启开发服务。（图片必须走视觉模型，deepseek-v4-flash 不接受图片输入。）`;
   }
   return head;
 };
 
 const getApiKey = (): string => {
-  const key = process.env.DEEPSEEK_API_KEY;
-  if (!key) {
-    throw new Error(
-      'DeepSeek API Key 未配置。请在项目根目录的 .env.local 中添加 DEEPSEEK_API_KEY。'
-    );
-  }
-  return key;
+  return process.env.DEEPSEEK_API_KEY || '';
 };
 
 const getBaseUrl = (): string => {
-  const base = process.env.DEEPSEEK_API_BASE_URL || 'https://api.deepseek.com';
+  const base = process.env.DEEPSEEK_API_BASE_URL || '/api/deepseek';
   return base.replace(/\/$/, '');
 };
 
@@ -111,7 +105,7 @@ export const deepseekChat = async (
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`
+      ...(apiKey && apiKey !== 'server-managed' ? { Authorization: `Bearer ${apiKey}` } : {})
     },
     body: JSON.stringify(body),
     signal: options.signal
@@ -167,7 +161,7 @@ export const safeParseJson = <T = unknown>(raw: string): T => {
 };
 
 export const isDeepSeekConfigured = (): boolean => {
-  return Boolean(process.env.DEEPSEEK_API_KEY);
+  return process.env.DEEPSEEK_API_KEY === 'server-managed' || Boolean(process.env.DEEPSEEK_API_KEY);
 };
 
 
@@ -203,7 +197,7 @@ export const deepseekChatStream = async (
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`
+      ...(apiKey && apiKey !== 'server-managed' ? { Authorization: `Bearer ${apiKey}` } : {})
     },
     body: JSON.stringify(body),
     signal: options.signal
