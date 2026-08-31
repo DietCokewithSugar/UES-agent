@@ -26,21 +26,60 @@ const MODES: UxKitMode[] = ['questionnaire', 'interview', 'usability', 'plan'];
 const MAX_TOPIC_LEN = 30;
 
 /**
- * 规整 ask 选项：截断到 6 个并重派 A–F。
+ * 兜底选项：界面本身就有「跳过这一问」按钮和自定义补充输入框，模型再给一个
+ * 「还不确定 / 跳过此问题 / 其他（请描述）」就是重复。更糟的是用户一旦选它，
+ * 这一轮等于没作答，模型下一轮很容易把同一个问题原样再问一遍。
+ *
+ * 整条锚定匹配，避免误伤"其他理财产品用户"这类正常选项。
+ */
+const FALLBACK_OPTION_RE =
+  /^(跳过[^，。]*|其他([（(][^）)]*[）)])?|(我|还)?不(确定|清楚|知道)|没想好|都可以|都行|无所谓)$/;
+
+/**
+ * 规整 ask 选项：剔掉兜底项、截断到 6 个并重派 A–F。
  * 模型偶尔会返回重复或异常的 id，那会同时破坏多选状态与 React key。
  */
 export const normalizeAsk = (
   options: ClarifyOption[] | undefined
-): ClarifyOption[] =>
-  (options || [])
+): ClarifyOption[] => {
+  const cleaned = (options || [])
     .map(o => ({
       title: String(o?.title ?? '').trim(),
       description: String(o?.description ?? '').trim()
     }))
     // 先丢掉无效项再派 id，否则中间丢一项会让字母出现断档（A B C E F）
-    .filter(o => o.title)
+    .filter(o => o.title);
+  const real = cleaned.filter(o => !FALLBACK_OPTION_RE.test(o.title));
+  // 剔完不足 2 个真实方向时保留原样——退化的返回值不该把整张卡片打空
+  return (real.length >= 2 ? real : cleaned)
     .slice(0, CLARIFY_ID_LETTERS.length)
     .map((o, i) => ({ id: CLARIFY_ID_LETTERS[i], ...o }));
+};
+
+/** 归一化问题文本：去掉空白与标点，只比较实质内容。 */
+const questionKey = (q: string): string =>
+  String(q ?? '')
+    .replace(/[\s\p{P}\p{S}]/gu, '')
+    .toLowerCase();
+
+/**
+ * 这个问题是不是已经问过了。
+ *
+ * 用户答「还不确定」之后，模型会把同一段问题连同同一批选项原样再抛一次，
+ * 界面上看就是"卡住了"。提示词里的"同一个问题只问一次"挡不住，所以这里判死。
+ */
+export const isRepeatedQuestion = (question: string, asked: string[]): boolean => {
+  const key = questionKey(question);
+  if (key.length < 4) return false;
+  return asked.some(prev => {
+    const p = questionKey(prev);
+    if (!p) return false;
+    if (p === key) return true;
+    // 只加了几个字的改写也算重复；长度门槛避免把"目标人群是谁"这类短问题误判
+    const [short, long] = p.length <= key.length ? [p, key] : [key, p];
+    return short.length >= 10 && long.includes(short);
+  });
+};
 
 /**
  * 规整意图：mode 非法时回退到 plan（SKILL.md 的安全兜底），
