@@ -45,11 +45,13 @@ const MAP_RULES = `你在执行用户研究数据的一个分块分析任务。�
 4. 区分 observation（直接事实）与 inference（解释性推断）；
 5. 识别统计口径、缺失值、异常数据和可能的重复表头；
 6. 若参考资料定义了 ETS、NPS、SUS、Kano 等公式，严格按定义识别，但跨块才能计算的指标只输出所需的可加总计数，禁止猜最终值。
+7. 必须紧凑输出：observations 最多 12 条，additiveCounts 最多 40 条，qualityIssues 与 candidateInsights 各最多 8 条；单个字符串最多 180 字。合并同类项，不逐行复述原始记录。
 输出结构：
 {"source":"文件名","chunk":"1/3","dataType":"识别类型","observations":[{"fact":"事实","evidence":"数值或引文","scope":"口径"}],"additiveCounts":[{"metric":"可加总指标","key":"类别","value":0}],"qualityIssues":[],"candidateInsights":[]}`;
 
 const PROFILE_RULES = `你在读取由程序对整份表格计算出的确定性统计摘要。只输出合法 JSON。
 这些 rows/nonEmpty/missing/distinct/min/max/mean/topValues 是程序遍历整份表后得到的事实锚点，优先级高于模型估算。根据研究目标挑出有决策价值的统计，保持原数值，不自行重算或改写。
+必须紧凑输出：exactFacts 最多 20 条，qualityIssues 最多 8 条，candidateCharts 最多 6 条；单个字符串最多 180 字。
 输出：{"source":"文件名","exactFacts":[{"metric":"字段","value":"原始统计","interpretation":"与目标的关系"}],"qualityIssues":[],"candidateCharts":[{"title":"图名","reason":"用途"}]}`;
 
 const REDUCE_RULES = `你在执行用户研究分析的分层归并。只输出合法 JSON 对象。
@@ -59,6 +61,7 @@ const REDUCE_RULES = `你在执行用户研究分析的分层归并。只输出�
 - 同义发现合并，矛盾发现并列标记，不得用“多数”掩盖冲突；
 - 单源证据永不标为“高”可信度；
 - 输出应紧凑但不能丢掉关键负面发现、异常和限制。
+- themes 最多 12 个，每个主题最多保留 5 条最强证据；contradictions、qualityIssues 各最多 10 条，chartPlan 最多 6 条；单个字符串最多 240 字。
 输出：{"dataInventory":[],"exactMetrics":[],"themes":[{"name":"结论式主题名","evidence":[],"confidence":"中高/中/中低/低","limitations":[]}],"contradictions":[],"qualityIssues":[],"chartPlan":[{"title":"图名","metric":"使用哪些精确数据","type":"bar/line/pie/scatter/funnel/radar"}]}`;
 
 const refContents = (skill: SkillMeta, haystack: string): string => {
@@ -82,7 +85,7 @@ const retryJson = async (
   signal?: AbortSignal
 ): Promise<unknown> => {
   try {
-    return await deepseekJson(messages, { temperature: 0.1, maxTokens: 4_096, signal });
+    return await deepseekJson(messages, { temperature: 0.1, maxTokens: 8_192, signal });
   } catch (error) {
     if (signal?.aborted) throw error;
     return deepseekJson(
@@ -93,10 +96,10 @@ const retryJson = async (
           content: `上次调用失败：${(error as Error).message.slice(
             0,
             180
-          )}。请重新检查当前输入，只输出完整合法 JSON。`
+          )}。请合并同类内容、严格遵守条数和字数上限，重新输出更紧凑且完整的合法 JSON。不要复述原始数据，不要 markdown 围栏。`
         }
       ],
-      { temperature: 0, maxTokens: 4_096, signal }
+      { temperature: 0, maxTokens: 8_192, signal }
     );
   }
 };
@@ -105,7 +108,8 @@ const mapChunk = async (
   chunk: AnalysisChunk,
   skill: SkillMeta,
   context: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  recoveryDepth = 0
 ): Promise<unknown> => {
   const reference = refContents(
     skill,
@@ -119,13 +123,41 @@ const mapChunk = async (
         { type: 'image_url' as const, image_url: { url: chunk.imageDataUrl } }
       ]
     : `${label}\n\n=== 当前数据块（完整）===\n${chunk.text ?? ''}`;
-  return retryJson(
-    [
-      { role: 'system', content: system },
-      { role: 'user', content }
-    ],
-    signal
-  );
+  try {
+    return await retryJson(
+      [
+        { role: 'system', content: system },
+        { role: 'user', content }
+      ],
+      signal
+    );
+  } catch (error) {
+    // 单块连续两次返回截断/坏 JSON 时，把该块再对半拆分。只恢复一层，避免无限请求。
+    if (!chunk.text || recoveryDepth >= 1 || chunk.text.length < 2_000) throw error;
+    const subparts = splitTextForAnalysis(chunk.text, Math.ceil(chunk.text.length / 2));
+    if (subparts.length < 2) throw error;
+    const evidence = await Promise.all(
+      subparts.map((text, index) =>
+        mapChunk(
+          {
+            ...chunk,
+            source: `${chunk.source}（块 ${chunk.index} 子块 ${index + 1}/${subparts.length}）`,
+            text
+          },
+          skill,
+          context,
+          signal,
+          recoveryDepth + 1
+        )
+      )
+    );
+    return {
+      source: chunk.source,
+      chunk: `${chunk.index}/${chunk.total}`,
+      recoveredBySubchunks: true,
+      evidence
+    };
+  }
 };
 
 const mapProfilePart = (

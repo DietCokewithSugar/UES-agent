@@ -122,9 +122,15 @@ export const deepseekChat = async (
   }
 
   const data: any = await response.json();
-  const content: string | undefined = data?.choices?.[0]?.message?.content;
+  const choice = data?.choices?.[0];
+  const content: string | undefined = choice?.message?.content;
   if (typeof content !== 'string') {
     throw new Error('DeepSeek 返回内容为空或格式异常。');
+  }
+  if (choice?.finish_reason === 'length') {
+    throw new Error(
+      `DeepSeek 输出达到 ${options.maxTokens ?? '默认'} token 上限，返回内容不完整。`
+    );
   }
   return content;
 };
