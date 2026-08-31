@@ -459,7 +459,6 @@ app.post('/api/conversations', sandboxCreateLimiter, async (request, response, n
         current = { id, skills: [], createdAt: now, updatedAt: now, runtime: runtimeMode() };
         await saveConversation(current);
       }
-      await ensureConversationRuntime(current);
       return current;
     });
     response.status(201).json({ conversation: publicConversation(conversation) });

@@ -161,8 +161,9 @@ npm run build
 `APP_ACCESS_TOKEN` 和 `SKILLS_ADMIN_TOKEN`：前者用于登录整个站点并保护模型、对话与产物接口，
 后者在上传或删除 Skill 时填写，避免公开部署被任意改写。
 
-每条新对话会从 E2B 官方 `opencode` Template 创建独立沙箱。后端把选中的 Skill
-同步到沙箱，再调用 OpenCode。OpenCode 按 E2B 官方推荐方式使用 `DEEPSEEK_API_KEY`
+每条对话会在首次启用 Skill 时从 E2B 官方 `opencode` Template 创建独立沙箱；仅打开工作台或
+新建空对话不会占用沙箱。后端把选中的 Skill 同步到沙箱，再调用 OpenCode。OpenCode 按 E2B
+官方推荐方式使用 `DEEPSEEK_API_KEY`
 直连 DeepSeek，并通过 E2B 出站白名单限制为只能访问 DeepSeek API。仅管理员能上传 Skill，
 整个网站也受 `APP_ACCESS_TOKEN` 保护。产出文件会立即流式复制到 Render 持久盘，并限制
 单文件与单轮总大小，因此沙箱到期后仍可下载。
