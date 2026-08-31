@@ -190,11 +190,6 @@ export const SkillsWorkspacePage: React.FC<Props> = ({ onBack }) => {
             {runtime?.model && (
               <p className="mt-2 font-mono text-[11px] text-slate-400">模型：{runtime.model}</p>
             )}
-            {runtime?.credentialFingerprint && (
-              <p className="mt-1 font-mono text-[11px] text-slate-400">
-                Key 指纹：{runtime.credentialFingerprint}
-              </p>
-            )}
             {conversation && (
               <button onClick={closeCurrent} className="mt-3 text-xs text-rose-600 underline">
                 释放当前环境

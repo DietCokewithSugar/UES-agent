@@ -20,15 +20,18 @@ export const sandboxWorkdir = process.env.E2B_WORKDIR || '/home/user/ues-workspa
 export const sandboxOutputDir = `${sandboxWorkdir}/output`;
 let credentialCheckCache;
 
-const deepseekApiKey = () => {
-  const raw = process.env.DEEPSEEK_API_KEY?.trim() || '';
+export const deepseekApiKey = (value = process.env.DEEPSEEK_API_KEY) => {
+  let raw = String(value || '')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\r/g, '')
+    .trim();
   if (
     raw.length >= 2 &&
     ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'")))
   ) {
-    return raw.slice(1, -1).trim();
+    raw = raw.slice(1, -1).trim();
   }
-  return raw;
+  return raw.replace(/^Bearer\s+/i, '').replace(/^DEEPSEEK_API_KEY\s*=\s*/i, '').trim();
 };
 
 const credentialFingerprint = key => {
@@ -36,6 +39,21 @@ const credentialFingerprint = key => {
   const digest = crypto.createHash('sha256').update(key).digest('hex').slice(0, 8);
   return `sha256:${digest}…${key.slice(-4)}`;
 };
+
+const responseDetail = async response => {
+  const body = await response.text().catch(() => '');
+  try {
+    const json = JSON.parse(body);
+    const message = json.error?.message || json.message;
+    if (typeof message === 'string' && message.trim()) return message.trim().slice(0, 240);
+  } catch {
+    // Keep a short plaintext snippet when the body is not JSON.
+  }
+  return body.replace(/\s+/g, ' ').trim().slice(0, 180);
+};
+
+const acceptedByDeepSeek = status =>
+  (status >= 200 && status < 300) || status === 400 || status === 402 || status === 422 || status === 429;
 
 export const validateDeepSeekCredential = async () => {
   const key = deepseekApiKey();
@@ -47,24 +65,79 @@ export const validateDeepSeekCredential = async () => {
   ) {
     return credentialCheckCache.result;
   }
-  const response = await fetch(`${deepseekBaseUrl}/user/balance`, {
-    headers: { Authorization: `Bearer ${key}` }
-  });
-  if (response.status === 401 || response.status === 403) {
+
+  const headers = {
+    Authorization: `Bearer ${key}`,
+    Accept: 'application/json'
+  };
+  const probes = [
+    { path: '/models', init: { method: 'GET', headers } },
+    { path: '/v1/models', init: { method: 'GET', headers } },
+    {
+      path: '/chat/completions',
+      init: {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: modelId,
+          messages: [{ role: 'user', content: 'ping' }],
+          max_tokens: 1,
+          stream: false
+        })
+      }
+    },
+    {
+      path: '/v1/chat/completions',
+      init: {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: modelId,
+          messages: [{ role: 'user', content: 'ping' }],
+          max_tokens: 1,
+          stream: false
+        })
+      }
+    }
+  ];
+
+  const attempts = [];
+  let authError;
+  for (const probe of probes) {
+    const url = `${deepseekBaseUrl}${probe.path}`;
+    let response;
+    try {
+      response = await fetch(url, { ...probe.init, redirect: 'manual' });
+    } catch (error) {
+      attempts.push(`${probe.path}: ${error.message}`);
+      continue;
+    }
+    const detail = await responseDetail(response);
+    attempts.push(`${probe.path} → HTTP ${response.status}${detail ? ` ${detail}` : ''}`);
+    if (acceptedByDeepSeek(response.status)) {
+      if (response.status === 402) {
+        throw Object.assign(new Error('DeepSeek 账户余额不足，请充值后再试。'), { status: 402 });
+      }
+      const result = { ok: true, fingerprint, endpoint: probe.path };
+      credentialCheckCache = { fingerprint, expiresAt: Date.now() + 5 * 60 * 1000, result };
+      return result;
+    }
+    if (response.status === 401) {
+      authError = detail || 'Authentication Fails';
+      continue;
+    }
+  }
+
+  if (authError) {
     throw Object.assign(
-      new Error(`Render 中的 DeepSeek Key 未通过官方 API 验证（${fingerprint}）。请检查 Key 所属平台及环境变量值。`),
-      { status: 502 }
+      new Error(`DeepSeek 对话接口拒绝了当前 API Key：${authError}`),
+      { status: 401 }
     );
   }
-  if (!response.ok) {
-    throw Object.assign(
-      new Error(`DeepSeek 凭据自检失败 (${response.status})，请稍后重试。`),
-      { status: 502 }
-    );
-  }
-  const result = { ok: true, fingerprint };
-  credentialCheckCache = { fingerprint, expiresAt: Date.now() + 5 * 60 * 1000, result };
-  return result;
+  throw Object.assign(
+    new Error(`DeepSeek 凭据自检失败：${attempts.join('；') || '无法连接官方 API'}。`),
+    { status: 502 }
+  );
 };
 
 export const isE2BConfigured = () => Boolean(process.env.E2B_API_KEY);
@@ -74,7 +147,6 @@ export const getRuntimeInfo = () => ({
   isolated: isE2BConfigured(),
   template: isE2BConfigured() ? template : undefined,
   model: `${providerId}/${modelId}`,
-  credentialFingerprint: credentialFingerprint(deepseekApiKey()),
   note: isE2BConfigured()
     ? `每个对话使用独立 E2B「${template}」沙箱，由 OpenCode 调用 ${modelId}。`
     : '未配置 E2B_API_KEY；可以管理 Skills，但无法运行 OpenCode。'
@@ -88,7 +160,7 @@ const createSandbox = async conversation => {
     throw Object.assign(new Error('E2B 沙箱创建已达到每小时安全上限。'), { status: 429 });
   }
   sandboxCreationTimes.push(Date.now());
-  const credential = await validateDeepSeekCredential();
+  await validateDeepSeekCredential();
   const apiKey = deepseekApiKey();
   const deepseekHost = new URL(deepseekBaseUrl).hostname;
   const sandbox = await Sandbox.create(template, {
@@ -110,19 +182,6 @@ const createSandbox = async conversation => {
       OPENCODE_DISABLE_MODELS_FETCH: '1'
     }
   });
-  try {
-    const sandboxCheck = await sandbox.commands.run(
-      `node -e 'fetch(process.env.DEEPSEEK_API_BASE_URL + "/user/balance", {headers:{Authorization:"Bearer " + process.env.DEEPSEEK_API_KEY}}).then(r=>{console.log(r.status);process.exit(r.ok?0:1)})'`,
-      { timeoutMs: 20_000 }
-    );
-    if (sandboxCheck.stdout.trim() !== '200') throw new Error(`HTTP ${sandboxCheck.stdout.trim()}`);
-  } catch (error) {
-    await sandbox.kill().catch(() => {});
-    throw Object.assign(
-      new Error(`E2B 沙箱中的 DeepSeek Key 自检失败（Render 指纹 ${credential.fingerprint}）：${error.result?.stderr || error.message}`),
-      { status: 502 }
-    );
-  }
   conversation.sandboxId = sandbox.sandboxId;
   conversation.openCodeSessionId = undefined;
   conversation.runtime = 'e2b';
@@ -165,7 +224,7 @@ export const configureSandbox = async sandbox => {
     provider: {
       [providerId]: {
         options: {
-          baseURL: deepseekBaseUrl,
+          baseURL: `${deepseekBaseUrl.replace(/\/v1$/i, '')}/v1`,
           apiKey: '{env:DEEPSEEK_API_KEY}',
           timeout: commandTimeoutMs
         },
