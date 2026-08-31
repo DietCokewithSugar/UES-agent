@@ -105,6 +105,8 @@ export interface AgentContext {
     confirmedProposalPurposes: Array<NonNullable<Proposal['purpose']>>;
   };
   signal?: AbortSignal;
+  /** 编排层在真实步骤发生时推送进度，供聊天界面实时更新。 */
+  onTrace?: (trace: SkillTrace) => void;
 }
 
 export interface ControlTurnResult {
@@ -122,6 +124,7 @@ export interface GenerateTurnResult {
 
 export interface GenerateOptions {
   onDelta?: (chunk: string) => void;
+  onTrace?: (trace: SkillTrace) => void;
   feedback?: string;
   signal?: AbortSignal;
 }

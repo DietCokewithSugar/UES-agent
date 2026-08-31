@@ -178,7 +178,7 @@ export const toDeepSeekMessages = (messages: ChatMessage[]): DeepSeekMessage[] =
       case 'document':
         out.push({
           role: 'assistant',
-          content: `（已生成《${m.doc.filename}》，正文从略。）`
+          content: `（已生成《${m.doc.filename}》）\n\n${m.doc.markdown}`
         });
         break;
       // trace / error 是界面状态，不进模型上下文

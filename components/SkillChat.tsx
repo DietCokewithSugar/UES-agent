@@ -11,7 +11,12 @@ import {
   type ClarifyAnswer
 } from '../services/uxkit/chatHistory';
 import { derivePlanDeliverables } from '../services/uxkit/uxkitOrchestrator';
-import type { Deliverable, GeneratedDoc, IntentSummary } from '../services/uxkit/types';
+import type {
+  Deliverable,
+  GeneratedDoc,
+  IntentSummary,
+  SkillTrace
+} from '../services/uxkit/types';
 import { readAttachments, type Attachment } from '../utils/attachments';
 import {
   clearAllSessions,
@@ -179,7 +184,11 @@ export const SkillChat: React.FC<Props> = ({
   );
 
   const buildCtx = useCallback(
-    (history: ChatMessage[], signal?: AbortSignal) => ({
+    (
+      history: ChatMessage[],
+      signal?: AbortSignal,
+      onTrace?: (trace: SkillTrace) => void
+    ) => ({
       history: toDeepSeekMessages(history),
       attachments: collectAttachments(history),
       rounds: countClarifyRounds(history),
@@ -196,7 +205,8 @@ export const SkillChat: React.FC<Props> = ({
           .map(m => (m.kind === 'proposal' ? m.proposal.purpose : undefined))
           .filter((purpose): purpose is NonNullable<Proposal['purpose']> => Boolean(purpose))
       },
-      signal
+      signal,
+      onTrace
     }),
     [intent, planMarkdown]
   );
@@ -220,11 +230,24 @@ export const SkillChat: React.FC<Props> = ({
             skillName: agent.skillId,
             phase: '正在思考下一步',
             templates: [],
-            references: []
+            references: [],
+            steps: [
+              {
+                id: 'start',
+                kind: 'thinking',
+                label: '理解请求',
+                detail: '正在结合当前对话判断下一步',
+                status: 'running'
+              }
+            ]
           }
         });
 
-        const { action, trace } = await agent.runControlTurn(buildCtx(history, signal));
+        const onTrace = (trace: SkillTrace) => {
+          if (sessionIdRef.current !== turnSessionId) return;
+          patch(traceId, m => (m.kind === 'trace' ? { ...m, trace, running: true } : m));
+        };
+        const { action, trace } = await agent.runControlTurn(buildCtx(history, signal, onTrace));
         if (sessionIdRef.current !== turnSessionId) return;
         patch(traceId, m => (m.kind === 'trace' ? { ...m, trace, running: false } : m));
 
@@ -281,7 +304,23 @@ export const SkillChat: React.FC<Props> = ({
         }
       } catch (err) {
         if (sessionIdRef.current !== turnSessionId) return;
-        setMessages(prev => prev.filter(m => m.id !== traceId));
+        patch(traceId, m =>
+          m.kind === 'trace'
+            ? {
+                ...m,
+                running: false,
+                trace: {
+                  ...m.trace,
+                  summary: '本轮执行未完成，请查看下方错误并重试。',
+                  steps: m.trace.steps?.map(step =>
+                    step.status === 'running'
+                      ? { ...step, status: 'error' as const, detail: '调用未完成' }
+                      : step
+                  )
+                }
+              }
+            : m
+        );
         pushError(err);
       } finally {
         if (sessionIdRef.current === turnSessionId) setBusy(false);
@@ -315,7 +354,16 @@ export const SkillChat: React.FC<Props> = ({
           skillName: agent.skillId,
           phase: '正在准备产出',
           templates: [],
-          references: []
+          references: [],
+          steps: [
+            {
+              id: 'start',
+              kind: 'thinking',
+              label: '准备生成',
+              detail: `正在规划《${deliverable.filename}》`,
+              status: 'running'
+            }
+          ]
         }
       });
       push({
@@ -335,6 +383,10 @@ export const SkillChat: React.FC<Props> = ({
           {
             feedback: opts.feedback,
             signal,
+            onTrace: trace => {
+              if (sessionIdRef.current !== turnSessionId) return;
+              patch(traceId, m => (m.kind === 'trace' ? { ...m, trace, running: true } : m));
+            },
             onDelta: chunk => {
               if (sessionIdRef.current !== turnSessionId) return;
               acc += chunk;
@@ -371,7 +423,24 @@ export const SkillChat: React.FC<Props> = ({
         return doc;
       } catch (err) {
         if (sessionIdRef.current !== turnSessionId) return null;
-        setMessages(prev => prev.filter(m => m.id !== traceId && m.id !== docId));
+        setMessages(prev => prev.filter(m => m.id !== docId));
+        patch(traceId, m =>
+          m.kind === 'trace'
+            ? {
+                ...m,
+                running: false,
+                trace: {
+                  ...m.trace,
+                  summary: '文档生成未完成，请查看下方错误并重试。',
+                  steps: m.trace.steps?.map(step =>
+                    step.status === 'running'
+                      ? { ...step, status: 'error' as const, detail: '生成中断' }
+                      : step
+                  )
+                }
+              }
+            : m
+        );
         pushError(err);
         return null;
       } finally {
@@ -756,6 +825,7 @@ export const SkillChat: React.FC<Props> = ({
 
   const blocked = !configured || Boolean(skillError);
   const isEmpty = messages.length === 0;
+  const hasRunningTrace = messages.some(m => m.kind === 'trace' && m.running);
 
   const composerFooter = (
     <span className="inline-flex items-center gap-1.5">
@@ -873,7 +943,7 @@ export const SkillChat: React.FC<Props> = ({
             <div className="flex-1 space-y-3 pb-4">
               {banners}
               {messages.map(renderMessage)}
-              {busy && (
+              {busy && !hasRunningTrace && (
                 <div className="flex justify-start">
                   <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500 shadow-sm">
                     <span className="inline-block animate-pulse">AI 正在思考中…</span>
