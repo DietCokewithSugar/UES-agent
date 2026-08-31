@@ -16,10 +16,13 @@ import { describeAttachmentsForPrompt, type Attachment } from '../../utils/attac
 import {
   deepseekChatStream,
   deepseekJson,
+  safeParseJson,
   type DeepSeekContentBlock,
   type DeepSeekMessage
 } from '../deepseekService';
 import { buildSkillKnowledge, getSkill, type SkillMeta } from '../skills/skillRegistry';
+import { runAnalysisPipeline, type AnalysisBundle } from '../analysis/analysisPipeline';
+import { parseAnalysisJson } from '../analysis/parseAnalysisJson';
 import { normalizeAgentAction } from './normalizeAction';
 import type {
   AgentContext,
@@ -75,7 +78,9 @@ const pickGenerateRefs = (skill: SkillMeta, haystack: string): string[] => {
     'synthesis.md',
     'research_types.md',
     ...(FRAMEWORK_SIGNAL.test(haystack) ? ['frameworks.md'] : []),
-    ...hit
+    // 原始计算已由分块流水线逐文件加载引擎完成；写作轮只保留一个最相关引擎，
+    // 防止多源数据把全部大参考文件再次塞进同一上下文。
+    ...hit.slice(0, 1)
   ].filter(
     (f, i, arr) => arr.indexOf(f) === i
   );
@@ -85,7 +90,8 @@ const pickGenerateRefs = (skill: SkillMeta, haystack: string): string[] => {
 
 const SYSTEM_PROMPT = `你是 ux-analysis —— 一名带专业技能的用户研究分析 AI 助手，把问卷 / 访谈 / 埋点 / 可用性评估 / 眼动 / 用户声音等原始研究数据，变成专业的分析结论。
 你必须用简体中文回答。
-你要完整运用注入的技能与参考资料，但交互方式是自然的 AI chatbot，而不是逐节点表单向导。`;
+你要完整运用注入的技能与参考资料，但交互方式是自然的 AI chatbot，而不是逐节点表单向导。
+当前运行环境是浏览器 SPA，不执行技能目录中的 Python 脚本；你只负责输出 analysis.json，前端会用与脚本协议对齐的 TypeScript 图表和 Word 渲染器生成文件。`;
 
 const CONTROL_RULES = `你现在处于**控制轮**。输出严格 JSON，不要 markdown 围栏、不要多余解释。
 
@@ -196,6 +202,50 @@ const describeDataInventory = (attachments: Attachment[]): string => {
     .join('\n');
 };
 
+/** 控制轮只读少量样本；正式分析由分块流水线读取全部数据。 */
+const previewAttachments = (attachments: Attachment[]): Attachment[] => {
+  let remainingText = 16_000;
+  let remainingImages = 4;
+  return attachments.map(attachment => {
+    if (attachment.kind === 'image') {
+      const include = remainingImages > 0;
+      remainingImages -= 1;
+      return include ? attachment : { ...attachment, dataUrl: undefined };
+    }
+    if (!attachment.text || remainingText <= 0) return { ...attachment, text: undefined };
+    const text = attachment.text.slice(0, Math.min(4_000, remainingText));
+    remainingText -= text.length;
+    return { ...attachment, text };
+  });
+};
+
+/**
+ * 分块分析的目标上下文固定截止到分析方案，避免 insight_review 确认后因历史变长而重复计算。
+ */
+const buildAnalysisContext = (ctx: AgentContext): string => {
+  const parts: string[] = [];
+  for (const message of ctx.history) {
+    if (typeof message.content !== 'string') continue;
+    if (
+      message.role === 'assistant' &&
+      /"purpose"\s*:\s*"insight_review"/.test(message.content)
+    ) {
+      break;
+    }
+    if (message.content.startsWith('（已生成《')) continue;
+    parts.push(`${message.role}: ${message.content}`);
+  }
+  return parts.join('\n').slice(-24_000);
+};
+
+const bundleForPrompt = (bundle: AnalysisBundle): string =>
+  JSON.stringify({
+    manifest: bundle.manifest,
+    coverage: bundle.coverage,
+    synthesis: bundle.synthesis,
+    recommendedCharts: bundle.recommendedCharts
+  });
+
 /**
  * 把附件挂到最后一条 user 消息上。
  * 图片走 image_url 内容块（视觉模型读），文本类直接拼进文本。
@@ -259,9 +309,78 @@ const runControlTurn = async (ctx: AgentContext): Promise<ControlTurnResult> => 
     hasConfirmedAnalysisPlan &&
     hasConfirmedInsightReview;
 
+  let analysisBundle: AnalysisBundle | null = null;
+  if (
+    hasConfirmedAnalysisPlan &&
+    !hasConfirmedInsightReview &&
+    ctx.attachments.some(attachment => attachment.kind !== 'unsupported')
+  ) {
+    const pipelineTrace: SkillTrace = {
+      skillId: skill.id,
+      skillName: skill.name,
+      phase: 'Step 4 全量分块分析',
+      templates: [],
+      references: ['按数据类型渐进加载', 'synthesis.md'],
+      steps: [
+        {
+          id: 'prepare',
+          kind: 'tool',
+          label: '拆分并检查全部数据',
+          detail: `${ctx.attachments.length} 个附件，正在建立完整覆盖清单`,
+          status: 'done'
+        },
+        {
+          id: 'map-reduce',
+          kind: 'thinking',
+          label: '逐块分析与分层归并',
+          detail: '正在执行',
+          status: 'running'
+        }
+      ]
+    };
+    ctx.onTrace?.(pipelineTrace);
+    analysisBundle = await runAnalysisPipeline(ctx.attachments, skill, {
+      context: buildAnalysisContext(ctx),
+      signal: ctx.signal,
+      onProgress: (completed, total, phase) => {
+        pipelineTrace.steps = pipelineTrace.steps?.map(step =>
+          step.id === 'map-reduce'
+            ? { ...step, detail: `${phase} · ${completed}/${total}` }
+            : step
+        );
+        ctx.onTrace?.({ ...pipelineTrace, steps: [...(pipelineTrace.steps ?? [])] });
+      }
+    });
+    pipelineTrace.steps = pipelineTrace.steps?.map(step =>
+      step.id === 'map-reduce'
+        ? {
+            ...step,
+            status: 'done' as const,
+            detail: `已完整分析 ${analysisBundle?.coverage.analyzedChunks}/${analysisBundle?.coverage.totalChunks} 个数据块`
+          }
+        : step
+    );
+    pipelineTrace.summary = '原始数据已逐块读取，并按来源与证据口径完成分层归并。';
+    ctx.onTrace?.({ ...pipelineTrace, steps: [...(pipelineTrace.steps ?? [])] });
+  }
+
+  const historyWithoutDocuments = compactHistory(ctx.history);
+  const controlHistory = analysisBundle
+    ? historyWithoutDocuments
+    : attachToLastUserMessage(historyWithoutDocuments, previewAttachments(ctx.attachments));
   const messages: DeepSeekMessage[] = [
     { role: 'system', content: buildControlSystem(skill) },
-    ...attachToLastUserMessage(ctx.history, ctx.attachments),
+    ...controlHistory,
+    ...(analysisBundle
+      ? [
+          {
+            role: 'user' as const,
+            content: `（系统提供的 Step 4 全量分析结果，不是用户发言。必须据此生成真实的分析摘要，禁止重新估算原始数据。）\n${bundleForPrompt(
+              analysisBundle
+            )}`
+          }
+        ]
+      : []),
     {
       role: 'user',
       content: `（系统状态，不是用户发言）\n当前数据清单：\n${describeDataInventory(
@@ -431,7 +550,10 @@ const GENERATE_RULES = `你现在处于**产出轮**：生成最终的分析结�
 - 所有引用必须标数据来源（如"问卷N=156"、"受访者P03"）；全文隐私脱敏，不出现真实姓名/手机号/账号。
 - 需要引用用户上传的图片时使用 image 块，attachment 必须原样填写附件文件名；系统会嵌入原图，禁止编造 dataUrl。
 - chart 的 figsize 等数组用 JSON 数组 \`[7, 4]\`，不能写成 \`(7, 4)\`。
-- 图表类型只能是 bar / line / pie / scatter / funnel / radar。`;
+- 图表类型只能是 bar / line / pie / scatter / funnel / radar。
+- 输入中的 manifest/coverage 用于验证数据是否完整读取；不得声称只抽样读取。
+- 输入中的 exactMetrics 与程序统计是数值事实锚点，禁止用语言模型重新估算。
+- 输入中的 recommendedCharts 或 chartPlan 有可用量化数据时，至少输出一个 chart 块；只有纯定性数据确实没有可视化数值时才可不出图。`;
 
 /** 把模型按文件名引用的图片替换为本地 data URL，避免让模型回显大段 base64。 */
 const resolveAttachmentImages = (raw: string, attachments: Attachment[]): string => {
@@ -456,6 +578,49 @@ const resolveAttachmentImages = (raw: string, attachments: Attachment[]): string
   }
 };
 
+/**
+ * 最终结构校验与图表兜底：量化数据存在时，即使模型漏写 chart 块，也使用程序遍历整表
+ * 得到的精确频次生成一张图，避免“同样的数据有时有图、有时没图”。
+ */
+const finalizeAnalysisJson = (raw: string, bundle: AnalysisBundle): string => {
+  const parsed = safeParseJson<{
+    title?: string;
+    subtitle?: string;
+    blocks?: Array<Record<string, unknown>>;
+    [key: string]: unknown;
+  }>(raw);
+  if (!Array.isArray(parsed.blocks) || parsed.blocks.length === 0) {
+    throw new Error('分析结论缺少有效 blocks。');
+  }
+  const hasConclusion = parsed.blocks.some(block => block?.type === 'conclusion');
+  if (!hasConclusion) throw new Error('分析结论缺少核心 conclusion 块。');
+
+  const structurallyValid = parseAnalysisJson(parsed);
+  const hasValidChart = structurallyValid.blocks.some(block => block.type === 'chart');
+  if (!hasValidChart && bundle.recommendedCharts.length > 0) {
+    // 删除会在解析时变成“图略”的坏 chart，避免坏图与兜底图同时出现。
+    parsed.blocks = parsed.blocks.filter(block => block?.type !== 'chart');
+    const spec = bundle.recommendedCharts[0];
+    parsed.blocks.push({
+      type: 'chart',
+      spec,
+      caption: `程序统计图：${spec.title ?? '关键数据分布'}`
+    });
+  }
+  parsed.analysisCoverage = bundle.coverage;
+  return JSON.stringify(parsed);
+};
+
+const compactHistory = (history: DeepSeekMessage[]): DeepSeekMessage[] =>
+  history.filter(
+    message =>
+      !(
+        message.role === 'assistant' &&
+        typeof message.content === 'string' &&
+        message.content.startsWith('（已生成《')
+      )
+  );
+
 const runGenerateTurn = async (
   ctx: AgentContext,
   deliverable: Deliverable,
@@ -463,7 +628,7 @@ const runGenerateTurn = async (
 ): Promise<GenerateTurnResult> => {
   const skill = getAnalysisSkill();
   const haystack = [
-    ...ctx.attachments.map(a => `${a.name} ${a.note ?? ''} ${a.text ?? ''}`),
+    ...ctx.attachments.map(a => `${a.name} ${a.note ?? ''} ${a.text?.slice(0, 4_000) ?? ''}`),
     ...ctx.history.map(m => (typeof m.content === 'string' ? m.content : ''))
   ].join(' ');
   const refs = pickGenerateRefs(skill, haystack);
@@ -492,9 +657,9 @@ const runGenerateTurn = async (
       {
         id: 'data',
         kind: 'tool',
-        label: '整合完整研究数据',
-        detail: `已合并 ${ctx.attachments.length} 个附件与全部会话上下文`,
-        status: 'done'
+        label: '读取分块分析结果',
+        detail: `正在校验 ${ctx.attachments.length} 个附件的数据覆盖`,
+        status: 'running'
       },
       {
         id: 'model',
@@ -507,6 +672,27 @@ const runGenerateTurn = async (
   };
   opts.onTrace?.(trace);
 
+  const bundle = await runAnalysisPipeline(ctx.attachments, skill, {
+    context: buildAnalysisContext(ctx),
+    signal: opts.signal ?? ctx.signal,
+    onProgress: (completed, total, phase) => {
+      trace.steps = trace.steps?.map(step =>
+        step.id === 'data' ? { ...step, detail: `${phase} · ${completed}/${total}` } : step
+      );
+      opts.onTrace?.({ ...trace, steps: [...(trace.steps ?? [])] });
+    }
+  });
+  trace.steps = trace.steps?.map(step =>
+    step.id === 'data'
+      ? {
+          ...step,
+          status: 'done' as const,
+          detail: `已覆盖 ${bundle.coverage.analyzedChunks}/${bundle.coverage.totalChunks} 个原始数据块`
+        }
+      : step
+  );
+  opts.onTrace?.({ ...trace, steps: [...(trace.steps ?? [])] });
+
   const system = [
     SYSTEM_PROMPT,
     '',
@@ -518,7 +704,13 @@ const runGenerateTurn = async (
 
   const messages: DeepSeekMessage[] = [
     { role: 'system', content: system },
-    ...attachToLastUserMessage(ctx.history, ctx.attachments),
+    ...compactHistory(ctx.history),
+    {
+      role: 'user',
+      content: `（系统提供的全量分块分析结果。它已覆盖全部原始数据；程序确定性统计优先于语言模型估算。必须只基于其中证据写作。）\n${bundleForPrompt(
+        bundle
+      )}`
+    },
     {
       role: 'user',
       content: [
@@ -531,22 +723,55 @@ const runGenerateTurn = async (
     }
   ];
 
-  const { text, truncated } = await deepseekChatStream(messages, {
+  let generated = await deepseekChatStream(messages, {
     temperature: 0.4,
-    maxTokens: 8000,
+    maxTokens: 8192,
     onDelta: opts.onDelta,
     signal: opts.signal ?? ctx.signal
   });
+  let finalRaw: string;
+  try {
+    if (generated.truncated) throw new Error('模型输出达到长度上限');
+    finalRaw = finalizeAnalysisJson(generated.text.trim(), bundle);
+  } catch (error) {
+    trace.steps = trace.steps?.map(step =>
+      step.id === 'model'
+        ? {
+            ...step,
+            detail: `首次结果不完整，正在自动修复：${(error as Error).message}`,
+            status: 'running' as const
+          }
+        : step
+    );
+    opts.onTrace?.({ ...trace, steps: [...(trace.steps ?? [])] });
+    generated = await deepseekChatStream(
+      [
+        ...messages,
+        {
+          role: 'user',
+          content:
+            '上一次输出被截断或结构校验失败。请重新生成一份更紧凑但完整的 JSON：保留全部核心结论、来源、限制与必要图表，减少重复描述。只输出合法 JSON。'
+        }
+      ],
+      {
+        temperature: 0.2,
+        maxTokens: 8_192,
+        signal: opts.signal ?? ctx.signal
+      }
+    );
+    if (generated.truncated) throw new Error('自动修复后仍达到模型输出长度上限，请缩小输出范围。');
+    finalRaw = finalizeAnalysisJson(generated.text.trim(), bundle);
+  }
 
   trace.steps = trace.steps?.map(step =>
     step.id === 'model' ? { ...step, status: 'done' as const, detail: '分析结论生成完成' } : step
   );
-  trace.summary = `已调用匹配的数据分析引擎，并基于完整上下文生成《${deliverable.filename}》。`;
+  trace.summary = `已基于 ${bundle.coverage.analyzedChunks} 个完整数据块的分层分析结果生成《${deliverable.filename}》，并通过结构与图表校验。`;
   opts.onTrace?.({ ...trace, steps: trace.steps ? [...trace.steps] : undefined });
   return {
-    raw: resolveAttachmentImages(text.trim(), ctx.attachments),
+    raw: resolveAttachmentImages(finalRaw, ctx.attachments),
     format: 'analysisJson',
-    truncated,
+    truncated: false,
     trace
   };
 };

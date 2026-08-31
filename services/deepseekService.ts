@@ -32,6 +32,7 @@ export const hasImageContent = (messages: DeepSeekMessage[]): boolean =>
 export interface DeepSeekChatOptions {
   model?: string;
   temperature?: number;
+  maxTokens?: number;
   jsonMode?: boolean;
   /** 仅控制本轮输出长度，不会裁剪输入上下文。 */
   maxTokens?: number;
