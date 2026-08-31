@@ -15,6 +15,8 @@ const commandTimeoutMs = Number(process.env.OPENCODE_COMMAND_TIMEOUT_MS || 10 * 
 const modelId = process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
 const providerId = 'deepseek';
 const sandboxCreationTimes = [];
+export const sandboxWorkdir = process.env.E2B_WORKDIR || '/home/user/ues-workspace';
+export const sandboxOutputDir = `${sandboxWorkdir}/output`;
 
 export const isE2BConfigured = () => Boolean(process.env.E2B_API_KEY);
 export const runtimeMode = () => isE2BConfigured() ? 'e2b' : 'workspace';
@@ -139,25 +141,25 @@ export const configureSandbox = async (sandbox, conversationId) => {
       websearch: 'deny'
     }
   };
-  await sandbox.commands.run('mkdir -p /workspace/.opencode/skills && cd /workspace && git init -q');
-  await sandbox.files.write('/workspace/opencode.json', JSON.stringify(config, null, 2));
+  await sandbox.commands.run(`mkdir -p '${sandboxWorkdir}/.opencode/skills' && cd '${sandboxWorkdir}' && git init -q`);
+  await sandbox.files.write(`${sandboxWorkdir}/opencode.json`, JSON.stringify(config, null, 2));
   await sandbox.files.write(
-    '/workspace/AGENTS.md',
+    `${sandboxWorkdir}/AGENTS.md`,
     [
       '# UES OpenCode Runtime',
       '',
       'You work inside an isolated E2B sandbox for one conversation.',
       'Use the user-selected Agent Skill through the native skill tool before acting.',
-      'Keep all generated files under /workspace/output.',
+      `Keep all generated files under ${sandboxOutputDir}.`,
       'Never print credentials, environment variables, or authentication headers.',
       'Do not attempt to bypass network or filesystem restrictions.'
     ].join('\n')
   );
-  await sandbox.commands.run('mkdir -p /workspace/output');
+  await sandbox.commands.run(`mkdir -p '${sandboxOutputDir}'`);
 };
 
 export const uploadSkill = async (sandbox, source, skillId) => {
-  const remoteRoot = `/workspace/.opencode/skills/${skillId}`;
+  const remoteRoot = `${sandboxWorkdir}/.opencode/skills/${skillId}`;
   await sandbox.commands.run(`rm -rf '${remoteRoot}' && mkdir -p '${remoteRoot}'`);
   for (const file of await walkFiles(source)) {
     const remotePath = path.posix.join(remoteRoot, file.relative);
@@ -234,7 +236,7 @@ export const runOpenCode = async (sandbox, conversation, skillId, prompt) => {
   let result;
   try {
     result = await sandbox.commands.run(
-      `cd /workspace && opencode run --auto --format json --model '${providerId}/${modelId}' ${sessionArg} "$(cat '${promptPath}')"`,
+      `cd '${sandboxWorkdir}' && opencode run --auto --format json --model '${providerId}/${modelId}' ${sessionArg} "$(cat '${promptPath}')"`,
       {
         timeoutMs: commandTimeoutMs,
         envs: {
@@ -250,7 +252,7 @@ export const runOpenCode = async (sandbox, conversation, skillId, prompt) => {
   }
   const parsed = parseOpenCodeEvents(result.stdout);
   const outputList = await sandbox.commands.run(
-    "find /workspace/output -type f -printf '%P\\n' 2>/dev/null"
+    `find '${sandboxOutputDir}' -type f -printf '%P\\n' 2>/dev/null`
   );
   const artifacts = outputList.stdout
     .split(/\r?\n/)

@@ -11,6 +11,8 @@ services:
         sync: false
       - key: E2B_TEMPLATE
         value: opencode
+      - key: E2B_WORKDIR
+        value: /home/user/ues-workspace
       - key: DEEPSEEK_MODEL
         value: deepseek-v4-flash
       - key: E2B_SANDBOX_TIMEOUT_MS

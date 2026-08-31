@@ -19,6 +19,7 @@ import {
   getRuntimeInfo,
   runOpenCode,
   runtimeMode,
+  sandboxOutputDir,
   uploadSkill,
   verifySandboxToken
 } from './e2bRuntime.mjs';
@@ -268,7 +269,7 @@ const persistArtifacts = async (sandbox, conversation, artifactPaths) => {
       }
     });
     try {
-      const source = await sandbox.files.read(`/workspace/output/${normalized}`, { format: 'stream' });
+      const source = await sandbox.files.read(`${sandboxOutputDir}/${normalized}`, { format: 'stream' });
       await pipeline(Readable.fromWeb(source), limiter, fsSync.createWriteStream(temporary, { mode: 0o600 }));
       await fs.rename(temporary, destination);
       persisted.push(normalized);
