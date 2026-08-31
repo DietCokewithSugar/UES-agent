@@ -10,8 +10,6 @@ interface ReportViewProps {
   framework: EvaluationFramework;
   originalImage?: string | null;
   processSteps?: ProcessStep[];
-  optimizedImage?: string | null;
-  isGeneratingImage?: boolean;
 }
 
 const getSeverityClassName = (severity: string) => {
@@ -24,11 +22,8 @@ export const ReportView: React.FC<ReportViewProps> = ({
   report,
   framework,
   originalImage,
-  processSteps,
-  optimizedImage,
-  isGeneratingImage
+  processSteps
 }) => {
-  const isVideo = originalImage?.startsWith('data:video');
   const hasChecklist = (framework.checklistItems?.length || 0) > 0 && (report.checklistResults?.length || 0) > 0;
 
   return (
@@ -45,8 +40,6 @@ export const ReportView: React.FC<ReportViewProps> = ({
                 </div>
               ))}
             </div>
-          ) : isVideo ? (
-            <video src={originalImage || undefined} controls className="max-h-80 rounded-lg" />
           ) : (
             <img src={originalImage || undefined} alt="评测素材" className="max-h-80 rounded-lg" />
           )}
@@ -175,19 +168,6 @@ export const ReportView: React.FC<ReportViewProps> = ({
               <li key={`${note}-${index}`}>{note}</li>
             ))}
           </ul>
-        </section>
-      )}
-
-      {!isVideo && (optimizedImage || isGeneratingImage) && (
-        <section className="rounded-xl border border-slate-200 bg-white p-4">
-          <h3 className="text-sm font-semibold text-slate-800 mb-3">AI 优化效果图</h3>
-          {isGeneratingImage ? (
-            <p className="text-sm text-slate-500">正在生成优化效果图...</p>
-          ) : optimizedImage ? (
-            <img src={optimizedImage} alt="AI优化效果图" className="max-h-96 rounded-lg" />
-          ) : (
-            <p className="text-sm text-slate-500">暂无优化图。</p>
-          )}
         </section>
       )}
 

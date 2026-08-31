@@ -172,27 +172,9 @@ export interface PersonaRecommendation {
   reasoning: string;
 }
 
-export type ApiProvider = 'google' | 'openrouter';
-
-export interface ApiConfig {
-  provider: ApiProvider;
-  openRouterModel?: string;
-  imageModel?: string; // New field for image generation model
-}
-
 export interface ProcessStep {
   id: string;
   image: string; // Base64
   description: string; // User action description
   fileName?: string;
-}
-
-declare global {
-  interface AIStudio {
-    hasSelectedApiKey: () => Promise<boolean>;
-    openSelectKey: () => Promise<void>;
-  }
-  interface Window {
-    aistudio?: AIStudio;
-  }
 }

@@ -11,9 +11,6 @@ export default defineConfig(({ mode }) => {
       },
       plugins: [react()],
       define: {
-        'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-        'process.env.OPENROUTER_API_KEY': JSON.stringify(env.OPENROUTER_API_KEY),
         'process.env.DEEPSEEK_API_KEY': JSON.stringify(env.DEEPSEEK_API_KEY),
         'process.env.DEEPSEEK_API_BASE_URL': JSON.stringify(env.DEEPSEEK_API_BASE_URL || 'https://api.deepseek.com'),
         'process.env.DEEPSEEK_VISION_MODEL': JSON.stringify(env.DEEPSEEK_VISION_MODEL || '')

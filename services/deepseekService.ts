@@ -2,7 +2,7 @@
  * DeepSeek API 服务层
  * 文档：https://api-docs.deepseek.com/zh-cn/
  *
- * 该服务专用于对话式的 ux-kit 体验，与原有 geminiService 解耦。
+ * 对话式的 ux-kit / ux-analysis 体验和 evaluationService 的多模态评测都走这里。
  * 接口与 OpenAI 兼容，调用 /v1/chat/completions。
  *
  * 两种调用方式：
