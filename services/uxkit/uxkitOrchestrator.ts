@@ -22,7 +22,7 @@ import {
   type DeepSeekMessage
 } from '../deepseekService';
 import { buildSkillKnowledge, getSkill, type SkillMeta } from '../skills/skillRegistry';
-import { normalizeControlAction } from './normalize';
+import { isRepeatedQuestion, normalizeControlAction } from './normalize';
 import {
   CONTROL_REFS,
   DELIVERABLE_BY_MODE,
@@ -63,9 +63,10 @@ const SYSTEM_PROMPT = `你是 ux-kit —— 一名资深用户体验研究专家
 const CONTROL_OUTPUT_RULES = `你现在处于**控制轮**，只做两件事之一，输出严格 JSON，不要 markdown 围栏、不要多余解释。
 
 先把用户本轮输入、全部历史信息与技能要求合并评估，再决定动作。**宁可先确认，不要带着疑问替用户做决定**：
-- 只要对研究对象、目标人群、研究目标、研究范围、期望产出中的任何一项存在实质疑问，就必须使用 ask，得到用户答复后再继续。
+- 只要对研究对象、目标人群、研究目标、研究范围中的任何一项存在实质疑问，就必须使用 ask，得到用户答复后再继续。
 - “可以猜到”不等于“已经明确”。不得擅自用常见人群、通用研究目标或默认研究范围补齐用户没有表达的内容。
-- 用户没指定产出物时，先判断研究诉求是否已经足以设计完整研究；若研究目标或范围仍模糊，必须先追问，不能直接把 mode 设为 plan 来绕过澄清。
+- **不要问用户"想要哪份材料 / 最终产出什么"**——产出物由 Phase 0 从用户原话判定，没有明确产物词就是 "plan"（技能的安全兜底）。技能 Phase 1 的澄清维度表里没有"期望产出"这一维。
+- 用户没指定产出物时，该澄清的是研究目标与范围，不是交付物；若研究目标或范围仍模糊，必须先追问，不能直接把 mode 设为 plan 来绕过澄清。
 - 约束、样本量、时长、渠道仅在会改变研究设计或用户提到了相关限制时才需要确认；无关的可选细节不必盘问。
 - 如果所有核心信息都已明确，首次控制轮即可给出意图确认，不得为了凑步骤继续追问。
 - 用户已经明确说过的信息不得换一种说法重复询问；最终仍要通过意图确认卡让用户统一确认。
@@ -85,6 +86,7 @@ const CONTROL_OUTPUT_RULES = `你现在处于**控制轮**，只做两件事之�
 - **不要**包含"跳过此问题""其他（请描述）""我不确定"之类的兜底项——界面已经内置了"跳过"按钮和自定义补充输入框。
 - 选项里的括号示例必须贴近用户原话的场景，不要照抄模板里的例子。
 - 设计模式/模型（Kano/ETS/量表）与嵌入技术（JTBD/卡片分类/灵犀旅程/眼动等）一律**自动判断，不要追问用户**。
+- **同一个问题只问一次**：已经问过的维度，无论用户是作答、跳过还是回答"还不确定"，都按现有信息继续，不得换个说法再问一遍。用户答"不确定"就是把这一维交给你定。
 - 不得按预设清单机械逐字段提问，也不得为了凑轮数继续；但不能因为希望少问，就替用户补写尚未明确的核心需求。
 
 【B. 给出意图确认】核心信息均已明确，或用户明确授权“你帮我定”时：
@@ -132,6 +134,27 @@ export interface ControlTurnResult {
   action: ControlAction;
   trace: SkillTrace;
 }
+
+/**
+ * 从摊平后的历史里取出已经问过的澄清问题。
+ * `chatHistory.toDeepSeekMessages` 把每张澄清卡编码成一条 assistant JSON，这里按同一格式读回来。
+ */
+const askedQuestionsFrom = (history: DeepSeekMessage[]): string[] => {
+  const out: string[] = [];
+  for (const m of history) {
+    // 带图片的消息 content 是 block 数组，那种不可能是控制轮 JSON
+    if (m.role !== 'assistant' || typeof m.content !== 'string') continue;
+    try {
+      const parsed = JSON.parse(m.content) as { action?: string; question?: unknown };
+      if (parsed?.action === 'ask' && typeof parsed.question === 'string') {
+        out.push(parsed.question);
+      }
+    } catch {
+      // 不是控制轮 JSON（例如"已生成《…》"那条），跳过
+    }
+  }
+  return out;
+};
 
 /**
  * 跑一次控制轮。
@@ -191,6 +214,37 @@ export const runControlTurn = async (
 
   const action = normalizeControlAction(raw);
   if (!action) throw new Error('AI 返回的控制指令无法识别，请重试。');
+
+  // 模型偶尔会把问过的问题原样再抛一次（用户答"还不确定"之后尤其容易）。
+  // 那张卡对用户毫无信息量，所以不转给界面，先要求模型收敛一次。
+  if (!forceConverge && action.action === 'ask') {
+    const asked = askedQuestionsFrom(history);
+    if (isRepeatedQuestion(action.question, asked)) {
+      const retry = await deepseekJson<ControlAction>(
+        [
+          ...messages,
+          { role: 'assistant', content: JSON.stringify(action) },
+          {
+            role: 'user',
+            content:
+              '（系统提示：这个问题你已经问过，用户也已经作答或表示不确定，不要重复提问。' +
+              '若剩余信息不影响产出，直接输出 action:"confirm_intent"；' +
+              '用户没有明确指定产出物时 mode 用 "plan"。确有别的关键缺口才换一个维度问。）'
+          }
+        ],
+        { temperature: 0.2, maxTokens: 2000, signal: opts.signal }
+      );
+      const corrected = normalizeControlAction(retry);
+      // 纠正后仍在重复就收下原答案——宁可多问一次，也不要抛错打断对话
+      if (
+        corrected &&
+        !(corrected.action === 'ask' && isRepeatedQuestion(corrected.question, asked))
+      ) {
+        return { action: corrected, trace };
+      }
+    }
+  }
+
   return { action, trace };
 };
 
