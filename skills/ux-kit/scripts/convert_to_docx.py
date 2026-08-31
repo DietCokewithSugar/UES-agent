@@ -40,6 +40,7 @@ try:
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     from docx.enum.table import WD_TABLE_ALIGNMENT
     from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
 except ImportError:
     sys.exit("缺少依赖 python-docx，请先执行: pip install python-docx")
 
@@ -358,6 +359,79 @@ def _add_inline_runs(paragraph, runs):
             run.font.size = Pt(10)
 
 
+def _get_listnumber_abstract_id(doc):
+    """从 List Number 样式的 numId 查找对应的 abstractNumId。"""
+    try:
+        numbering = doc.part.numbering_part.numbering_definitions._numbering
+    except Exception:
+        return None
+    # List Number 样式引用 numId
+    style_num_id = None
+    try:
+        style = doc.styles["List Number"]
+        pPr = style.element.find(qn("w:pPr"))
+        if pPr is not None:
+            numPr = pPr.find(qn("w:numPr"))
+            if numPr is not None:
+                numId = numPr.find(qn("w:numId"))
+                if numId is not None:
+                    style_num_id = numId.get(qn("w:val"))
+    except Exception:
+        pass
+    if style_num_id is not None:
+        for num in numbering.findall(qn("w:num")):
+            if num.get(qn("w:numId")) == style_num_id:
+                abs_ref = num.find(qn("w:abstractNumId"))
+                if abs_ref is not None:
+                    return abs_ref.get(qn("w:val"))
+    # 兜底：从编号定义中找第一个 decimal 编号
+    for abstract in numbering.findall(qn("w:abstractNum")):
+        abs_id = abstract.get(qn("w:abstractNumId"))
+        for lvl in abstract.findall(qn("w:lvl")):
+            numFmt = lvl.find(qn("w:numFmt"))
+            if numFmt is not None and numFmt.get(qn("w:val")) == "decimal":
+                return abs_id
+    return None
+
+
+def _restart_numbering(doc, paragraphs):
+    """为 numbered 列表创建独立的 numId，使每个列表块从 1 重新编号。"""
+    try:
+        numbering = doc.part.numbering_part.numbering_definitions._numbering
+    except Exception:
+        return
+    abstract_num_id = _get_listnumber_abstract_id(doc)
+    if abstract_num_id is None:
+        return
+    # 取现有最大 numId
+    num_ids = [int(n.get(qn("w:numId"))) for n in numbering.findall(qn("w:num"))]
+    new_num_id = (max(num_ids) if num_ids else 0) + 1
+    # 创建新的 num 实例
+    num = OxmlElement("w:num")
+    num.set(qn("w:numId"), str(new_num_id))
+    abs_ref = OxmlElement("w:abstractNumId")
+    abs_ref.set(qn("w:val"), abstract_num_id)
+    num.append(abs_ref)
+    numbering.append(num)
+    # 将本块所有段落指向新 numId（保留 pStyle）
+    for p in paragraphs:
+        pPr = p._p.get_or_add_pPr()
+        numPr = pPr.find(qn("w:numPr"))
+        if numPr is None:
+            numPr = OxmlElement("w:numPr")
+            # numPr 需插入到 pStyle 之后
+            pStyle = pPr.find(qn("w:pStyle"))
+            if pStyle is not None:
+                pStyle.addnext(numPr)
+            else:
+                pPr.append(numPr)
+        numId = numPr.find(qn("w:numId"))
+        if numId is None:
+            numId = OxmlElement("w:numId")
+            numPr.append(numId)
+        numId.set(qn("w:val"), str(new_num_id))
+
+
 def render_blocks(doc, title, blocks, out_docx_path):
     # 页边距
     for section in doc.sections:
@@ -395,10 +469,12 @@ def render_blocks(doc, title, blocks, out_docx_path):
                 _add_inline_runs(p, _parse_inline(it))
 
         elif t == "numbered":
+            paras = []
             for it in block["items"]:
                 p = doc.add_paragraph(style="List Number")
                 _add_inline_runs(p, _parse_inline(it))
-
+                paras.append(p)
+            _restart_numbering(doc, paras)
         elif t == "quote":
             p = doc.add_paragraph()
             p.paragraph_format.left_indent = Cm(1)
