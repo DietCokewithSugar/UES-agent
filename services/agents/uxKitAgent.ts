@@ -50,7 +50,8 @@ export const uxKitAgent: AgentDefinition = {
     getUxKitSkill(); // 技能没装好时早点抛错
     const { action, trace } = await runControlTurn(ctx.history, {
       roundsSoFar: ctx.rounds,
-      signal: ctx.signal
+      signal: ctx.signal,
+      onTrace: ctx.onTrace
     });
     return {
       trace,
@@ -71,7 +72,8 @@ export const uxKitAgent: AgentDefinition = {
       onDelta: opts.onDelta,
       planMarkdown: ctx.planMarkdown,
       feedback: opts.feedback,
-      signal: opts.signal ?? ctx.signal
+      signal: opts.signal ?? ctx.signal,
+      onTrace: opts.onTrace
     });
     return { raw: markdown, format: 'markdown', truncated, trace };
   }

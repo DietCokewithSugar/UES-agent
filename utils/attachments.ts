@@ -29,9 +29,6 @@ export interface Attachment {
   note?: string;
 }
 
-/** 单个文件的文本上限：一份问卷导出可能上万行，全塞进上下文会撑爆。 */
-const MAX_TEXT_CHARS = 60_000;
-
 /** 图片大小上限。超过就提示用户压缩——base64 会再膨胀 ~33%。 */
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 
@@ -94,14 +91,6 @@ export const decodeTextBuffer = (buffer: ArrayBuffer): { text: string; encoding:
   return { text: utf8, encoding: hasBom ? 'utf-8-sig' : 'utf-8' };
 };
 
-const truncate = (text: string): { text: string; note?: string } =>
-  text.length > MAX_TEXT_CHARS
-    ? {
-        text: text.slice(0, MAX_TEXT_CHARS),
-        note: `内容较长，已截取前 ${Math.round(MAX_TEXT_CHARS / 1000)} 千字符供分析`
-      }
-    : { text };
-
 const cellToText = (cell: CellValue | null): string => {
   if (cell === null || cell === undefined) return '';
   if (cell instanceof Date) return cell.toISOString().slice(0, 10);
@@ -141,14 +130,11 @@ export const readAttachment = async (file: File): Promise<Attachment> => {
       const body = sheets
         .map(s => (sheets.length > 1 ? `# 工作表：${s.sheet}\n${rowsToText(s.data)}` : rowsToText(s.data)))
         .join('\n\n');
-      const { text, note } = truncate(body);
       return {
         ...base,
         kind: 'sheet',
-        text,
-        note:
-          note ??
-          `${sheets.length > 1 ? `${sheets.length} 个工作表，` : ''}共 ${totalRows} 行`
+        text: body,
+        note: `${sheets.length > 1 ? `${sheets.length} 个工作表，` : ''}共 ${totalRows} 行`
       };
     }
 
@@ -164,18 +150,17 @@ export const readAttachment = async (file: File): Promise<Attachment> => {
     // 纯文本类：走编码兜底
     if (PLAIN_EXT.test(name) || file.type.startsWith('text/')) {
       const { text: decoded, encoding } = decodeTextBuffer(await readArrayBuffer(file));
-      const { text, note } = truncate(decoded);
       return {
         ...base,
         kind: 'text',
-        text,
-        note: note ?? (encoding !== 'utf-8' ? `按 ${encoding} 解码` : undefined)
+        text: decoded,
+        note: encoding !== 'utf-8' ? `按 ${encoding} 解码` : undefined
       };
     }
 
     // docx / pdf：复用已有的抽取器
-    const { text, note } = truncate(await extractTextFromFile(file));
-    return { ...base, kind: 'text', text, note };
+    const text = await extractTextFromFile(file);
+    return { ...base, kind: 'text', text };
   } catch (err) {
     return {
       ...base,

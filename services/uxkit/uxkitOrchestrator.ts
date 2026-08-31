@@ -164,7 +164,11 @@ const askedQuestionsFrom = (history: DeepSeekMessage[]): string[] => {
  */
 export const runControlTurn = async (
   history: DeepSeekMessage[],
-  opts: { roundsSoFar: number; signal?: AbortSignal } = { roundsSoFar: 0 }
+  opts: {
+    roundsSoFar: number;
+    signal?: AbortSignal;
+    onTrace?: (trace: SkillTrace) => void;
+  } = { roundsSoFar: 0 }
 ): Promise<ControlTurnResult> => {
   const skill = getUxKitSkill();
   const forceConverge = opts.roundsSoFar >= MAX_CLARIFY_ROUNDS;
@@ -185,14 +189,55 @@ export const runControlTurn = async (
     skillName: skill.name,
     phase: forceConverge ? 'Phase 1 问题澄清（收敛）' : 'Phase 0/1 模式识别与问题澄清',
     templates: [],
-    references: CONTROL_REFS
+    references: CONTROL_REFS,
+    steps: [
+      {
+        id: 'skill',
+        kind: 'skill',
+        label: '加载 ux-kit 技能',
+        detail: '已读取技能说明与流程规则',
+        status: 'done'
+      },
+      {
+        id: 'refs',
+        kind: 'tool',
+        label: '读取澄清参考',
+        detail: CONTROL_REFS.map(name => `references/${name}`).join('、'),
+        status: 'done'
+      },
+      {
+        id: 'context',
+        kind: 'thinking',
+        label: '理解对话上下文',
+        detail: `已整理 ${history.length} 条上下文消息`,
+        status: 'done'
+      },
+      {
+        id: 'model',
+        kind: 'tool',
+        label: '调用 DeepSeek',
+        detail: '正在判断是否需要澄清或确认需求',
+        status: 'running'
+      }
+    ]
+  };
+  opts.onTrace?.(trace);
+
+  const completeTrace = (action: ControlAction): void => {
+    trace.steps = trace.steps?.map(step =>
+      step.id === 'model' ? { ...step, status: 'done' as const } : step
+    );
+    trace.summary =
+      action.action === 'ask'
+        ? `当前仍有会影响研究设计的信息缺口，因此先确认「${action.question}」。`
+        : `核心需求已足够明确，已整理为「${action.intent.statement}」供你最终确认。`;
+    opts.onTrace?.({ ...trace, steps: trace.steps ? [...trace.steps] : undefined });
   };
 
   let raw: ControlAction;
   try {
     raw = await deepseekJson<ControlAction>(messages, {
       temperature: 0.4,
-      maxTokens: 2000,
       signal: opts.signal
     });
   } catch (err) {
@@ -208,7 +253,7 @@ export const runControlTurn = async (
           )}。请只输出一个合法 JSON 对象，不要任何围栏或解释。）`
         }
       ],
-      { temperature: 0.2, maxTokens: 2000, signal: opts.signal }
+      { temperature: 0.2, signal: opts.signal }
     );
   }
 
@@ -232,7 +277,7 @@ export const runControlTurn = async (
               '用户没有明确指定产出物时 mode 用 "plan"。确有别的关键缺口才换一个维度问。）'
           }
         ],
-        { temperature: 0.2, maxTokens: 2000, signal: opts.signal }
+        { temperature: 0.2, signal: opts.signal }
       );
       const corrected = normalizeControlAction(retry);
       // 纠正后仍在重复就收下原答案——宁可多问一次，也不要抛错打断对话
@@ -240,11 +285,13 @@ export const runControlTurn = async (
         corrected &&
         !(corrected.action === 'ask' && isRepeatedQuestion(corrected.question, asked))
       ) {
+        completeTrace(corrected);
         return { action: corrected, trace };
       }
     }
   }
 
+  completeTrace(action);
   return { action, trace };
 };
 
@@ -288,6 +335,7 @@ export const runGenerateTurn = async (
   deliverable: Deliverable,
   opts: {
     onDelta?: (chunk: string) => void;
+    onTrace?: (trace: SkillTrace) => void;
     planMarkdown?: string;
     feedback?: string;
     signal?: AbortSignal;
@@ -310,8 +358,39 @@ export const runGenerateTurn = async (
     skillName: skill.name,
     phase,
     templates: picked.templates,
-    references: picked.references
+    references: picked.references,
+    steps: [
+      {
+        id: 'skill',
+        kind: 'skill',
+        label: '加载 ux-kit 技能',
+        detail: phase,
+        status: 'done'
+      },
+      {
+        id: 'assets',
+        kind: 'tool',
+        label: '选择模板与参考资料',
+        detail: `已读取 ${picked.templates.length} 个模板、${picked.references.length} 份参考资料`,
+        status: 'done'
+      },
+      {
+        id: 'compose',
+        kind: 'thinking',
+        label: '组织生成上下文',
+        detail: opts.planMarkdown ? '已合并确认后的研究方案与修改意见' : '已合并确认后的研究需求',
+        status: 'done'
+      },
+      {
+        id: 'model',
+        kind: 'tool',
+        label: '调用 DeepSeek 流式生成',
+        detail: `正在生成《${deliverable.filename}》`,
+        status: 'running'
+      }
+    ]
   };
+  opts.onTrace?.(trace);
 
   const system = [
     SYSTEM_PROMPT,
@@ -346,12 +425,16 @@ export const runGenerateTurn = async (
     ],
     {
       temperature: 0.5,
-      maxTokens: 8000,
       onDelta: opts.onDelta,
       signal: opts.signal
     }
   );
 
+  trace.steps = trace.steps?.map(step =>
+    step.id === 'model' ? { ...step, status: 'done' as const, detail: '流式生成已完成' } : step
+  );
+  trace.summary = `已依据 ${picked.references.length} 份参考资料生成《${deliverable.filename}》。`;
+  opts.onTrace?.({ ...trace, steps: trace.steps ? [...trace.steps] : undefined });
   return { markdown: text.trim(), truncated, trace };
 };
 
@@ -390,7 +473,6 @@ export const derivePlanDeliverables = async (
 
   const parsed = await deepseekJson<{ deliverables?: Deliverable[] }>(messages, {
     temperature: 0.2,
-    maxTokens: 1500,
     signal: opts.signal
   });
 

@@ -66,7 +66,19 @@ export type ControlAction =
   | { action: 'ask'; question: string; options: ClarifyOption[]; note?: string }
   | { action: 'confirm_intent'; intent: IntentSummary };
 
-/** 技能调用轨迹：Claude Code 风格地把"这一步读了技能里的哪些文件"暴露到界面上。 */
+export type TraceStepKind = 'thinking' | 'skill' | 'tool';
+export type TraceStepStatus = 'pending' | 'running' | 'done' | 'error';
+
+/** 一次可观察的执行步骤。只记录真实发生的动作，不伪造模型内部推理链。 */
+export interface TraceStep {
+  id: string;
+  kind: TraceStepKind;
+  label: string;
+  detail?: string;
+  status: TraceStepStatus;
+}
+
+/** 技能调用轨迹：把思考摘要、技能与工具的实际调用过程暴露到界面上。 */
 export interface SkillTrace {
   skillId: string;
   skillName: string;
@@ -76,6 +88,10 @@ export interface SkillTrace {
   templates: string[];
   /** 实际注入的 references/ 文件名 */
   references: string[];
+  /** 面向用户的简短决策依据，不包含模型私有思维链。 */
+  summary?: string;
+  /** 按执行顺序更新的真实步骤。 */
+  steps?: TraceStep[];
 }
 
 /** 一份已生成的产出物。 */
@@ -85,7 +101,7 @@ export interface GeneratedDoc {
   filename: string;
   /** 模型产出的 markdown 原文 */
   markdown: string;
-  /** 是否因为触到 max_tokens 而被截断 */
+  /** 是否触到模型服务自身的输出长度上限 */
   truncated?: boolean;
 }
 

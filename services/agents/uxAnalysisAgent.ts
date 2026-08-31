@@ -64,12 +64,6 @@ const FRAMEWORK_SIGNAL =
   /卡诺|kano|画像|旅程|服务蓝图|心智模型|jtbd|客群|需求分析|功能架构|竞品|体验测试/i;
 
 /**
- * 产出轮预算。结论模板、综合规则与框架规则优先保留，再装入命中的数据引擎；
- * 避免旧逻辑先装一个大引擎后丢掉最终写作与可信度规范。
- */
-const REF_CHAR_BUDGET = 100_000;
-
-/**
  * 按附件与对话内容挑产出轮要注入的分析引擎。
  * 命中的文件名会原样显示在界面的技能调用轨迹上。
  */
@@ -86,16 +80,7 @@ const pickGenerateRefs = (skill: SkillMeta, haystack: string): string[] => {
     (f, i, arr) => arr.indexOf(f) === i
   );
 
-  const out: string[] = [];
-  let used = 0;
-  for (const name of wanted) {
-    const asset = skill.references.find(r => r.name === name);
-    if (!asset) continue;
-    if (used + asset.content.length > REF_CHAR_BUDGET) continue;
-    out.push(name);
-    used += asset.content.length;
-  }
-  return out;
+  return wanted.filter(name => skill.references.some(ref => ref.name === name));
 };
 
 const SYSTEM_PROMPT = `你是 ux-analysis —— 一名带专业技能的用户研究分析 AI 助手，把问卷 / 访谈 / 埋点 / 可用性评估 / 眼动 / 用户声音等原始研究数据，变成专业的分析结论。
@@ -306,13 +291,46 @@ const runControlTurn = async (ctx: AgentContext): Promise<ControlTurnResult> => 
     skillName: skill.name,
     phase: forceConverge ? '收敛到产出' : '评估资料完整性与下一步',
     templates: [],
-    references: CONTROL_REFS
+    references: CONTROL_REFS,
+    steps: [
+      {
+        id: 'skill',
+        kind: 'skill',
+        label: '加载 ux-analysis 技能',
+        detail: '已读取完整分析流程与约束',
+        status: 'done'
+      },
+      {
+        id: 'refs',
+        kind: 'tool',
+        label: '读取分析框架',
+        detail: CONTROL_REFS.map(name => `references/${name}`).join('、'),
+        status: 'done'
+      },
+      {
+        id: 'inventory',
+        kind: 'tool',
+        label: '检查数据与流程门禁',
+        detail: `${ctx.attachments.length} 个附件 · 分析方案${
+          hasConfirmedAnalysisPlan ? '已确认' : '待确认'
+        } · 分析摘要${hasConfirmedInsightReview ? '已确认' : '待确认'}`,
+        status: 'done'
+      },
+      {
+        id: 'model',
+        kind: 'thinking',
+        label: '分析下一步',
+        detail: 'DeepSeek 正在结合对话、附件与技能规则作出决策',
+        status: 'running'
+      }
+    ]
   };
+  ctx.onTrace?.(trace);
 
   let action = await normalizeAgentAction(retryHint =>
     deepseekJson(
       retryHint ? [...messages, { role: 'user', content: `（系统提示：${retryHint}）` }] : messages,
-      { temperature: retryHint ? 0.2 : 0.35, maxTokens: 2500, signal: ctx.signal }
+      { temperature: retryHint ? 0.2 : 0.35, signal: ctx.signal }
     )
   );
 
@@ -324,6 +342,22 @@ const runControlTurn = async (ctx: AgentContext): Promise<ControlTurnResult> => 
       : null;
 
   if (ctx.attachments.length > 0 && missingGate && action.action === 'generate') {
+    trace.steps = [
+      ...(trace.steps?.map(step =>
+        step.id === 'model' ? { ...step, status: 'done' as const } : step
+      ) ?? []),
+      {
+        id: 'gate',
+        kind: 'tool',
+        label: '执行流程门禁',
+        detail:
+          missingGate === 'analysis_plan'
+            ? '已阻止跳过分析执行方案'
+            : '已阻止跳过分析摘要确认',
+        status: 'running'
+      }
+    ];
+    ctx.onTrace?.({ ...trace, steps: [...trace.steps] });
     const gateMessage: DeepSeekMessage = {
       role: 'user',
       content:
@@ -336,7 +370,7 @@ const runControlTurn = async (ctx: AgentContext): Promise<ControlTurnResult> => 
         retryHint
           ? [...messages, gateMessage, { role: 'user', content: `（系统提示：${retryHint}）` }]
           : [...messages, gateMessage],
-        { temperature: retryHint ? 0.2 : 0.3, maxTokens: 2500, signal: ctx.signal }
+        { temperature: retryHint ? 0.2 : 0.3, signal: ctx.signal }
       )
     );
     if (action.action === 'generate') {
@@ -347,6 +381,20 @@ const runControlTurn = async (ctx: AgentContext): Promise<ControlTurnResult> => 
       );
     }
   }
+  trace.steps = trace.steps?.map(step =>
+    step.status === 'running' ? { ...step, status: 'done' as const } : step
+  );
+  trace.summary =
+    action.action === 'ask'
+      ? `存在会影响分析可靠性的关键信息缺口，因此先确认「${action.question}」。`
+      : action.action === 'request_files'
+        ? '当前没有可分析的数据，下一步需要先补充原始资料。'
+        : action.action === 'propose'
+          ? `已结合现有数据形成「${action.proposal.title}」，需要你确认后继续。`
+          : action.action === 'generate'
+            ? '数据与两道确认门禁均已就绪，可以生成最终分析结论。'
+            : '本轮分析流程已完成。';
+  ctx.onTrace?.({ ...trace, steps: trace.steps ? [...trace.steps] : undefined });
   return { action, trace };
 };
 
@@ -415,8 +463,8 @@ const runGenerateTurn = async (
 ): Promise<GenerateTurnResult> => {
   const skill = getAnalysisSkill();
   const haystack = [
-    ...ctx.attachments.map(a => `${a.name} ${a.note ?? ''} ${(a.text ?? '').slice(0, 20_000)}`),
-    ...ctx.history.map(m => (typeof m.content === 'string' ? m.content : '')).slice(-12)
+    ...ctx.attachments.map(a => `${a.name} ${a.note ?? ''} ${a.text ?? ''}`),
+    ...ctx.history.map(m => (typeof m.content === 'string' ? m.content : ''))
   ].join(' ');
   const refs = pickGenerateRefs(skill, haystack);
 
@@ -425,8 +473,39 @@ const runGenerateTurn = async (
     skillName: skill.name,
     phase: 'Step 6 分析结论生成',
     templates: [],
-    references: refs
+    references: refs,
+    steps: [
+      {
+        id: 'skill',
+        kind: 'skill',
+        label: '加载 ux-analysis 技能',
+        detail: 'Step 6 分析结论生成',
+        status: 'done'
+      },
+      {
+        id: 'engines',
+        kind: 'tool',
+        label: '匹配分析引擎',
+        detail: `已读取 ${refs.length} 份相关分析规范`,
+        status: 'done'
+      },
+      {
+        id: 'data',
+        kind: 'tool',
+        label: '整合完整研究数据',
+        detail: `已合并 ${ctx.attachments.length} 个附件与全部会话上下文`,
+        status: 'done'
+      },
+      {
+        id: 'model',
+        kind: 'thinking',
+        label: '生成分析结论',
+        detail: `DeepSeek 正在流式生成《${deliverable.filename}》`,
+        status: 'running'
+      }
+    ]
   };
+  opts.onTrace?.(trace);
 
   const system = [
     SYSTEM_PROMPT,
@@ -454,11 +533,15 @@ const runGenerateTurn = async (
 
   const { text, truncated } = await deepseekChatStream(messages, {
     temperature: 0.4,
-    maxTokens: 8000,
     onDelta: opts.onDelta,
     signal: opts.signal ?? ctx.signal
   });
 
+  trace.steps = trace.steps?.map(step =>
+    step.id === 'model' ? { ...step, status: 'done' as const, detail: '分析结论生成完成' } : step
+  );
+  trace.summary = `已调用匹配的数据分析引擎，并基于完整上下文生成《${deliverable.filename}》。`;
+  opts.onTrace?.({ ...trace, steps: trace.steps ? [...trace.steps] : undefined });
   return {
     raw: resolveAttachmentImages(text.trim(), ctx.attachments),
     format: 'analysisJson',

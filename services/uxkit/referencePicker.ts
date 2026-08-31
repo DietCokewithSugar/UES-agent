@@ -2,9 +2,8 @@
  * 按输出模式与方法信号挑选 ux-kit 的 templates / references。
  *
  * 为什么要挑：`skills/ux-kit/references/` 一共 15 个文件近 4000 行，
- * 其中 `ets-model.md`（443 行）与 `research-methods.md`（416 行）单个就很大，
- * 方案模式命中多个方法信号时叠起来会逼近模型的上下文上限。所以这里按
- * 「模板 → 基础参考 → 命中参考 → 质量清单」的优先级排序，超预算就从尾部丢弃。
+ * 这里只按本次交付物与方法信号选择相关资料，不再按字符预算主动裁剪；
+ * 可接受的上下文长度由当前 DeepSeek 模型决定。
  *
  * 挑选结果同时是界面上「技能调用轨迹」要展示的内容——UI 上写的必须是真正注入的文件。
  */
@@ -47,22 +46,6 @@ const QUALITY_REF = 'quality-checklists.md';
 /** 控制轮（Phase 0/1）只需要追问选项模板。 */
 export const CONTROL_REFS = ['question-templates.md'];
 
-/**
- * 注入预算（按字符数估算）。
- *
- * 中文在 DeepSeek 的分词里大致 1 字符 ≈ 1 token，所以这里的字符数可以当 token 数估。
- * 一次产出轮的上下文 = SKILL.md 正文（约 1 万字）+ 模板 + 参考文件 + 用户诉求，
- * 还要留出 8000 token 的产出空间。取 45000 字符，最坏情况也能安全落在上下文里。
- */
-const REFERENCE_CHAR_BUDGET = 45_000;
-
-/**
- * 方法信号命中的参考文件上限。
- * SKILL.md 规定「阶段数 ≤ 4」，一个方案实际用到的方法不会超过 4 种；
- * 模型有时会把沾边的信号全列出来，这里截断，避免把不相关的大文件也塞进去。
- */
-const MAX_HINT_REFS = 4;
-
 export interface PickedAssets {
   templates: string[];
   references: string[];
@@ -87,8 +70,7 @@ export const pickAssetsForDeliverable = (
 
   const hintText = hints.join(' ');
   const hintRefs = HINT_REFS.filter(h => h.pattern.test(hintText))
-    .map(h => h.file)
-    .slice(0, MAX_HINT_REFS);
+    .map(h => h.file);
 
   // 优先级：基础参考 → 命中参考 → 质量清单。去重且保序。
   const wanted = [...BASE_REFS[kind], ...hintRefs, QUALITY_REF].filter(
@@ -97,16 +79,10 @@ export const pickAssetsForDeliverable = (
 
   const references: string[] = [];
   const dropped: string[] = [];
-  let used = 0;
   for (const name of wanted) {
     const asset = skill.references.find(r => r.name === name);
     if (!asset) continue; // SKILL.md「异常处理」：参考文件缺失时跳过，不阻断产出
-    if (used + asset.content.length > REFERENCE_CHAR_BUDGET) {
-      dropped.push(name);
-      continue;
-    }
     references.push(name);
-    used += asset.content.length;
   }
 
   return { templates, references, dropped };
