@@ -238,6 +238,7 @@ export const runControlTurn = async (
   try {
     raw = await deepseekJson<ControlAction>(messages, {
       temperature: 0.4,
+      maxTokens: 2000,
       signal: opts.signal
     });
   } catch (err) {
@@ -253,7 +254,7 @@ export const runControlTurn = async (
           )}。请只输出一个合法 JSON 对象，不要任何围栏或解释。）`
         }
       ],
-      { temperature: 0.2, signal: opts.signal }
+      { temperature: 0.2, maxTokens: 2000, signal: opts.signal }
     );
   }
 
@@ -277,7 +278,7 @@ export const runControlTurn = async (
               '用户没有明确指定产出物时 mode 用 "plan"。确有别的关键缺口才换一个维度问。）'
           }
         ],
-        { temperature: 0.2, signal: opts.signal }
+        { temperature: 0.2, maxTokens: 2000, signal: opts.signal }
       );
       const corrected = normalizeControlAction(retry);
       // 纠正后仍在重复就收下原答案——宁可多问一次，也不要抛错打断对话
@@ -425,6 +426,7 @@ export const runGenerateTurn = async (
     ],
     {
       temperature: 0.5,
+      maxTokens: 8000,
       onDelta: opts.onDelta,
       signal: opts.signal
     }
@@ -473,6 +475,7 @@ export const derivePlanDeliverables = async (
 
   const parsed = await deepseekJson<{ deliverables?: Deliverable[] }>(messages, {
     temperature: 0.2,
+    maxTokens: 1500,
     signal: opts.signal
   });
 
