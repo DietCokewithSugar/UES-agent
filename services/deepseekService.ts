@@ -34,6 +34,8 @@ export interface DeepSeekChatOptions {
   temperature?: number;
   maxTokens?: number;
   jsonMode?: boolean;
+  /** 仅控制本轮输出长度，不会裁剪输入上下文。 */
+  maxTokens?: number;
   signal?: AbortSignal;
 }
 

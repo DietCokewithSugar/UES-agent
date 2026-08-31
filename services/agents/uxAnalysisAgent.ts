@@ -449,7 +449,7 @@ const runControlTurn = async (ctx: AgentContext): Promise<ControlTurnResult> => 
   let action = await normalizeAgentAction(retryHint =>
     deepseekJson(
       retryHint ? [...messages, { role: 'user', content: `（系统提示：${retryHint}）` }] : messages,
-      { temperature: retryHint ? 0.2 : 0.35, signal: ctx.signal }
+      { temperature: retryHint ? 0.2 : 0.35, maxTokens: 2500, signal: ctx.signal }
     )
   );
 
@@ -489,7 +489,7 @@ const runControlTurn = async (ctx: AgentContext): Promise<ControlTurnResult> => 
         retryHint
           ? [...messages, gateMessage, { role: 'user', content: `（系统提示：${retryHint}）` }]
           : [...messages, gateMessage],
-        { temperature: retryHint ? 0.2 : 0.3, signal: ctx.signal }
+        { temperature: retryHint ? 0.2 : 0.3, maxTokens: 2500, signal: ctx.signal }
       )
     );
     if (action.action === 'generate') {
@@ -725,7 +725,7 @@ const runGenerateTurn = async (
 
   let generated = await deepseekChatStream(messages, {
     temperature: 0.4,
-    maxTokens: 8_192,
+    maxTokens: 8192,
     onDelta: opts.onDelta,
     signal: opts.signal ?? ctx.signal
   });
