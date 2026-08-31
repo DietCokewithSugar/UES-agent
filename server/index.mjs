@@ -16,6 +16,7 @@ import {
   configureSandbox,
   destroySandbox,
   ensureSandbox,
+  deepseekApiKey,
   getRuntimeInfo,
   runOpenCode,
   runtimeMode,
@@ -349,13 +350,7 @@ const extractZip = async buffer => {
 };
 
 const proxyDeepSeek = async (request, response, { allowVision = false } = {}) => {
-  const rawApiKey = process.env.DEEPSEEK_API_KEY?.trim() || '';
-  const apiKey =
-    rawApiKey.length >= 2 &&
-    ((rawApiKey.startsWith('"') && rawApiKey.endsWith('"')) ||
-      (rawApiKey.startsWith("'") && rawApiKey.endsWith("'")))
-      ? rawApiKey.slice(1, -1).trim()
-      : rawApiKey;
+  const apiKey = deepseekApiKey();
   if (!apiKey) {
     return response.status(503).json({ error: { message: '服务端尚未配置 DEEPSEEK_API_KEY。' } });
   }
@@ -459,7 +454,6 @@ app.post('/api/conversations', sandboxCreateLimiter, async (request, response, n
         current = { id, skills: [], createdAt: now, updatedAt: now, runtime: runtimeMode() };
         await saveConversation(current);
       }
-      await ensureConversationRuntime(current);
       return current;
     });
     response.status(201).json({ conversation: publicConversation(conversation) });
