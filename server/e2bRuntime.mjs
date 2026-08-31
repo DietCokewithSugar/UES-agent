@@ -13,7 +13,8 @@ const timeoutMs = Math.min(
 );
 const commandTimeoutMs = Number(process.env.OPENCODE_COMMAND_TIMEOUT_MS || 10 * 60 * 1000);
 const modelId = process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
-const providerId = 'ues-deepseek';
+const providerId = 'deepseek';
+const sandboxCreationTimes = [];
 
 export const isE2BConfigured = () => Boolean(process.env.E2B_API_KEY);
 export const runtimeMode = () => isE2BConfigured() ? 'e2b' : 'workspace';
@@ -41,7 +42,15 @@ const proxyBaseUrl = conversationId => {
 const tokenHash = token => crypto.createHash('sha256').update(token).digest('hex');
 
 const createSandbox = async conversation => {
+  const cutoff = Date.now() - 60 * 60 * 1000;
+  while (sandboxCreationTimes.length && sandboxCreationTimes[0] < cutoff) sandboxCreationTimes.shift();
+  const hourlyLimit = Number(process.env.E2B_SANDBOX_CREATE_LIMIT || 50);
+  if (sandboxCreationTimes.length >= hourlyLimit) {
+    throw Object.assign(new Error('E2B 沙箱创建已达到每小时安全上限。'), { status: 429 });
+  }
+  sandboxCreationTimes.push(Date.now());
   const proxyToken = crypto.randomBytes(32).toString('base64url');
+  const proxyHost = new URL(proxyBaseUrl(conversation.id)).hostname;
   const sandbox = await Sandbox.create(template, {
     timeoutMs,
     metadata: {
@@ -51,8 +60,13 @@ const createSandbox = async conversation => {
     lifecycle: {
       onTimeout: 'kill'
     },
+    network: {
+      allowOut: [proxyHost],
+      denyOut: ({ allTraffic }) => [allTraffic]
+    },
     envs: {
-      DEEPSEEK_API_KEY: proxyToken
+      DEEPSEEK_API_KEY: proxyToken,
+      OPENCODE_DISABLE_MODELS_FETCH: '1'
     }
   });
   conversation.sandboxId = sandbox.sandboxId;
@@ -66,26 +80,19 @@ const createSandbox = async conversation => {
 export const ensureSandbox = async conversation => {
   if (!isE2BConfigured()) return { sandbox: undefined, created: false };
   if (conversation.sandboxId) {
+    let existing;
     try {
-      const sandbox = await Sandbox.connect(conversation.sandboxId);
-      await sandbox.setTimeout(timeoutMs);
+      existing = await Sandbox.connect(conversation.sandboxId);
+      await existing.setTimeout(timeoutMs);
       conversation.sandboxTokenExpiresAt = new Date(Date.now() + timeoutMs).toISOString();
-      return { sandbox, created: false };
+      return { sandbox: existing, created: false };
     } catch {
+      await existing?.kill().catch(() => {});
       conversation.sandboxId = undefined;
       conversation.openCodeSessionId = undefined;
     }
   }
   return createSandbox(conversation);
-};
-
-export const connectExistingSandbox = async conversation => {
-  if (!isE2BConfigured() || !conversation.sandboxId) return undefined;
-  try {
-    return await Sandbox.connect(conversation.sandboxId);
-  } catch {
-    return undefined;
-  }
 };
 
 const walkFiles = async (directory, prefix = '') => {
@@ -106,8 +113,6 @@ export const configureSandbox = async (sandbox, conversationId) => {
     small_model: `${providerId}/${modelId}`,
     provider: {
       [providerId]: {
-        npm: '@ai-sdk/openai-compatible',
-        name: 'DeepSeek via UES',
         options: {
           baseURL: proxyBaseUrl(conversationId),
           apiKey: '{env:DEEPSEEK_API_KEY}',
@@ -226,16 +231,20 @@ export const runOpenCode = async (sandbox, conversation, skillId, prompt) => {
   const sessionArg = conversation.openCodeSessionId
     ? `--session '${conversation.openCodeSessionId}'`
     : `--title 'UES ${conversation.id}'`;
-  const result = await sandbox.commands.run(
-    `cd /workspace && opencode run --auto --format json --model '${providerId}/${modelId}' ${sessionArg} "$(cat '${promptPath}')"`,
-    {
-      timeoutMs: commandTimeoutMs,
-      envs: {
-        OPENCODE_MODEL: `${providerId}/${modelId}`
+  let result;
+  try {
+    result = await sandbox.commands.run(
+      `cd /workspace && opencode run --auto --format json --model '${providerId}/${modelId}' ${sessionArg} "$(cat '${promptPath}')"`,
+      {
+        timeoutMs: commandTimeoutMs,
+        envs: {
+          OPENCODE_MODEL: `${providerId}/${modelId}`
+        }
       }
-    }
-  );
-  await sandbox.commands.run(`rm -f '${promptPath}'`).catch(() => {});
+    );
+  } finally {
+    await sandbox.commands.run(`rm -f '${promptPath}'`).catch(() => {});
+  }
   if (result.exitCode !== 0) {
     throw new Error(`OpenCode 执行失败：${(result.stderr || result.stdout || '').slice(0, 2000)}`);
   }
@@ -249,14 +258,6 @@ export const runOpenCode = async (sandbox, conversation, skillId, prompt) => {
     .filter(Boolean)
     .slice(0, 50);
   return { ...parsed, artifacts };
-};
-
-export const readOutputFile = async (sandbox, relativePath) => {
-  const normalized = String(relativePath || '').replaceAll('\\', '/');
-  if (!normalized || normalized.startsWith('/') || normalized.split('/').some(part => !part || part === '..')) {
-    throw Object.assign(new Error('输出文件路径不安全。'), { status: 400 });
-  }
-  return sandbox.files.read(`/workspace/output/${normalized}`, { format: 'bytes' });
 };
 
 export const destroySandbox = async conversation => {

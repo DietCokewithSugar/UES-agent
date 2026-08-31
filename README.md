@@ -160,8 +160,10 @@ npm run build
 
 仓库提供 `Dockerfile` 与 `render.yaml`。在 Render Blueprint 中创建服务后配置
 `DEEPSEEK_API_KEY` 和 `E2B_API_KEY`，持久盘会保存上传的 Skills 和对话元数据。Blueprint 会生成
-`SKILLS_ADMIN_TOKEN`；上传或删除 Skill 时在页面填写该值，避免公开部署被任意改写。
+`APP_ACCESS_TOKEN` 和 `SKILLS_ADMIN_TOKEN`：前者用于登录整个站点并保护模型、对话与产物接口，
+后者在上传或删除 Skill 时填写，避免公开部署被任意改写。
 
 每条新对话会从 E2B 官方 `opencode` Template 创建独立沙箱。后端把选中的 Skill
 同步到沙箱，再调用 OpenCode；OpenCode 通过一枚限当前对话、限时有效的代理令牌访问
-Render 上的 DeepSeek 代理，真实 `DEEPSEEK_API_KEY` 不会进入沙箱。
+Render 上的 DeepSeek 代理，真实 `DEEPSEEK_API_KEY` 不会进入沙箱。产出文件会立即流式复制到
+Render 持久盘，并限制单文件与单轮总大小，因此沙箱到期后仍可下载。

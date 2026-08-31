@@ -1,8 +1,10 @@
 import crypto from 'node:crypto';
+import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
-import { Readable } from 'node:stream';
+import { Readable, Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 
 import AdmZip from 'adm-zip';
@@ -11,12 +13,10 @@ import { rateLimit } from 'express-rate-limit';
 import yaml from 'js-yaml';
 import multer from 'multer';
 import {
-  connectExistingSandbox,
   configureSandbox,
   destroySandbox,
   ensureSandbox,
   getRuntimeInfo,
-  readOutputFile,
   runOpenCode,
   runtimeMode,
   uploadSkill,
@@ -55,14 +55,57 @@ const modelCallLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: '模型调用过于频繁，请稍后再试。' }
 });
+const sandboxModelLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: Number(process.env.SANDBOX_MODEL_RATE_LIMIT || 120),
+  keyGenerator: request => String(request.params.conversationId || 'unknown'),
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: { message: '当前对话的模型调用过于频繁。' } }
+});
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: '登录尝试过于频繁，请稍后再试。' }
+});
+
+const secureEqual = (left, right) => {
+  const leftBuffer = Buffer.from(String(left || ''));
+  const rightBuffer = Buffer.from(String(right || ''));
+  return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
+};
+
+const parseCookies = request =>
+  Object.fromEntries(
+    String(request.get('cookie') || '')
+      .split(';')
+      .map(item => item.trim().split('='))
+      .filter(parts => parts.length === 2)
+      .map(([key, value]) => [key, decodeURIComponent(value)])
+  );
+
+const accessSignature = expiresAt =>
+  crypto.createHmac('sha256', process.env.APP_ACCESS_TOKEN || '').update(String(expiresAt)).digest('base64url');
+
+const hasAppAccess = request => {
+  if (!process.env.APP_ACCESS_TOKEN) return true;
+  const [expiresAt, signature] = String(parseCookies(request).ues_access || '').split('.');
+  if (!expiresAt || !signature || Number(expiresAt) < Date.now()) return false;
+  return secureEqual(signature, accessSignature(expiresAt));
+};
+
+const requireAppAccess = (request, response, next) => {
+  if (hasAppAccess(request)) return next();
+  response.status(401).json({ error: '请先输入站点访问令牌。' });
+};
 
 const requireAdmin = (request, response, next) => {
   const expected = process.env.SKILLS_ADMIN_TOKEN;
   if (!expected) return next();
   const supplied = request.get('authorization')?.replace(/^Bearer\s+/i, '');
-  const suppliedBuffer = Buffer.from(supplied || '');
-  const expectedBuffer = Buffer.from(expected);
-  if (suppliedBuffer.length === expectedBuffer.length && crypto.timingSafeEqual(suppliedBuffer, expectedBuffer)) return next();
+  if (secureEqual(supplied, expected)) return next();
   response.status(401).json({ error: '上传或删除 Skill 需要管理员令牌。' });
 };
 
@@ -183,9 +226,58 @@ const publicConversation = conversation => {
   const {
     sandboxTokenHash: _sandboxTokenHash,
     sandboxTokenExpiresAt: _sandboxTokenExpiresAt,
+    sandboxId: _sandboxId,
+    openCodeSessionId: _openCodeSessionId,
     ...safeConversation
   } = conversation;
   return { ...safeConversation, runtime: runtimeMode() };
+};
+
+const safeOutputPath = (conversationId, relativePath) => {
+  const normalized = String(relativePath || '').replaceAll('\\', '/');
+  if (!normalized || normalized.startsWith('/') || normalized.split('/').some(part => !part || part === '..')) {
+    throw Object.assign(new Error('输出文件路径不安全。'), { status: 400 });
+  }
+  const root = path.resolve(conversationPath(conversationId), 'outputs');
+  const destination = path.resolve(root, normalized);
+  if (!destination.startsWith(`${root}${path.sep}`)) {
+    throw Object.assign(new Error('输出文件路径超出对话目录。'), { status: 400 });
+  }
+  return { root, destination, normalized };
+};
+
+const persistArtifacts = async (sandbox, conversation, artifactPaths) => {
+  const perFileLimit = Number(process.env.ARTIFACT_MAX_FILE_BYTES || 25 * 1024 * 1024);
+  const totalLimit = Number(process.env.ARTIFACT_MAX_TOTAL_BYTES || 100 * 1024 * 1024);
+  let totalBytes = 0;
+  const persisted = [];
+  for (const artifactPath of artifactPaths) {
+    const { destination, normalized } = safeOutputPath(conversation.id, artifactPath);
+    const temporary = `${destination}.partial`;
+    await fs.mkdir(path.dirname(destination), { recursive: true });
+    let fileBytes = 0;
+    const limiter = new Transform({
+      transform(chunk, _encoding, callback) {
+        fileBytes += chunk.length;
+        totalBytes += chunk.length;
+        if (fileBytes > perFileLimit || totalBytes > totalLimit) {
+          callback(new Error('OpenCode 产出文件超过允许大小。'));
+        } else {
+          callback(null, chunk);
+        }
+      }
+    });
+    try {
+      const source = await sandbox.files.read(`/workspace/output/${normalized}`, { format: 'stream' });
+      await pipeline(Readable.fromWeb(source), limiter, fsSync.createWriteStream(temporary, { mode: 0o600 }));
+      await fs.rename(temporary, destination);
+      persisted.push(normalized);
+    } catch (error) {
+      await fs.rm(temporary, { force: true });
+      if (/超过允许大小/.test(error.message)) break;
+    }
+  }
+  return persisted;
 };
 
 const ensureConversationRuntime = async conversation => {
@@ -264,13 +356,13 @@ const extractZip = async buffer => {
   return readSkill(id);
 };
 
-const proxyDeepSeek = async (request, response) => {
+const proxyDeepSeek = async (request, response, { allowVision = false } = {}) => {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) {
     return response.status(503).json({ error: { message: '服务端尚未配置 DEEPSEEK_API_KEY。' } });
   }
   const requestedModel = request.body?.model;
-  const model = requestedModel === 'deepseek-v4-flash-vision-exp'
+  const model = allowVision && requestedModel === 'deepseek-v4-flash-vision-exp'
     ? requestedModel
     : process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
   const baseUrl = (process.env.DEEPSEEK_API_BASE_URL || 'https://api.deepseek.com').replace(/\/$/, '');
@@ -294,11 +386,41 @@ const proxyDeepSeek = async (request, response) => {
 };
 
 app.get('/api/health', (_request, response) => response.json({ ok: true, runtime: runtimeMode() }));
-app.get('/api/runtime', (_request, response) => response.json(getRuntimeInfo()));
-app.post('/api/deepseek/v1/chat/completions', modelCallLimiter, async (request, response, next) => {
-  try { await proxyDeepSeek(request, response); } catch (error) { next(error); }
+app.get('/api/auth/status', (request, response) => response.json({
+  required: Boolean(process.env.APP_ACCESS_TOKEN),
+  authenticated: hasAppAccess(request)
+}));
+app.post('/api/auth/login', loginLimiter, (request, response) => {
+  const expected = process.env.APP_ACCESS_TOKEN;
+  if (expected && !secureEqual(request.body?.token, expected)) {
+    return response.status(401).json({ error: '站点访问令牌不正确。' });
+  }
+  if (expected) {
+    const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
+    const cookie = `${expiresAt}.${accessSignature(expiresAt)}`;
+    response.setHeader(
+      'Set-Cookie',
+      `ues_access=${encodeURIComponent(cookie)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=604800${
+        process.env.NODE_ENV === 'production' ? '; Secure' : ''
+      }`
+    );
+  }
+  response.json({ authenticated: true });
 });
-app.post('/api/internal/deepseek/:conversationId/v1/chat/completions', async (request, response, next) => {
+app.post('/api/auth/logout', (_request, response) => {
+  response.setHeader(
+    'Set-Cookie',
+    `ues_access=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${
+      process.env.NODE_ENV === 'production' ? '; Secure' : ''
+    }`
+  );
+  response.status(204).end();
+});
+app.get('/api/runtime', (_request, response) => response.json(getRuntimeInfo()));
+app.post('/api/deepseek/v1/chat/completions', requireAppAccess, modelCallLimiter, async (request, response, next) => {
+  try { await proxyDeepSeek(request, response, { allowVision: true }); } catch (error) { next(error); }
+});
+app.post('/api/internal/deepseek/:conversationId/v1/chat/completions', sandboxModelLimiter, async (request, response, next) => {
   try {
     const conversation = await loadConversation(request.params.conversationId);
     const token = request.get('authorization')?.replace(/^Bearer\s+/i, '');
@@ -308,6 +430,8 @@ app.post('/api/internal/deepseek/:conversationId/v1/chat/completions', async (re
     await proxyDeepSeek(request, response);
   } catch (error) { next(error); }
 });
+app.use('/api/skills', requireAppAccess);
+app.use('/api/conversations', requireAppAccess);
 app.get('/api/skills', async (_request, response, next) => {
   try { response.json({ skills: await listUploadedSkills() }); } catch (error) { next(error); }
 });
@@ -353,69 +477,76 @@ app.get('/api/conversations/:id', async (request, response, next) => {
 });
 app.post('/api/conversations/:id/skills/:skillId', async (request, response, next) => {
   try {
-    const conversation = await loadConversation(request.params.id);
-    const { sandbox } = await ensureConversationRuntime(conversation);
-    await installSkillIntoConversation(conversation, request.params.skillId, sandbox);
+    const conversation = await withConversationLock(request.params.id, async () => {
+      const current = await loadConversation(request.params.id);
+      const { sandbox } = await ensureConversationRuntime(current);
+      await installSkillIntoConversation(current, request.params.skillId, sandbox);
+      return current;
+    });
     response.json({ conversation: publicConversation(conversation) });
   } catch (error) { next(error); }
 });
 app.post('/api/conversations/:id/chat', modelCallLimiter, async (request, response, next) => {
   try {
-    const conversation = await loadConversation(request.params.id);
-    const { sandbox, created } = await ensureConversationRuntime(conversation);
-    if (!sandbox) {
-      throw Object.assign(new Error('未配置 E2B_API_KEY，无法启动云端 OpenCode。'), { status: 503 });
-    }
-    const messages = Array.isArray(request.body?.messages) ? request.body.messages : [];
-    if (!messages.length) throw Object.assign(new Error('消息不能为空。'), { status: 400 });
-    const installed = await Promise.all((conversation.skills || []).map(readSkill));
-    if (!installed.length) throw Object.assign(new Error('请先为当前对话启用至少一个技能。'), { status: 400 });
-    const selectedId = request.body?.skillId;
-    if (!selectedId || !installed.some(skill => skill.id === selectedId)) {
-      throw Object.assign(new Error('请选择当前对话已启用的 Skill。'), { status: 400 });
-    }
-    const selected = installed.find(skill => skill.id === selectedId);
-    const trace = [
-      { step: 'sandbox', detail: `连接 E2B OpenCode 沙箱 ${conversation.sandboxId}` },
-      { step: 'select', detail: `指定 OpenCode 使用 ${selected.name}（${selected.id}）` }
-    ];
-    const latest = messages.at(-1);
-    const prompt = created && messages.length > 1
-      ? [
-          'The previous cloud sandbox expired. Rehydrate context from this conversation transcript:',
-          ...messages.map(message => `${message.role}: ${String(message.content || '')}`),
-          '',
-          'Continue by answering the final user message.'
-        ].join('\n')
-      : String(latest?.content || '');
-    const result = await runOpenCode(sandbox, conversation, selectedId, prompt);
-    conversation.openCodeSessionId = result.sessionId || conversation.openCodeSessionId;
-    for (const tool of result.tools) {
-      trace.push({
-        step: tool.name === 'skill' ? 'load' : 'tool',
-        detail: tool.name === 'skill'
-          ? `OpenCode 原生 skill 工具加载 ${selectedId}/SKILL.md`
-          : `OpenCode 调用 ${tool.name}${tool.title ? `：${tool.title}` : ''}`
-      });
-    }
-    conversation.updatedAt = new Date().toISOString();
-    await saveConversation(conversation);
-    response.json({
-      message: { role: 'assistant', content: result.text },
-      skill: selectedId,
-      trace,
-      artifacts: result.artifacts,
-      runtime: runtimeMode()
+    const payload = await withConversationLock(request.params.id, async () => {
+      const conversation = await loadConversation(request.params.id);
+      const { sandbox, created } = await ensureConversationRuntime(conversation);
+      if (!sandbox) {
+        throw Object.assign(new Error('未配置 E2B_API_KEY，无法启动云端 OpenCode。'), { status: 503 });
+      }
+      const messages = Array.isArray(request.body?.messages) ? request.body.messages : [];
+      if (!messages.length) throw Object.assign(new Error('消息不能为空。'), { status: 400 });
+      const installed = await Promise.all((conversation.skills || []).map(readSkill));
+      if (!installed.length) throw Object.assign(new Error('请先为当前对话启用至少一个技能。'), { status: 400 });
+      const selectedId = request.body?.skillId;
+      if (!selectedId || !installed.some(skill => skill.id === selectedId)) {
+        throw Object.assign(new Error('请选择当前对话已启用的 Skill。'), { status: 400 });
+      }
+      const selected = installed.find(skill => skill.id === selectedId);
+      const trace = [
+        { step: 'sandbox', detail: '连接当前对话的 E2B OpenCode 沙箱' },
+        { step: 'select', detail: `指定 OpenCode 使用 ${selected.name}（${selected.id}）` }
+      ];
+      const latest = messages.at(-1);
+      const prompt = created && messages.length > 1
+        ? [
+            'The previous cloud sandbox expired. Rehydrate context from this conversation transcript:',
+            ...messages.map(message => `${message.role}: ${String(message.content || '')}`),
+            '',
+            'Continue by answering the final user message.'
+          ].join('\n')
+        : String(latest?.content || '');
+      const result = await runOpenCode(sandbox, conversation, selectedId, prompt);
+      const artifacts = await persistArtifacts(sandbox, conversation, result.artifacts);
+      conversation.openCodeSessionId = result.sessionId || conversation.openCodeSessionId;
+      for (const tool of result.tools) {
+        trace.push({
+          step: tool.name === 'skill' ? 'load' : 'tool',
+          detail: tool.name === 'skill'
+            ? `OpenCode 原生 skill 工具加载 ${selectedId}/SKILL.md`
+            : `OpenCode 调用 ${tool.name}${tool.title ? `：${tool.title}` : ''}`
+        });
+      }
+      conversation.updatedAt = new Date().toISOString();
+      await saveConversation(conversation);
+      return {
+        message: { role: 'assistant', content: result.text },
+        skill: selectedId,
+        trace,
+        artifacts,
+        runtime: runtimeMode()
+      };
     });
+    response.json(payload);
   } catch (error) { next(error); }
 });
 app.get('/api/conversations/:id/files', async (request, response, next) => {
   try {
     const conversation = await loadConversation(request.params.id);
-    const sandbox = await connectExistingSandbox(conversation);
-    if (!sandbox) throw Object.assign(new Error('E2B 沙箱已过期，产出文件不可再下载。'), { status: 410 });
     const relativePath = String(request.query.path || '');
-    const content = await readOutputFile(sandbox, relativePath);
+    const { destination } = safeOutputPath(conversation.id, relativePath);
+    const stat = await fs.stat(destination);
+    if (!stat.isFile()) throw Object.assign(new Error('产出文件不存在。'), { status: 404 });
     const extension = path.extname(relativePath).toLowerCase();
     const contentTypes = {
       '.json': 'application/json',
@@ -431,14 +562,16 @@ app.get('/api/conversations/:id/files', async (request, response, next) => {
     };
     response.setHeader('Content-Type', contentTypes[extension] || 'application/octet-stream');
     response.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(relativePath))}`);
-    response.send(Buffer.from(content));
+    fsSync.createReadStream(destination).pipe(response);
   } catch (error) { next(error); }
 });
 app.delete('/api/conversations/:id', async (request, response, next) => {
   try {
-    const conversation = await loadConversation(request.params.id);
-    await destroySandbox(conversation);
-    await fs.rm(conversationPath(conversation.id), { recursive: true, force: true });
+    await withConversationLock(request.params.id, async () => {
+      const conversation = await loadConversation(request.params.id);
+      await destroySandbox(conversation);
+      await fs.rm(conversationPath(conversation.id), { recursive: true, force: true });
+    });
     response.status(204).end();
   } catch (error) { next(error); }
 });
@@ -452,7 +585,8 @@ app.use(async (request, response, next) => {
 
 app.use((error, _request, response, _next) => {
   console.error(error);
-  response.status(error.status || 500).json({ error: error.message || '服务器内部错误。' });
+  const status = error.status || (error.code === 'ENOENT' ? 404 : 500);
+  response.status(status).json({ error: error.message || '服务器内部错误。' });
 });
 
 app.listen(port, '0.0.0.0', () => {

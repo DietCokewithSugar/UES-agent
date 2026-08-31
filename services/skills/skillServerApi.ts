@@ -20,7 +20,6 @@ export interface ConversationInfo {
   createdAt: string;
   updatedAt: string;
   runtime: RuntimeInfo['mode'];
-  sandboxId?: string;
 }
 
 export interface SkillTraceEntry {
@@ -32,7 +31,8 @@ const request = async <T>(url: string, init?: RequestInit): Promise<T> => {
   const response = await fetch(url, init);
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(body.error || `请求失败 (${response.status})`);
+    const message = typeof body.error === 'string' ? body.error : body.error?.message;
+    throw new Error(message || `请求失败 (${response.status})`);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;

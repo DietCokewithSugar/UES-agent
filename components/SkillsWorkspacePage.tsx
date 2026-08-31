@@ -295,7 +295,7 @@ export const SkillsWorkspacePage: React.FC<Props> = ({ onBack }) => {
                   {message.artifacts && message.artifacts.length > 0 && conversation && (
                     <div className="mt-3 border-t border-slate-200 pt-2">
                       <p className="mb-1 text-[11px] font-medium text-slate-500">
-                        OpenCode 产出文件（请在沙箱到期前下载）
+                        OpenCode 产出文件（已保存到持久存储）
                       </p>
                       <div className="flex flex-wrap gap-2">
                         {message.artifacts.map(artifact => (

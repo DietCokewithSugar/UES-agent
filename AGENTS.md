@@ -34,6 +34,8 @@ Configured in `.env.local` at the project root. Vite injects them at build/dev t
 - `PUBLIC_BASE_URL` — public server origin for local/tunnel deployments. Render uses its automatic
   `RENDER_EXTERNAL_URL`.
 - `DATA_DIR` — uploaded Skills and conversation metadata; defaults to `data/`.
+- `APP_ACCESS_TOKEN` — when set, required to log into the site; protects model, conversation,
+  artifact, and Skill APIs with an HttpOnly signed cookie.
 - `SKILLS_ADMIN_TOKEN` — when set, required as a bearer token for uploading/deleting Skills.
 
 ### Research skills (`skills/`)
@@ -71,6 +73,7 @@ register it in `services/agents/registry.ts`. The shell needs no changes.
 `DATA_DIR/skills`, then synchronized to `.opencode/skills/<id>` in the conversation's E2B sandbox.
 OpenCode loads the selected Skill through its native `skill` tool and runs with DeepSeek V4 Flash.
 The sandbox receives only a conversation-scoped proxy token, never the real DeepSeek API key.
+Generated files are streamed into `DATA_DIR/conversations/<id>/outputs` with per-file/turn limits.
 
 **Context isolation** (an explicit product requirement): each session owns its own `messages`,
 `toDeepSeekMessages` only flattens the current session, and starting a new chat swaps the session id
