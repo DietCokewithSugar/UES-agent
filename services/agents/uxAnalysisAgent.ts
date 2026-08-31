@@ -22,6 +22,7 @@ import {
 } from '../deepseekService';
 import { buildSkillKnowledge, getSkill, type SkillMeta } from '../skills/skillRegistry';
 import { runAnalysisPipeline, type AnalysisBundle } from '../analysis/analysisPipeline';
+import { parseAnalysisJson } from '../analysis/parseAnalysisJson';
 import { normalizeAgentAction } from './normalizeAction';
 import type {
   AgentContext,
@@ -89,7 +90,8 @@ const pickGenerateRefs = (skill: SkillMeta, haystack: string): string[] => {
 
 const SYSTEM_PROMPT = `你是 ux-analysis —— 一名带专业技能的用户研究分析 AI 助手，把问卷 / 访谈 / 埋点 / 可用性评估 / 眼动 / 用户声音等原始研究数据，变成专业的分析结论。
 你必须用简体中文回答。
-你要完整运用注入的技能与参考资料，但交互方式是自然的 AI chatbot，而不是逐节点表单向导。`;
+你要完整运用注入的技能与参考资料，但交互方式是自然的 AI chatbot，而不是逐节点表单向导。
+当前运行环境是浏览器 SPA，不执行技能目录中的 Python 脚本；你只负责输出 analysis.json，前端会用与脚本协议对齐的 TypeScript 图表和 Word 渲染器生成文件。`;
 
 const CONTROL_RULES = `你现在处于**控制轮**。输出严格 JSON，不要 markdown 围栏、不要多余解释。
 
@@ -362,9 +364,10 @@ const runControlTurn = async (ctx: AgentContext): Promise<ControlTurnResult> => 
     ctx.onTrace?.({ ...pipelineTrace, steps: [...(pipelineTrace.steps ?? [])] });
   }
 
+  const historyWithoutDocuments = compactHistory(ctx.history);
   const controlHistory = analysisBundle
-    ? ctx.history
-    : attachToLastUserMessage(ctx.history, previewAttachments(ctx.attachments));
+    ? historyWithoutDocuments
+    : attachToLastUserMessage(historyWithoutDocuments, previewAttachments(ctx.attachments));
   const messages: DeepSeekMessage[] = [
     { role: 'system', content: buildControlSystem(skill) },
     ...controlHistory,
@@ -592,8 +595,11 @@ const finalizeAnalysisJson = (raw: string, bundle: AnalysisBundle): string => {
   const hasConclusion = parsed.blocks.some(block => block?.type === 'conclusion');
   if (!hasConclusion) throw new Error('分析结论缺少核心 conclusion 块。');
 
-  const hasChart = parsed.blocks.some(block => block?.type === 'chart');
-  if (!hasChart && bundle.recommendedCharts.length > 0) {
+  const structurallyValid = parseAnalysisJson(parsed);
+  const hasValidChart = structurallyValid.blocks.some(block => block.type === 'chart');
+  if (!hasValidChart && bundle.recommendedCharts.length > 0) {
+    // 删除会在解析时变成“图略”的坏 chart，避免坏图与兜底图同时出现。
+    parsed.blocks = parsed.blocks.filter(block => block?.type !== 'chart');
     const spec = bundle.recommendedCharts[0];
     parsed.blocks.push({
       type: 'chart',
