@@ -62,8 +62,10 @@ const REDUCE_RULES = `你在执行用户研究分析的分层归并。只输出�
 输出：{"dataInventory":[],"exactMetrics":[],"themes":[{"name":"结论式主题名","evidence":[],"confidence":"中高/中/中低/低","limitations":[]}],"contradictions":[],"qualityIssues":[],"chartPlan":[{"title":"图名","metric":"使用哪些精确数据","type":"bar/line/pie/scatter/funnel/radar"}]}`;
 
 const refContents = (skill: SkillMeta, haystack: string): string => {
-  const names = ENGINE_REFS.filter(item => item.pattern.test(haystack))
-    .map(item => item.file)
+  const [sourceSignals, contextSignals = ''] = haystack.split('\n=== 已确认上下文 ===\n', 2);
+  const direct = ENGINE_REFS.filter(item => item.pattern.test(sourceSignals)).map(item => item.file);
+  const fallback = ENGINE_REFS.filter(item => item.pattern.test(contextSignals)).map(item => item.file);
+  const names = [...direct, ...fallback]
     .filter((name, index, all) => all.indexOf(name) === index)
     .slice(0, 2);
   return names
@@ -80,7 +82,7 @@ const retryJson = async (
   signal?: AbortSignal
 ): Promise<unknown> => {
   try {
-    return await deepseekJson(messages, { temperature: 0.1, signal });
+    return await deepseekJson(messages, { temperature: 0.1, maxTokens: 4_096, signal });
   } catch (error) {
     if (signal?.aborted) throw error;
     return deepseekJson(
@@ -94,7 +96,7 @@ const retryJson = async (
           )}。请重新检查当前输入，只输出完整合法 JSON。`
         }
       ],
-      { temperature: 0, signal }
+      { temperature: 0, maxTokens: 4_096, signal }
     );
   }
 };
@@ -107,7 +109,7 @@ const mapChunk = async (
 ): Promise<unknown> => {
   const reference = refContents(
     skill,
-    `${chunk.source}\n${context}\n${chunk.text?.slice(0, 4_000) ?? ''}`
+    `${chunk.source}\n${chunk.text?.slice(0, 4_000) ?? ''}\n=== 已确认上下文 ===\n${context}`
   );
   const system = [MAP_RULES, reference].filter(Boolean).join('\n\n');
   const label = `来源：${chunk.source}\n分块：${chunk.index}/${chunk.total}\n研究目标与已确认方案：${context}`;
@@ -259,7 +261,7 @@ export const runAnalysisPipeline = (
   const cached = cache.get(key);
   if (cached) return cached;
 
-  const promise = (async () => {
+  const promise: Promise<AnalysisBundle> = (async () => {
     const prepared = prepareAnalysisData(attachments);
     const profileParts = splitTextForAnalysis(stringify(prepared.profiles), 14_000);
     const totalMapTasks = prepared.chunks.length + profileParts.length;

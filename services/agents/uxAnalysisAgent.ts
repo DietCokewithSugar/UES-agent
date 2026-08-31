@@ -77,7 +77,9 @@ const pickGenerateRefs = (skill: SkillMeta, haystack: string): string[] => {
     'synthesis.md',
     'research_types.md',
     ...(FRAMEWORK_SIGNAL.test(haystack) ? ['frameworks.md'] : []),
-    ...hit
+    // 原始计算已由分块流水线逐文件加载引擎完成；写作轮只保留一个最相关引擎，
+    // 防止多源数据把全部大参考文件再次塞进同一上下文。
+    ...hit.slice(0, 1)
   ].filter(
     (f, i, arr) => arr.indexOf(f) === i
   );
@@ -199,10 +201,21 @@ const describeDataInventory = (attachments: Attachment[]): string => {
 };
 
 /** 控制轮只读少量样本；正式分析由分块流水线读取全部数据。 */
-const previewAttachments = (attachments: Attachment[]): Attachment[] =>
-  attachments.map(attachment =>
-    attachment.text ? { ...attachment, text: attachment.text.slice(0, 4_000) } : attachment
-  );
+const previewAttachments = (attachments: Attachment[]): Attachment[] => {
+  let remainingText = 16_000;
+  let remainingImages = 4;
+  return attachments.map(attachment => {
+    if (attachment.kind === 'image') {
+      const include = remainingImages > 0;
+      remainingImages -= 1;
+      return include ? attachment : { ...attachment, dataUrl: undefined };
+    }
+    if (!attachment.text || remainingText <= 0) return { ...attachment, text: undefined };
+    const text = attachment.text.slice(0, Math.min(4_000, remainingText));
+    remainingText -= text.length;
+    return { ...attachment, text };
+  });
+};
 
 /**
  * 分块分析的目标上下文固定截止到分析方案，避免 insight_review 确认后因历史变长而重复计算。
@@ -706,6 +719,7 @@ const runGenerateTurn = async (
 
   let generated = await deepseekChatStream(messages, {
     temperature: 0.4,
+    maxTokens: 8_192,
     onDelta: opts.onDelta,
     signal: opts.signal ?? ctx.signal
   });
@@ -735,6 +749,7 @@ const runGenerateTurn = async (
       ],
       {
         temperature: 0.2,
+        maxTokens: 8_192,
         signal: opts.signal ?? ctx.signal
       }
     );

@@ -203,13 +203,24 @@ const chartFromProfile = (profile: TableProfile): ChartSpec | null => {
   const column = profile.columns.find(
     item => item.topValues && item.topValues.length >= 2 && item.topValues.length <= 10
   );
-  if (!column?.topValues) return null;
+  if (column?.topValues) {
+    return {
+      type: 'bar',
+      title: `${column.name}分布`,
+      labels: column.topValues.map(item => item.value),
+      series: [['样本数', column.topValues.map(item => item.count)]],
+      ylabel: '样本数',
+      figsize: [7, 4]
+    };
+  }
+  const numeric = profile.columns.filter(item => item.numeric).slice(0, 10);
+  if (numeric.length < 2) return null;
   return {
     type: 'bar',
-    title: `${column.name}分布`,
-    labels: column.topValues.map(item => item.value),
-    series: [['样本数', column.topValues.map(item => item.count)]],
-    ylabel: '样本数',
+    title: '关键数值指标均值对比',
+    labels: numeric.map(item => item.name),
+    series: [['均值', numeric.map(item => item.numeric!.mean)]],
+    ylabel: '均值',
     figsize: [7, 4]
   };
 };

@@ -32,6 +32,7 @@ export const hasImageContent = (messages: DeepSeekMessage[]): boolean =>
 export interface DeepSeekChatOptions {
   model?: string;
   temperature?: number;
+  maxTokens?: number;
   jsonMode?: boolean;
   signal?: AbortSignal;
 }
@@ -102,6 +103,7 @@ export const deepseekChat = async (
     temperature: options.temperature ?? 0.5,
     stream: false
   };
+  if (options.maxTokens) body.max_tokens = options.maxTokens;
   if (options.jsonMode) body.response_format = { type: 'json_object' };
 
   const response = await fetch(url, {
@@ -189,6 +191,7 @@ export const deepseekChatStream = async (
     temperature: options.temperature ?? 0.5,
     stream: true
   };
+  if (options.maxTokens) body.max_tokens = options.maxTokens;
   const response = await fetch(url, {
     method: 'POST',
     headers: {
