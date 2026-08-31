@@ -1,8 +1,17 @@
-import { GoogleGenAI, Type } from '@google/genai';
+/**
+ * 多模态体验评测服务。
+ *
+ * 全部走 DeepSeek：截图与流程图交给视觉模型（模型名见 deepseekService 的
+ * DEEPSEEK_VISION_MODEL），纯文本调用走 deepseek-chat。没有 provider 可选，
+ * 也没有图像生成——DeepSeek 没有出图模型，「AI 优化效果图」已随之移除。
+ *
+ * DeepSeek 只有 json_object 模式，没有 Gemini 那种 responseSchema，所以每个
+ * prompt 末尾都自带 JSON 骨架，缺字段由本文件的 normalize* 兜底。
+ */
 import { getFrameworkById } from '../config/frameworkPresets';
+import { deepseekJson, type DeepSeekContentBlock } from './deepseekService';
 import {
   ABComparisonReport,
-  ApiConfig,
   ChecklistResult,
   EvaluationFramework,
   EvaluationModel,
@@ -13,16 +22,6 @@ import {
   ProcessStep,
   UserRole
 } from '../types';
-
-const getAIClient = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
-
-const getOpenRouterApiKey = (): string => {
-  const key = process.env.OPENROUTER_API_KEY;
-  if (!key) {
-    throw new Error('OpenRouter API Key 未配置。请在 .env.local 文件中添加 OPENROUTER_API_KEY。');
-  }
-  return key;
-};
 
 const DEFAULT_SCENARIO: EvaluationScenario = {
   industry: '',
@@ -36,170 +35,12 @@ const DEFAULT_SCENARIO: EvaluationScenario = {
   source: 'manual'
 };
 
-const REPORT_SCHEMA = {
-  type: Type.OBJECT,
-  properties: {
-    overallScore: { type: Type.NUMBER },
-    executiveSummary: { type: Type.STRING },
-    personaPerspective: { type: Type.STRING },
-    scenarioSummary: { type: Type.STRING },
-    confidence: { type: Type.NUMBER },
-    evidenceNotes: { type: Type.ARRAY, items: { type: Type.STRING } },
-    dimensionScores: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          dimension: { type: Type.STRING },
-          score: { type: Type.NUMBER },
-          comment: { type: Type.STRING }
-        },
-        required: ['dimension', 'score', 'comment']
-      }
-    },
-    issues: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          severity: { type: Type.STRING },
-          location: { type: Type.STRING },
-          description: { type: Type.STRING },
-          recommendation: { type: Type.STRING }
-        },
-        required: ['severity', 'location', 'description', 'recommendation']
-      }
-    },
-    optimizationSuggestions: {
-      type: Type.ARRAY,
-      items: { type: Type.STRING }
-    },
-    dynamicSections: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          id: { type: Type.STRING },
-          title: { type: Type.STRING },
-          type: { type: Type.STRING },
-          contentText: { type: Type.STRING },
-          contentList: { type: Type.ARRAY, items: { type: Type.STRING } }
-        },
-        required: ['id', 'title', 'type']
-      }
-    },
-    checklistResults: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          itemId: { type: Type.STRING },
-          status: { type: Type.STRING },
-          reason: { type: Type.STRING }
-        },
-        required: ['itemId', 'status', 'reason']
-      }
-    }
-  },
-  required: ['overallScore', 'dimensionScores', 'executiveSummary', 'personaPerspective', 'issues', 'optimizationSuggestions']
-};
-
-const SCENARIO_SCHEMA = {
-  type: Type.OBJECT,
-  properties: {
-    industry: { type: Type.STRING },
-    productType: { type: Type.STRING },
-    businessGoal: { type: Type.STRING },
-    targetUsers: { type: Type.STRING },
-    keyTasks: { type: Type.STRING },
-    painPoints: { type: Type.STRING },
-    successCriteria: { type: Type.STRING },
-    constraints: { type: Type.STRING }
-  },
-  required: ['industry', 'productType', 'businessGoal', 'targetUsers', 'keyTasks', 'painPoints', 'successCriteria', 'constraints']
-};
-
-const PERSONA_RECOMMENDATIONS_SCHEMA = {
-  type: Type.OBJECT,
-  properties: {
-    recommendations: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          existingPersonaId: { type: Type.STRING },
-          matchScore: { type: Type.NUMBER },
-          reasoning: { type: Type.STRING },
-          personaDraft: {
-            type: Type.OBJECT,
-            properties: {
-              name: { type: Type.STRING },
-              role: { type: Type.STRING },
-              description: { type: Type.STRING },
-              attributes: {
-                type: Type.OBJECT,
-                properties: {
-                  age: { type: Type.STRING },
-                  techSavviness: { type: Type.STRING },
-                  domainKnowledge: { type: Type.STRING },
-                  goals: { type: Type.STRING },
-                  environment: { type: Type.STRING },
-                  frustrationTolerance: { type: Type.STRING },
-                  deviceHabits: { type: Type.STRING }
-                },
-                required: ['age', 'techSavviness', 'domainKnowledge', 'goals', 'environment', 'frustrationTolerance', 'deviceHabits']
-              }
-            },
-            required: ['name', 'role', 'description', 'attributes']
-          }
-        },
-        required: ['matchScore', 'reasoning']
-      }
-    }
-  },
-  required: ['recommendations']
-};
-
-const PERSONA_EXTRACTION_SCHEMA = {
-  type: Type.OBJECT,
-  properties: {
-    recommendations: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          matchScore: { type: Type.NUMBER },
-          reasoning: { type: Type.STRING },
-          personaDraft: {
-            type: Type.OBJECT,
-            properties: {
-              name: { type: Type.STRING },
-              role: { type: Type.STRING },
-              description: { type: Type.STRING },
-              attributes: {
-                type: Type.OBJECT
-              }
-            },
-            required: ['name', 'role', 'description', 'attributes']
-          }
-        },
-        required: ['matchScore', 'reasoning', 'personaDraft']
-      }
-    }
-  },
-  required: ['recommendations']
-};
-
 const clampScore = (score: number, min = 0, max = 100) => Math.min(max, Math.max(min, score));
 const hasLatinCharacters = (text: string) => /[A-Za-z]/.test(text);
 
 const buildInputContextPrompt = (input: string | ProcessStep[]): string => {
   if (Array.isArray(input)) {
     return `这是流程型输入（多张截图 + 步骤描述）。请重点评估跨步骤连贯性、任务闭环和关键节点反馈。`;
-  }
-
-  if (typeof input === 'string' && input.startsWith('data:video')) {
-    return `这是视频录屏输入。请重点评估交互反馈时效、过渡自然度、任务完成连贯性。`;
   }
 
   return `这是单界面截图输入。请重点评估该页面的信息架构、交互可理解性和视觉层级。`;
@@ -487,150 +328,57 @@ const normalizePersonaDraft = (
   };
 };
 
-const callOpenRouterPromptJson = async <T>(prompt: string, model: string): Promise<T> => {
-  const apiKey = getOpenRouterApiKey();
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-      'HTTP-Referer': window.location.origin,
-      'X-Title': 'ETS Agent'
-    },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: 'user', content: [{ type: 'text', text: `${prompt}\n\nIMPORTANT: Return ONLY valid JSON.` }] }],
-      reasoning: { enabled: true },
-      response_format: { type: 'json_object' }
-    })
+const JSON_ONLY = '只输出一个合法 JSON 对象，不要 markdown 围栏、不要任何解释文字。';
+
+/**
+ * 上传的素材可能已经是 data URL，也可能是裸 base64；统一成 data URL 交给视觉模型。
+ * 保留原始 mime，不再一律当成 png。
+ */
+const toImageDataUrl = (raw: string): string =>
+  raw.startsWith('data:') ? raw : `data:image/png;base64,${raw}`;
+
+/**
+ * 纯文本的一次结构化调用。
+ *
+ * DeepSeek 只有 json_object 模式，没有 Gemini 那种 responseSchema，所以输出结构
+ * 全部写在各个 prompt 末尾的 JSON 骨架里；字段缺失由下面的 normalize* 补齐。
+ */
+const callJson = <T>(prompt: string): Promise<T> =>
+  deepseekJson<T>([{ role: 'user', content: `${prompt}\n\n${JSON_ONLY}` }], {
+    temperature: 0.4,
+    maxTokens: 8000
   });
 
-  if (!response.ok) {
-    const err = await response.json();
-    throw new Error(`OpenRouter API Error: ${err.error?.message || response.statusText}`);
-  }
-
-  const result = await response.json();
-  const messageContent = result.choices?.[0]?.message?.content;
-  if (!messageContent) throw new Error('No content received from OpenRouter.');
-  return parseJsonText<T>(messageContent);
-};
-
-const callGeminiPromptJson = async <T>(
+/** 把评测素材挂成多模态消息：单张截图，或流程截图 + 每步的操作描述。 */
+const buildVisionContent = (
   prompt: string,
-  schema: Record<string, unknown>,
-  model = 'gemini-2.5-flash'
-): Promise<T> => {
-  const ai = getAIClient();
-  const response = await ai.models.generateContent({
-    model,
-    contents: { parts: [{ text: prompt }] },
-    config: {
-      responseMimeType: 'application/json',
-      responseSchema: schema
-    }
-  });
+  input: string | ProcessStep[]
+): DeepSeekContentBlock[] => {
+  const blocks: DeepSeekContentBlock[] = [
+    { type: 'text', text: `${prompt}\n\n${JSON_ONLY}` }
+  ];
 
-  if (!response.text) throw new Error('No response from Gemini.');
-  return parseJsonText<T>(response.text);
-};
-
-const appendInputToOpenRouterMessage = (messagesContent: any[], input: string | ProcessStep[]) => {
   if (Array.isArray(input)) {
     input.forEach((step, index) => {
-      const cleanBase64 = step.image.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, '');
-      messagesContent.push({ type: 'text', text: `Step ${index + 1}: ${step.description || '无描述'}` });
-      messagesContent.push({ type: 'image_url', image_url: { url: `data:image/png;base64,${cleanBase64}` } });
+      blocks.push({
+        type: 'text',
+        text: `\n--- 步骤 ${index + 1} ---\n用户操作：${step.description || '无描述'}`
+      });
+      blocks.push({ type: 'image_url', image_url: { url: toImageDataUrl(step.image) } });
     });
-    return;
+    return blocks;
   }
 
-  if (input.startsWith('data:video')) {
-    messagesContent.push({ type: 'video_url', videoUrl: { url: input } });
-    return;
-  }
-
-  const cleanBase64 = input.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, '');
-  messagesContent.push({ type: 'image_url', image_url: { url: `data:image/png;base64,${cleanBase64}` } });
+  blocks.push({ type: 'image_url', image_url: { url: toImageDataUrl(input) } });
+  return blocks;
 };
 
-const parseJsonText = <T>(content: string): T => {
-  const jsonStr = content.replace(/```json\n?|\n?```/g, '').trim();
-  return JSON.parse(jsonStr) as T;
-};
-
-const callOpenRouterJson = async <T>(
-  prompt: string,
-  input: string | ProcessStep[],
-  model: string
-): Promise<T> => {
-  const apiKey = getOpenRouterApiKey();
-  const messagesContent: any[] = [{ type: 'text', text: `${prompt}\n\nIMPORTANT: Return ONLY valid JSON.` }];
-  appendInputToOpenRouterMessage(messagesContent, input);
-
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-      'HTTP-Referer': window.location.origin,
-      'X-Title': 'ETS Agent'
-    },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: 'user', content: messagesContent }],
-      reasoning: { enabled: true },
-      response_format: { type: 'json_object' }
-    })
+/** 带素材的一次结构化调用。deepseekService 会据此自动切到视觉模型。 */
+const callVisionJson = <T>(prompt: string, input: string | ProcessStep[]): Promise<T> =>
+  deepseekJson<T>([{ role: 'user', content: buildVisionContent(prompt, input) }], {
+    temperature: 0.4,
+    maxTokens: 8000
   });
-
-  if (!response.ok) {
-    const err = await response.json();
-    throw new Error(`OpenRouter API Error: ${err.error?.message || response.statusText}`);
-  }
-
-  const result = await response.json();
-  const messageContent = result.choices?.[0]?.message?.content;
-  if (!messageContent) throw new Error('No content received from OpenRouter.');
-  return parseJsonText<T>(messageContent);
-};
-
-const callGeminiJson = async <T>(
-  prompt: string,
-  input: string | ProcessStep[],
-  schema: Record<string, unknown>,
-  model = 'gemini-2.5-flash'
-): Promise<T> => {
-  const ai = getAIClient();
-  const parts: any[] = [{ text: prompt }];
-
-  if (Array.isArray(input)) {
-    input.forEach((step, idx) => {
-      const cleanBase64 = step.image.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, '');
-      parts.push({ text: `\n--- 步骤 ${idx + 1} ---\n用户操作: ${step.description || '无描述'}\n` });
-      parts.push({ inlineData: { mimeType: 'image/png', data: cleanBase64 } });
-    });
-  } else if (input.startsWith('data:video')) {
-    const mimeType = input.substring(5, input.indexOf(';'));
-    const cleanBase64 = input.substring(input.indexOf(',') + 1);
-    parts.push({ inlineData: { mimeType, data: cleanBase64 } });
-  } else {
-    const cleanBase64 = input.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, '');
-    parts.push({ inlineData: { mimeType: 'image/png', data: cleanBase64 } });
-  }
-
-  const response = await ai.models.generateContent({
-    model,
-    contents: { parts },
-    config: {
-      responseMimeType: 'application/json',
-      responseSchema: schema
-    }
-  });
-
-  if (!response.text) throw new Error('No response from Gemini.');
-  return parseJsonText<T>(response.text);
-};
 
 const ensureFramework = (frameworkOrModel: EvaluationFramework | EvaluationModel): EvaluationFramework => {
   if (typeof frameworkOrModel !== 'string') return frameworkOrModel;
@@ -724,39 +472,21 @@ export const analyzeDesign = async (
   input: string | ProcessStep[],
   persona: Persona,
   frameworkOrModel: EvaluationFramework | EvaluationModel = EvaluationModel.ETS,
-  apiConfig: ApiConfig = { provider: 'google' },
   scenario: EvaluationScenario = DEFAULT_SCENARIO
 ): Promise<FrameworkReport> => {
   const framework = ensureFramework(frameworkOrModel);
   const prompt = buildReportPrompt(framework, persona, input, scenario);
-
-  const rawReport =
-    apiConfig.provider === 'openrouter'
-      ? await callOpenRouterJson<Partial<FrameworkReport>>(
-          prompt,
-          input,
-          apiConfig.openRouterModel || 'google/gemini-2.5-flash'
-        )
-      : await callGeminiJson<Partial<FrameworkReport>>(prompt, input, REPORT_SCHEMA);
+  const rawReport = await callVisionJson<Partial<FrameworkReport>>(prompt, input);
 
   return normalizeReport(rawReport, framework);
 };
 
 export const inferScenarioFromInput = async (
   input: string | ProcessStep[],
-  apiConfig: ApiConfig = { provider: 'google' },
   hint?: string
 ): Promise<EvaluationScenario> => {
   const prompt = buildScenarioInferencePrompt(hint);
-
-  const raw =
-    apiConfig.provider === 'openrouter'
-      ? await callOpenRouterJson<Partial<EvaluationScenario>>(
-          prompt,
-          input,
-          apiConfig.openRouterModel || 'google/gemini-2.5-flash'
-        )
-      : await callGeminiJson<Partial<EvaluationScenario>>(prompt, input, SCENARIO_SCHEMA);
+  const raw = await callVisionJson<Partial<EvaluationScenario>>(prompt, input);
 
   const normalized = {
     industry: raw.industry || '',
@@ -770,18 +500,9 @@ export const inferScenarioFromInput = async (
   };
 
   const requiresLocalization = Object.values(normalized).some((value) => hasLatinCharacters(value || ''));
-  const localized =
-    requiresLocalization
-      ? apiConfig.provider === 'openrouter'
-        ? await callOpenRouterPromptJson<Partial<EvaluationScenario>>(
-            buildScenarioLocalizationPrompt(normalized),
-            apiConfig.openRouterModel || 'google/gemini-2.5-flash'
-          )
-        : await callGeminiPromptJson<Partial<EvaluationScenario>>(
-            buildScenarioLocalizationPrompt(normalized),
-            SCENARIO_SCHEMA
-          )
-      : normalized;
+  const localized = requiresLocalization
+    ? await callJson<Partial<EvaluationScenario>>(buildScenarioLocalizationPrompt(normalized))
+    : normalized;
 
   return {
     industry: localized.industry || normalized.industry,
@@ -801,26 +522,16 @@ export const recommendPersonas = async ({
   framework,
   scenario,
   existingPersonas,
-  mode = 'balanced',
-  apiConfig = { provider: 'google' }
+  mode = 'balanced'
 }: {
   input: string | ProcessStep[];
   framework: EvaluationFramework;
   scenario: EvaluationScenario;
   existingPersonas: Persona[];
   mode?: 'balanced' | 'new_only';
-  apiConfig?: ApiConfig;
 }): Promise<PersonaRecommendation[]> => {
   const prompt = buildPersonaRecommendationPrompt(framework, scenario, existingPersonas, mode);
-
-  const raw =
-    apiConfig.provider === 'openrouter'
-      ? await callOpenRouterJson<{ recommendations?: any[] }>(
-          prompt,
-          input,
-          apiConfig.openRouterModel || 'google/gemini-2.5-flash'
-        )
-      : await callGeminiJson<{ recommendations?: any[] }>(prompt, input, PERSONA_RECOMMENDATIONS_SCHEMA);
+  const raw = await callVisionJson<{ recommendations?: any[] }>(prompt, input);
 
   return (raw.recommendations || [])
     .slice(0, 4)
@@ -857,22 +568,11 @@ export const recommendPersonas = async ({
 };
 
 export const extractPersonasFromText = async (
-  text: string,
-  apiConfig: ApiConfig = { provider: 'google' }
+  text: string
 ): Promise<PersonaRecommendation[]> => {
   if (!text.trim()) return [];
   const prompt = `${buildPersonaExtractionPrompt()}\n\n文档内容如下：\n${text.slice(0, 20000)}`;
-
-  const raw =
-    apiConfig.provider === 'openrouter'
-      ? await callOpenRouterPromptJson<{ recommendations?: any[] }>(
-          prompt,
-          apiConfig.openRouterModel || 'google/gemini-2.5-flash'
-        )
-      : await callGeminiPromptJson<{ recommendations?: any[] }>(
-          prompt,
-          PERSONA_EXTRACTION_SCHEMA
-        );
+  const raw = await callJson<{ recommendations?: any[] }>(prompt);
 
   return (raw.recommendations || [])
     .slice(0, 8)
@@ -960,94 +660,3 @@ export const compareABReports = ({
   };
 };
 
-export const generateOptimizedDesign = async (
-  originalImageBase64: string,
-  persona: Persona,
-  report: FrameworkReport,
-  apiConfig: ApiConfig = { provider: 'google' }
-): Promise<string> => {
-  const cleanBase64 = originalImageBase64.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, '');
-  const imageModel = apiConfig.imageModel || 'google/gemini-3-pro-preview';
-
-  const criticalIssues = report.issues
-    .filter((issue) => ['一级问题', '二级问题', '严重', '高'].includes(issue.severity))
-    .map((issue) => `- [${issue.severity}] ${issue.location}: ${issue.description} -> ${issue.recommendation}`)
-    .join('\n');
-  const suggestions = report.optimizationSuggestions.map((suggestion) => `- ${suggestion}`).join('\n');
-
-  const prompt = `
-你是一位世界级 UI/UX 设计师，请基于原始界面产出优化版设计图。
-评测体系：${report.frameworkName}
-角色：${persona.name}
-
-高优先问题：
-${criticalIssues || '- 暂无严重问题，关注整体体验升级'}
-
-优化建议：
-${suggestions || '- 暂无建议'}
-
-要求：
-1) 保持核心业务信息与品牌语义，不要改成无关产品；
-2) 重点修复可读性、交互反馈、层级与可操作性；
-3) 输出高保真、可落地风格方案。
-`;
-
-  if (apiConfig.provider === 'openrouter') {
-    const openRouterKey = getOpenRouterApiKey();
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${openRouterKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': window.location.origin,
-        'X-Title': 'ETS Agent'
-      },
-      body: JSON.stringify({
-        model: imageModel,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: prompt },
-              { type: 'image_url', image_url: { url: `data:image/png;base64,${cleanBase64}` } }
-            ]
-          }
-        ],
-        modalities: ['image', 'text']
-      })
-    });
-
-    if (!response.ok) {
-      const err = await response.json();
-      throw new Error(`OpenRouter Image Gen Error: ${err.error?.message || response.statusText}`);
-    }
-
-    const result = await response.json();
-    const imageUrl = result.choices?.[0]?.message?.images?.[0]?.image_url?.url;
-    if (!imageUrl) throw new Error('No image generated by OpenRouter.');
-    return imageUrl;
-  }
-
-  const ai = getAIClient();
-  const response = await ai.models.generateContent({
-    model: imageModel,
-    contents: {
-      parts: [
-        { inlineData: { mimeType: 'image/png', data: cleanBase64 } },
-        { text: prompt }
-      ]
-    },
-    config: {
-      imageConfig: {
-        aspectRatio: '1:1',
-        imageSize: '1K'
-      }
-    }
-  });
-
-  for (const part of response.candidates?.[0]?.content?.parts || []) {
-    if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
-  }
-
-  throw new Error(`No image generated by ${imageModel}.`);
-};

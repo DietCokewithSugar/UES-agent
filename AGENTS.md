@@ -4,7 +4,7 @@
 
 ### Project overview
 
-ETS Agent is a client-side React SPA (Vite + TypeScript) for AI-powered product experience analysis. It has no backend, no database, and no Docker dependencies. All AI calls go directly from the browser to external APIs (Google Gemini or OpenRouter).
+ETS Agent is a client-side React SPA (Vite + TypeScript) for AI-powered product experience analysis. It has no backend, no database, and no Docker dependencies. All AI calls go directly from the browser to the DeepSeek API; there is no provider switch.
 
 ### Running the app
 
@@ -15,10 +15,10 @@ ETS Agent is a client-side React SPA (Vite + TypeScript) for AI-powered product 
 ### Environment variables
 
 Configured in `.env.local` at the project root. Vite injects them at build/dev time:
-- `GEMINI_API_KEY` — required for Google Gemini AI provider.
-- `OPENROUTER_API_KEY` — optional, for OpenRouter AI provider.
-- `DEEPSEEK_API_KEY` — required for both conversational entries (AI 研究助手 / AI 分析助手).
-- `DEEPSEEK_VISION_MODEL` — optional; the model used when the analysis assistant is given images.
+- `DEEPSEEK_API_KEY` — required for everything: the multimodal evaluation flow and both
+  conversational entries (AI 研究助手 / AI 分析助手).
+- `DEEPSEEK_VISION_MODEL` — optional; the model used whenever images are sent (evaluation
+  screenshots, analysis-assistant attachments).
   Defaults to `deepseek-v4-flash-vision-exp`. `deepseek-chat` does NOT accept image input, so if
   the default name is wrong for an account, change it here rather than in code — the API error
   points at this variable.
@@ -91,7 +91,7 @@ as the authoritative styling spec.
   in the repo. The separate AI Studio `importmap` in `index.html` *is* irrelevant under Vite
   (Vite resolves from `node_modules`), and it is already stale — `js-yaml`, `mammoth`, `pdfjs-dist`
   and `docx` are not in it.
-- **Full AI functionality requires API keys**: Without a valid `GEMINI_API_KEY`, the app loads and all UI interactions work, but analysis requests will fail. Set real keys in `.env.local` to test AI features. Both conversational entries need `DEEPSEEK_API_KEY` and show an explicit banner when it is missing.
+- **Full AI functionality requires an API key**: Without a valid `DEEPSEEK_API_KEY`, the app loads and all UI interactions work, but every AI request fails. Set a real key in `.env.local` to test AI features. Both conversational entries show an explicit banner when it is missing.
 - **Much of this can be verified without any API key**: feed `skills/ux-kit/templates/*.md` through
   `parseMarkdown` → `blocksToDocx`, and `analysis_builder.py`'s own `ANALYSIS_EXAMPLE` through
   `parseAnalysisJson` → `blocksToDocx`, then assert on the unzipped `word/document.xml`. Chart

@@ -69,19 +69,16 @@ npm install
 在项目根目录创建/编辑 `.env.local`：
 
 ```bash
-GEMINI_API_KEY=your_gemini_key
-OPENROUTER_API_KEY=your_openrouter_key
 DEEPSEEK_API_KEY=your_deepseek_key
 # 可选，默认 https://api.deepseek.com
 DEEPSEEK_API_BASE_URL=https://api.deepseek.com
-# 可选，分析助手上传图片时用；留空则用默认视觉模型
+# 可选，上传图片时用；留空则用默认视觉模型
 DEEPSEEK_VISION_MODEL=
 ```
 
-> 仅使用 Google Provider 时，`OPENROUTER_API_KEY` 可留空。
-> `DEEPSEEK_API_KEY` 用于"AI 研究助手"与"AI 分析助手"，未配置时其他评测功能不受影响。
-> `DEEPSEEK_VISION_MODEL` 只在分析助手上传图片时用到，留空则用默认值；
-> 如果你账号里的视觉模型名不同，在这里换掉即可，不用改代码。
+> **全站只用 DeepSeek**，没有可切换的模型来源，`DEEPSEEK_API_KEY` 是唯一必填项。
+> `DEEPSEEK_VISION_MODEL` 在多模态体验评测上传界面截图、分析助手上传图片时都会用到，
+> 留空则用默认值；如果你账号里的视觉模型名不同，在这里换掉即可，不用改代码。
 
 ### 3) 启动开发环境
 
@@ -137,7 +134,7 @@ npm run build
 ## 技术栈
 
 - React 19 + TypeScript + Vite
-- Google Gemini / OpenRouter（前端直连）；DeepSeek（AI 研究助手，含流式）
+- DeepSeek（前端直连，全站唯一模型来源；截图走视觉模型，对话产出走流式）
 - Recharts（图表）
 - html-to-image + JSZip + file-saver（导出）
 - docx（浏览器端生成 Word 文档）

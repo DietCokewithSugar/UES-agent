@@ -1,6 +1,6 @@
 import { EvaluationScenario } from '../types';
 
-export type DraftUploadMode = 'single' | 'flow' | 'video';
+export type DraftUploadMode = 'single' | 'flow';
 export type DraftSetupStep = 1 | 2 | 3 | 4;
 
 export interface SetupDraft {
@@ -11,10 +11,8 @@ export interface SetupDraft {
   selectedFrameworkId: string;
   selectedPersonaIds: string[];
   scenario: EvaluationScenario;
-  shouldGenerateImages: boolean;
   sourceMeta: {
     singleFileName: string;
-    videoFileName: string;
     flowStepCount: number;
     flowStepNames: string[];
   };

@@ -3,7 +3,6 @@ import { toPng } from 'html-to-image';
 import JSZip from 'jszip';
 import {
   ABComparisonReport,
-  ApiConfig,
   EvaluationFramework,
   EvaluationScenario,
   FrameworkReport,
@@ -22,10 +21,9 @@ import {
   analyzeDesign,
   compareABReports,
   extractPersonasFromText,
-  generateOptimizedDesign,
   inferScenarioFromInput,
   recommendPersonas
-} from './services/geminiService';
+} from './services/evaluationService';
 import { extractTextFromFile } from './utils/documentTextExtractor';
 import { ReportView } from './components/ReportView';
 import { SummaryReport } from './components/SummaryReport';
@@ -76,28 +74,11 @@ const EMPTY_SCENARIO: EvaluationScenario = {
   source: 'manual'
 };
 
-const OPENROUTER_TEXT_MODELS = [
-  { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
-  { value: 'bytedance-seed/seed-1.6-flash', label: 'Seed 1.6 Flash' },
-  { value: 'z-ai/glm-4.6v', label: 'GLM-4.6V' }
-];
-
-const GOOGLE_IMAGE_MODELS = [
-  { value: 'google/gemini-3-pro-image-preview', label: 'Gemini 3 Pro Image' },
-  { value: 'google/gemini-3-pro-preview', label: 'Gemini 3 Pro Preview' }
-];
-
-const OPENROUTER_IMAGE_MODELS = [
-  { value: 'google/gemini-3-pro-image-preview', label: 'Gemini 3 Pro Image' },
-  { value: 'google/gemini-2.5-flash-image', label: 'Gemini 2.5 Flash Image' },
-  { value: 'openai/gpt-5-image', label: 'GPT-5 Image' }
-];
-
 const STEP_TITLES = ['上传评测素材', '定义业务场景与目标', '选择评测体系', '选择评测角色'];
 const STEP_REQUIRED_ACTIONS: Record<number, string[]> = {
-  1: ['选择素材类型（单页/流程/视频）', '上传至少 1 份评测素材'],
+  1: ['选择素材类型（单页/流程）', '上传至少 1 份评测素材'],
   2: ['补齐评测目标、目标用户、关键任务流', '可使用推荐示例多选快速填充'],
-  3: ['选择评测体系', '确认模型来源（Google / OpenRouter）'],
+  3: ['选择评测体系'],
   4: ['至少勾选 1 个评测角色', '可使用 AI 推荐或 AI 新建角色']
 };
 const SCENARIO_REQUIRED_FIELDS: Array<keyof EvaluationScenario> = [
@@ -118,7 +99,7 @@ const SCENARIO_FIELD_LABELS: Record<keyof EvaluationScenario, string> = {
 };
 type PageMode = 'landing' | 'setup' | 'report' | 'companion' | 'analysis';
 type SetupStep = 1 | 2 | 3 | 4;
-type UploadMode = 'single' | 'flow' | 'video';
+type UploadMode = 'single' | 'flow';
 type UploadConfigMode = 'standard' | 'ab_test';
 type AppRoute = 'app' | 'setting';
 
@@ -213,22 +194,16 @@ export default function App() {
   const [uploadConfigMode, setUploadConfigMode] = useState<UploadConfigMode>('standard');
   const [uploadMode, setUploadMode] = useState<UploadMode>('single');
   const [image, setImage] = useState<string | null>(null);
-  const [video, setVideo] = useState<string | null>(null);
   const [processSteps, setProcessSteps] = useState<ProcessStep[]>([]);
   const [singleFileName, setSingleFileName] = useState('');
-  const [videoFileName, setVideoFileName] = useState('');
   const [abUploadModeA, setAbUploadModeA] = useState<UploadMode>('single');
   const [abImageA, setAbImageA] = useState<string | null>(null);
-  const [abVideoA, setAbVideoA] = useState<string | null>(null);
   const [abProcessStepsA, setAbProcessStepsA] = useState<ProcessStep[]>([]);
   const [abSingleFileNameA, setAbSingleFileNameA] = useState('');
-  const [abVideoFileNameA, setAbVideoFileNameA] = useState('');
   const [abUploadModeB, setAbUploadModeB] = useState<UploadMode>('single');
   const [abImageB, setAbImageB] = useState<string | null>(null);
-  const [abVideoB, setAbVideoB] = useState<string | null>(null);
   const [abProcessStepsB, setAbProcessStepsB] = useState<ProcessStep[]>([]);
   const [abSingleFileNameB, setAbSingleFileNameB] = useState('');
-  const [abVideoFileNameB, setAbVideoFileNameB] = useState('');
   const [isDropActive, setIsDropActive] = useState(false);
 
   const [scenario, setScenario] = useState<EvaluationScenario>(EMPTY_SCENARIO);
@@ -248,30 +223,18 @@ export default function App() {
   const [isRecommendingNewPersona, setIsRecommendingNewPersona] = useState(false);
   const [isExtractingFromDoc, setIsExtractingFromDoc] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isBatchExporting, setIsBatchExporting] = useState(false);
-  const [shouldGenerateImages, setShouldGenerateImages] = useState(false);
 
-  const [optimizedImages, setOptimizedImages] = useState<Record<string, string>>({});
   const [docPersonaCandidates, setDocPersonaCandidates] = useState<PersonaRecommendation[]>([]);
   const [selectedDocPersonaCandidateIds, setSelectedDocPersonaCandidateIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  const [apiConfig, setApiConfig] = useState<ApiConfig>({
-    provider: 'google',
-    openRouterModel: 'google/gemini-2.5-flash',
-    imageModel: 'google/gemini-3-pro-image-preview'
-  });
-
   const imageInputRef = useRef<HTMLInputElement>(null);
-  const videoInputRef = useRef<HTMLInputElement>(null);
   const flowInputRef = useRef<HTMLInputElement>(null);
   const abImageInputRefA = useRef<HTMLInputElement>(null);
-  const abVideoInputRefA = useRef<HTMLInputElement>(null);
   const abFlowInputRefA = useRef<HTMLInputElement>(null);
   const abImageInputRefB = useRef<HTMLInputElement>(null);
-  const abVideoInputRefB = useRef<HTMLInputElement>(null);
   const abFlowInputRefB = useRef<HTMLInputElement>(null);
   const personaImportRef = useRef<HTMLInputElement>(null);
   const personaExtractRef = useRef<HTMLInputElement>(null);
@@ -379,25 +342,21 @@ export default function App() {
 
   const currentInput = useMemo(() => {
     if (uploadMode === 'single') return image;
-    if (uploadMode === 'video') return video;
     return processSteps.length > 0 ? processSteps : null;
-  }, [uploadMode, image, video, processSteps]);
+  }, [uploadMode, image, processSteps]);
 
   const currentInputA = useMemo(() => {
     if (abUploadModeA === 'single') return abImageA;
-    if (abUploadModeA === 'video') return abVideoA;
     return abProcessStepsA.length > 0 ? abProcessStepsA : null;
-  }, [abUploadModeA, abImageA, abVideoA, abProcessStepsA]);
+  }, [abUploadModeA, abImageA, abProcessStepsA]);
 
   const currentInputB = useMemo(() => {
     if (abUploadModeB === 'single') return abImageB;
-    if (abUploadModeB === 'video') return abVideoB;
     return abProcessStepsB.length > 0 ? abProcessStepsB : null;
-  }, [abUploadModeB, abImageB, abVideoB, abProcessStepsB]);
+  }, [abUploadModeB, abImageB, abProcessStepsB]);
 
   const standardUploadComplete =
     (uploadMode === 'single' && !!image) ||
-    (uploadMode === 'video' && !!video) ||
     (uploadMode === 'flow' && processSteps.length > 0);
   const abUploadComplete = !!currentInputA && !!currentInputB;
   const uploadComplete = uploadConfigMode === 'standard' ? standardUploadComplete : abUploadComplete;
@@ -443,20 +402,14 @@ export default function App() {
     ? uploadConfigMode === 'standard'
       ? uploadMode === 'single'
         ? singleFileName || '已上传单页截图'
-        : uploadMode === 'video'
-        ? videoFileName || '已上传视频'
         : `已上传 ${processSteps.length} 张流程图`
       : `A：${
           abUploadModeA === 'single'
             ? abSingleFileNameA || (abImageA ? '单页截图' : '未上传')
-            : abUploadModeA === 'video'
-            ? abVideoFileNameA || (abVideoA ? '视频素材' : '未上传')
             : `${abProcessStepsA.length} 张流程图`
         }；B：${
           abUploadModeB === 'single'
             ? abSingleFileNameB || (abImageB ? '单页截图' : '未上传')
-            : abUploadModeB === 'video'
-            ? abVideoFileNameB || (abVideoB ? '视频素材' : '未上传')
             : `${abProcessStepsB.length} 张流程图`
         }`
     : '请先上传素材';
@@ -582,10 +535,8 @@ export default function App() {
       selectedFrameworkId,
       selectedPersonaIds,
       scenario,
-      shouldGenerateImages,
       sourceMeta: {
         singleFileName,
-        videoFileName,
         flowStepCount: processSteps.length,
         flowStepNames: processSteps.map((step) => step.fileName || '未命名')
       }
@@ -614,11 +565,8 @@ export default function App() {
       draft.selectedPersonaIds.filter((id) => personas.some((persona) => persona.id === id))
     );
     setScenario(draft.scenario);
-    setShouldGenerateImages(draft.shouldGenerateImages);
     setSingleFileName(draft.sourceMeta.singleFileName || '');
-    setVideoFileName(draft.sourceMeta.videoFileName || '');
     setImage(null);
-    setVideo(null);
     setProcessSteps([]);
     resetAnalysisResult();
     setPageMode('setup');
@@ -639,7 +587,6 @@ export default function App() {
   const resetAnalysisResult = () => {
     setReports({});
     setAbComparisons({});
-    setOptimizedImages({});
     setError(null);
     setShowSummary(false);
     setShowABSummary(true);
@@ -655,10 +602,8 @@ export default function App() {
     if (side === 'A') {
       setAbUploadModeA(mode);
       setAbImageA(null);
-      setAbVideoA(null);
       setAbProcessStepsA([]);
       setAbSingleFileNameA('');
-      setAbVideoFileNameA('');
       setInfoMessage(null);
       resetABOnlyResult();
       return;
@@ -667,10 +612,8 @@ export default function App() {
     if (side === 'B') {
       setAbUploadModeB(mode);
       setAbImageB(null);
-      setAbVideoB(null);
       setAbProcessStepsB([]);
       setAbSingleFileNameB('');
-      setAbVideoFileNameB('');
       setInfoMessage(null);
       resetABOnlyResult();
       return;
@@ -678,10 +621,8 @@ export default function App() {
 
     setUploadMode(mode);
     setImage(null);
-    setVideo(null);
     setProcessSteps([]);
     setSingleFileName('');
-    setVideoFileName('');
     setInfoMessage(null);
     resetAnalysisResult();
   };
@@ -693,39 +634,18 @@ export default function App() {
     const reader = new FileReader();
     reader.onloadend = () => {
       setImage(reader.result as string);
-      setVideo(null);
       setProcessSteps([]);
       setSingleFileName(file.name);
-      setVideoFileName('');
       resetAnalysisResult();
     };
     reader.readAsDataURL(file);
   };
 
-  const loadVideoFile = (file: File) => {
-    if (file.size > 50 * 1024 * 1024) {
-      alert('视频大于 50MB，请压缩后再上传。');
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setVideo(reader.result as string);
-      setImage(null);
-      setProcessSteps([]);
-      setVideoFileName(file.name);
-      setSingleFileName('');
-      resetAnalysisResult();
-    };
-    reader.readAsDataURL(file);
-  };
 
   const loadFlowFiles = (files: File[]) => {
     if (files.length === 0) return;
     setImage(null);
-    setVideo(null);
     setSingleFileName('');
-    setVideoFileName('');
     setProcessSteps([]);
     resetAnalysisResult();
 
@@ -752,10 +672,6 @@ export default function App() {
       loadImageFile(files[0]);
       return;
     }
-    if (uploadMode === 'video') {
-      loadVideoFile(files[0]);
-      return;
-    }
     loadFlowFiles(files.filter((file) => file.type.startsWith('image/')));
   };
 
@@ -763,39 +679,16 @@ export default function App() {
     if (!files.length) return;
     const mode = side === 'A' ? abUploadModeA : abUploadModeB;
     const setImageState = side === 'A' ? setAbImageA : setAbImageB;
-    const setVideoState = side === 'A' ? setAbVideoA : setAbVideoB;
     const setStepsState = side === 'A' ? setAbProcessStepsA : setAbProcessStepsB;
     const setSingleNameState = side === 'A' ? setAbSingleFileNameA : setAbSingleFileNameB;
-    const setVideoNameState = side === 'A' ? setAbVideoFileNameA : setAbVideoFileNameB;
 
     if (mode === 'single') {
       const file = files[0];
       const reader = new FileReader();
       reader.onloadend = () => {
         setImageState(reader.result as string);
-        setVideoState(null);
         setStepsState([]);
         setSingleNameState(file.name);
-        setVideoNameState('');
-        resetABOnlyResult();
-      };
-      reader.readAsDataURL(file);
-      return;
-    }
-
-    if (mode === 'video') {
-      const file = files[0];
-      if (file.size > 50 * 1024 * 1024) {
-        alert('视频大于 50MB，请压缩后再上传。');
-        return;
-      }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setVideoState(reader.result as string);
-        setImageState(null);
-        setStepsState([]);
-        setVideoNameState(file.name);
-        setSingleNameState('');
         resetABOnlyResult();
       };
       reader.readAsDataURL(file);
@@ -805,9 +698,7 @@ export default function App() {
     const imageFiles = files.filter((file) => file.type.startsWith('image/'));
     if (!imageFiles.length) return;
     setImageState(null);
-    setVideoState(null);
     setSingleNameState('');
-    setVideoNameState('');
     setStepsState([]);
     resetABOnlyResult();
 
@@ -868,17 +759,13 @@ export default function App() {
     if (side === 'A') {
       setAbUploadModeA(mode);
       setAbImageA(null);
-      setAbVideoA(null);
       setAbProcessStepsA([]);
       setAbSingleFileNameA('');
-      setAbVideoFileNameA('');
     } else {
       setAbUploadModeB(mode);
       setAbImageB(null);
-      setAbVideoB(null);
       setAbProcessStepsB([]);
       setAbSingleFileNameB('');
-      setAbVideoFileNameB('');
     }
     setInfoMessage(null);
     resetABOnlyResult();
@@ -909,7 +796,7 @@ export default function App() {
       if (!text.trim()) {
         throw new Error('文档未解析到有效文本，请更换文件后重试。');
       }
-      const recommendations = await extractPersonasFromText(text, apiConfig);
+      const recommendations = await extractPersonasFromText(text);
       if (!recommendations.length) {
         setDocPersonaCandidates([]);
         setSelectedDocPersonaCandidateIds([]);
@@ -1109,7 +996,6 @@ export default function App() {
       scenario,
       sourceMeta: {
         singleFileName,
-        videoFileName,
         flowStepCount: processSteps.length,
         flowStepNames: processSteps.map((step) => step.fileName || '未命名')
       }
@@ -1192,7 +1078,7 @@ export default function App() {
     setError(null);
     setInfoMessage(null);
     try {
-      const inferred = await inferScenarioFromInput(currentSetupInput, apiConfig);
+      const inferred = await inferScenarioFromInput(currentSetupInput);
       setScenario((previous) => ({
         ...previous,
         ...inferred,
@@ -1218,8 +1104,7 @@ export default function App() {
         framework: selectedFramework,
         scenario,
         existingPersonas: personas,
-        mode: 'balanced',
-        apiConfig
+        mode: 'balanced'
       });
       setPersonaRecommendations(recommendations);
     } catch (err) {
@@ -1240,8 +1125,7 @@ export default function App() {
         framework: selectedFramework,
         scenario,
         existingPersonas: personas,
-        mode: 'new_only',
-        apiConfig
+        mode: 'new_only'
       });
       setPersonaRecommendations(recommendations);
     } catch (err) {
@@ -1258,17 +1142,6 @@ export default function App() {
     if (!selectedFramework || selectedPersonas.length === 0) return;
     if (uploadConfigMode === 'standard' && !analyzeInputStandard) return;
     if (uploadConfigMode === 'ab_test' && (!analyzeInputA || !analyzeInputB)) return;
-    if (apiConfig.provider === 'google') {
-      try {
-        if (window.aistudio) {
-          const hasKey = await window.aistudio.hasSelectedApiKey();
-          if (!hasKey) await window.aistudio.openSelectKey();
-        }
-      } catch (keyError) {
-        console.warn('API key check failed', keyError);
-      }
-    }
-
     setIsAnalyzing(true);
     setShowSummary(false);
     setShowABSummary(true);
@@ -1286,7 +1159,6 @@ export default function App() {
               analyzeInputStandard as string | ProcessStep[],
               persona,
               selectedFramework,
-              apiConfig,
               scenario
             );
             return { personaId: persona.id, report };
@@ -1298,39 +1170,12 @@ export default function App() {
         });
         setReports(nextReports);
 
-        if (shouldGenerateImages && uploadMode !== 'video') {
-          const sourceImage = uploadMode === 'single' ? image : processSteps[0]?.image;
-          if (sourceImage) {
-            setIsGeneratingImage(true);
-            const generatedList = await Promise.all(
-              selectedPersonas.map(async (persona) => {
-                try {
-                  const generated = await generateOptimizedDesign(
-                    sourceImage,
-                    persona,
-                    nextReports[persona.id],
-                    apiConfig
-                  );
-                  return { personaId: persona.id, image: generated };
-                } catch (err) {
-                  console.error('generate image failed', err);
-                  return null;
-                }
-              })
-            );
-            const generatedMap: Record<string, string> = {};
-            generatedList.forEach((entry) => {
-              if (entry) generatedMap[entry.personaId] = entry.image;
-            });
-            setOptimizedImages(generatedMap);
-          }
-        }
       } else {
         const resultEntries = await Promise.all(
           selectedPersonas.map(async (persona) => {
             const [reportA, reportB] = await Promise.all([
-              analyzeDesign(analyzeInputA as string | ProcessStep[], persona, selectedFramework, apiConfig, scenario),
-              analyzeDesign(analyzeInputB as string | ProcessStep[], persona, selectedFramework, apiConfig, scenario)
+              analyzeDesign(analyzeInputA as string | ProcessStep[], persona, selectedFramework, scenario),
+              analyzeDesign(analyzeInputB as string | ProcessStep[], persona, selectedFramework, scenario)
             ]);
             const comparison = compareABReports({
               reportA,
@@ -1355,7 +1200,6 @@ export default function App() {
       setError(err instanceof Error ? err.message : '分析失败');
     } finally {
       setIsAnalyzing(false);
-      setIsGeneratingImage(false);
     }
   };
 
@@ -1661,20 +1505,6 @@ export default function App() {
                           />
                         </>
                       )}
-                      {uploadMode === 'video' && (
-                        <>
-                          <button onClick={() => videoInputRef.current?.click()} className="mt-3 rounded-lg border px-4 py-2 text-sm">
-                            选择视频
-                          </button>
-                          <input
-                            ref={videoInputRef}
-                            type="file"
-                            accept="video/mp4,video/webm,video/quicktime"
-                            onChange={(event) => handleInputFiles(extractFiles(event.target.files))}
-                            className="hidden"
-                          />
-                        </>
-                      )}
                       {uploadMode === 'flow' && (
                         <>
                           <button onClick={() => flowInputRef.current?.click()} className="mt-3 rounded-lg border px-4 py-2 text-sm">
@@ -1696,12 +1526,6 @@ export default function App() {
                       <div className="rounded-lg border border-slate-200 p-3 space-y-2">
                         <p className="text-xs text-slate-500">已上传：{singleFileName || '图片文件'}</p>
                         <img src={image} alt="单页截图" className="max-h-56 rounded-md" />
-                      </div>
-                    )}
-                    {uploadMode === 'video' && video && (
-                      <div className="rounded-lg border border-slate-200 p-3 space-y-2">
-                        <p className="text-xs text-slate-500">已上传：{videoFileName || '视频文件'}</p>
-                        <video src={video} controls className="max-h-56 rounded-md" />
                       </div>
                     )}
                     {uploadMode === 'flow' && processSteps.length > 0 && (
@@ -1732,19 +1556,16 @@ export default function App() {
                   <>
                     {abComparableWeak && (
                       <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
-                        当前 A/B 素材类型不一致（例如 A=图片、B=视频），系统仍可评估，但会提示“可比性较弱”。
+                        当前 A/B 素材类型不一致（例如 A=单页截图、B=流程截图），系统仍可评估，但会提示“可比性较弱”。
                       </div>
                     )}
                     {(['A', 'B'] as const).map((side) => {
                       const mode = side === 'A' ? abUploadModeA : abUploadModeB;
                       const setMode = side === 'A' ? setAbUploadModeA : setAbUploadModeB;
                       const imageData = side === 'A' ? abImageA : abImageB;
-                      const videoData = side === 'A' ? abVideoA : abVideoB;
                       const steps = side === 'A' ? abProcessStepsA : abProcessStepsB;
                       const singleName = side === 'A' ? abSingleFileNameA : abSingleFileNameB;
-                      const videoName = side === 'A' ? abVideoFileNameA : abVideoFileNameB;
                       const imageRef = side === 'A' ? abImageInputRefA : abImageInputRefB;
-                      const videoRef = side === 'A' ? abVideoInputRefA : abVideoInputRefB;
                       const flowRef = side === 'A' ? abFlowInputRefA : abFlowInputRefB;
                       return (
                         <div key={side} className="rounded-xl border border-slate-200 p-3 space-y-3">
@@ -1806,20 +1627,6 @@ export default function App() {
                                 />
                               </>
                             )}
-                            {mode === 'video' && (
-                              <>
-                                <button onClick={() => videoRef.current?.click()} className="mt-3 rounded-lg border px-4 py-2 text-sm">
-                                  选择视频
-                                </button>
-                                <input
-                                  ref={videoRef}
-                                  type="file"
-                                  accept="video/mp4,video/webm,video/quicktime"
-                                  onChange={(event) => handleABInputFiles(extractFiles(event.target.files), side)}
-                                  className="hidden"
-                                />
-                              </>
-                            )}
                             {mode === 'flow' && (
                               <>
                                 <button onClick={() => flowRef.current?.click()} className="mt-3 rounded-lg border px-4 py-2 text-sm">
@@ -1840,12 +1647,6 @@ export default function App() {
                             <div className="rounded-lg border border-slate-200 p-3 space-y-2">
                               <p className="text-xs text-slate-500">已上传：{singleName || '图片文件'}</p>
                               <img src={imageData} alt={`方案${side}单页截图`} className="max-h-52 rounded-md" />
-                            </div>
-                          )}
-                          {mode === 'video' && videoData && (
-                            <div className="rounded-lg border border-slate-200 p-3 space-y-2">
-                              <p className="text-xs text-slate-500">已上传：{videoName || '视频文件'}</p>
-                              <video src={videoData} controls className="max-h-52 rounded-md" />
                             </div>
                           )}
                           {mode === 'flow' && steps.length > 0 && (
@@ -1941,7 +1742,7 @@ export default function App() {
               </div>
               {activeStep === 3 ? (
                 <>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
+                  <div className="grid grid-cols-1 gap-2 text-sm">
                     <select
                       value={selectedFrameworkId}
                       onChange={(event) => setSelectedFrameworkId(event.target.value)}
@@ -1954,54 +1755,6 @@ export default function App() {
                         </option>
                       ))}
                     </select>
-                    <select
-                      value={apiConfig.provider}
-                      onChange={(event) =>
-                        setApiConfig((previous) => ({
-                          ...previous,
-                          provider: event.target.value as ApiConfig['provider']
-                        }))
-                      }
-                      className="rounded-lg border border-slate-200 px-3 py-2"
-                    >
-                      <option value="google">Google</option>
-                      <option value="openrouter">OpenRouter</option>
-                    </select>
-                    {apiConfig.provider === 'openrouter' ? (
-                      <select
-                        value={apiConfig.openRouterModel}
-                        onChange={(event) =>
-                          setApiConfig((previous) => ({
-                            ...previous,
-                            openRouterModel: event.target.value
-                          }))
-                        }
-                        className="rounded-lg border border-slate-200 px-3 py-2"
-                      >
-                        {OPENROUTER_TEXT_MODELS.map((model) => (
-                          <option key={model.value} value={model.value}>
-                            {model.label}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <select
-                        value={apiConfig.imageModel}
-                        onChange={(event) =>
-                          setApiConfig((previous) => ({
-                            ...previous,
-                            imageModel: event.target.value
-                          }))
-                        }
-                        className="rounded-lg border border-slate-200 px-3 py-2"
-                      >
-                        {GOOGLE_IMAGE_MODELS.map((model) => (
-                          <option key={model.value} value={model.value}>
-                            {model.label}
-                          </option>
-                        ))}
-                      </select>
-                    )}
                   </div>
                   <p className="text-xs text-slate-500">
                     {selectedFramework ? selectedFramework.description : '请选择一个评测体系，系统将按该体系生成报告。'}
@@ -2256,15 +2009,6 @@ export default function App() {
                   onChange={extractFromDocument}
                   className="hidden"
                 />
-                <label className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs">
-                  <input
-                    type="checkbox"
-                    checked={shouldGenerateImages}
-                    onChange={() => setShouldGenerateImages((previous) => !previous)}
-                    disabled={uploadConfigMode === 'ab_test' || uploadMode === 'video'}
-                  />
-                  生成优化效果图（视频模式关闭，A/B 模式关闭）
-                </label>
               </div>
 
               {docPersonaCandidates.length > 0 && (
@@ -2574,10 +2318,8 @@ export default function App() {
               <ReportView
                 report={currentReport}
                 framework={getFrameworkForReport(currentReport)}
-                originalImage={uploadMode === 'video' ? video : image}
+                originalImage={image}
                 processSteps={uploadMode === 'flow' ? processSteps : undefined}
-                optimizedImage={optimizedImages[viewingPersonaId]}
-                isGeneratingImage={isGeneratingImage}
               />
             </div>
           ) : (
@@ -2595,10 +2337,8 @@ export default function App() {
               <ReportView
                 report={report}
                 framework={getFrameworkForReport(report)}
-                originalImage={uploadMode === 'video' ? video : image}
+                originalImage={image}
                 processSteps={uploadMode === 'flow' ? processSteps : undefined}
-                optimizedImage={optimizedImages[id]}
-                isGeneratingImage={false}
               />
             </div>
           ))}
