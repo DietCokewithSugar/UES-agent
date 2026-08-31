@@ -99,7 +99,7 @@ export const MODE_LABELS: Record<UxKitMode, string> = {
 export const KIND_LABELS: Record<DeliverableKind, string> = {
   questionnaire: '问卷',
   interviewGuide: '访谈提纲',
-  usabilityTest: '可用性测试方案',
+  usabilityTest: '可用性评估方案',
   researchPlan: '研究方案'
 };
 

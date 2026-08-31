@@ -33,7 +33,7 @@ Vite `import.meta.glob` (raw text); `scripts/` and `evals/` are deliberately **n
 
 | Skill | Entry | What it does |
 |---|---|---|
-| `ux-kit` | AI 研究助手 | Designs research materials (questionnaire / interview guide / usability test / research plan) |
+| `ux-kit` | AI 研究助手 | Designs research materials (questionnaire / interview guide / usability evaluation plan / research plan) |
 | `ux-analysis` | AI 分析助手 | Analyses returned data (survey / interview / analytics / usability / eye-tracking / VoC) into a Word conclusion |
 
 They are upstream/downstream of one another; ux-kit offers a "去做分析" handoff that seeds a fresh

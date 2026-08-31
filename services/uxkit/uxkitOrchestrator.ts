@@ -110,11 +110,13 @@ const CONTROL_OUTPUT_RULES = `你现在处于**控制轮**，只做两件事之�
 **mode 与 deliverables 的对应关系是硬规则，必须遵守**（技能 Phase 0）：
 - mode = "questionnaire" → deliverables 恰好一项，kind = "questionnaire"，文件名 "[主题]问卷.docx"
 - mode = "interview"     → deliverables 恰好一项，kind = "interviewGuide"，文件名 "[主题]访谈提纲.docx"
-- mode = "usability"     → deliverables 恰好一项，kind = "usabilityTest"，文件名 "[主题]可用性测试方案.docx"
+- mode = "usability"     → deliverables 恰好一项，kind = "usabilityTest"，文件名 "[主题]可用性评估方案.docx"
 - mode = "plan"          → deliverables 恰好一项，kind = "researchPlan"，文件名 "[主题]研究方案.docx"
   （方案模式下的后续材料等用户确认方案之后再生成，现在不要列进去）
 
-**模式判定**（技能 Phase 0 的产物词判定表）：只有当用户**明确指定了产出物**（问卷/调查表/量表 → questionnaire；访谈/访谈提纲/深度访谈 → interview；可用性测试/易用性测试/眼动测试 → usability）时，才用对应模式；用户没有指定单一产出物、但研究对象、目标人群、研究目标和范围均已清楚时，才用 "plan"；同时要多种材料（"问卷和访谈都做"）也用 "plan"。**判定困难时先 ask，不得默认 plan。**`;
+**模式判定**（技能 Phase 0 的判定逻辑）：只有当用户**明确指定了产出物**（问卷/调查表/量表 → questionnaire；访谈/访谈提纲/访谈大纲 → interview；可用性测试/可用性评估/易用性测试/测试方案 → usability）时，才用对应模式；用户没有指定单一产出物、但研究对象、目标人群、研究目标和范围均已清楚时，才用 "plan"；同时要多种材料（"问卷和访谈都做"）也用 "plan"。
+- **方法信号不参与模式路由**：Kano / ETS / JTBD / 灵犀旅程 / 卡片分类 / 眼动 等只说明研究内容，不是产物词；"体验评估""体验水平""了解需求"同理。它们只写进 methodHints，供方案模式内部匹配方法与挑选参考文件。
+- 产出物模式**判定困难时用 "plan"**（技能的安全兜底）——但这只针对"要哪份材料"，**不能拿它绕过需求澄清**：研究对象/人群/目标/范围仍有实质疑问时，仍然先 ask。`;
 
 const buildControlSystemPrompt = (skill: SkillMeta): string =>
   [
