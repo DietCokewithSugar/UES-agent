@@ -35,6 +35,7 @@ import { LandingPage } from './components/LandingPage';
 import { SkillChat, type HandoffPayload } from './components/SkillChat';
 import { uxAnalysisAgent, uxKitAgent } from './services/agents/registry';
 import { PersonaSettingsPage } from './components/PersonaSettingsPage';
+import { SkillsWorkspacePage } from './components/SkillsWorkspacePage';
 import { saveFile } from './utils/saveFile';
 
 const EMPTY_PERSONA: Omit<Persona, 'id'> = {
@@ -97,7 +98,7 @@ const SCENARIO_FIELD_LABELS: Record<keyof EvaluationScenario, string> = {
   constraints: '约束条件',
   source: '来源'
 };
-type PageMode = 'landing' | 'setup' | 'report' | 'companion' | 'analysis';
+type PageMode = 'landing' | 'setup' | 'report' | 'companion' | 'analysis' | 'skills';
 type SetupStep = 1 | 2 | 3 | 4;
 type UploadMode = 'single' | 'flow';
 type UploadConfigMode = 'standard' | 'ab_test';
@@ -1285,7 +1286,10 @@ export default function App() {
           onRestoreDraft={handleRestoreDraft}
           onStartCompanion={() => setPageMode('companion')}
           onStartAnalysis={() => setPageMode('analysis')}
+          onStartSkills={() => setPageMode('skills')}
         />
+      ) : pageMode === 'skills' ? (
+        <SkillsWorkspacePage onBack={() => setPageMode('landing')} />
       ) : pageMode === 'companion' ? (
         <SkillChat
           key="ux-kit"

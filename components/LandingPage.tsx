@@ -8,6 +8,7 @@ interface LandingPageProps {
   onRestoreDraft: () => void;
   onStartCompanion: () => void;
   onStartAnalysis: () => void;
+  onStartSkills: () => void;
 }
 
 const FEATURES = [
@@ -50,7 +51,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   onStartEvaluation,
   onRestoreDraft,
   onStartCompanion,
-  onStartAnalysis
+  onStartAnalysis,
+  onStartSkills
 }) => {
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 md:px-6 md:py-10 space-y-6">
@@ -86,6 +88,33 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             检测到本地草稿：{new Date(draftSavedAt).toLocaleString()}
           </p>
         )}
+      </section>
+
+      <section className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-cyan-50 p-6 md:p-7 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="max-w-2xl space-y-3">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-white px-3 py-1 text-xs font-semibold text-emerald-700">
+              <span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              Agent Skills · 独立运行环境
+            </span>
+            <h2 className="text-xl font-semibold tracking-tight text-slate-900 md:text-2xl">Skills 工作台</h2>
+            <p className="text-sm leading-7 text-slate-600 md:text-base">
+              上传兼容 Agent Skills 规范的 ZIP 包，为每条对话启用需要的技能，并查看渐进式技能调用轨迹。
+            </p>
+            <ul className="grid grid-cols-1 gap-x-4 gap-y-1 text-xs leading-6 text-slate-600 sm:grid-cols-2">
+              <li>· 运行时上传与更新 SKILL.md</li>
+              <li>· 每个对话分配独立容器或工作区</li>
+              <li>· 先发现元数据，再按需加载技能正文</li>
+              <li>· 支持 references / templates / scripts</li>
+            </ul>
+          </div>
+          <button
+            onClick={onStartSkills}
+            className="rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700"
+          >
+            进入 Skills 工作台
+          </button>
+        </div>
       </section>
 
       {[

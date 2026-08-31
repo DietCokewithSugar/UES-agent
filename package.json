@@ -4,28 +4,43 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently -k \"npm:dev:web\" \"npm:dev:server\"",
+    "dev:web": "vite",
+    "dev:server": "PORT=3001 node --watch server/index.mjs",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "node server/index.mjs",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "adm-zip": "^0.6.0",
+    "dockerode": "^5.0.1",
     "docx": "^9.7.1",
+    "express": "^5.2.1",
     "file-saver": "^2.0.5",
     "html-to-image": "^1.11.0",
     "js-yaml": "^4.3.0",
     "jszip": "^3.10.1",
     "lucide-react": "^0.554.0",
     "mammoth": "^1.12.0",
+    "multer": "^2.3.0",
     "pdfjs-dist": "^5.5.207",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "read-excel-file": "^9.3.10",
-    "recharts": "^3.5.0"
+    "recharts": "^3.5.0",
+    "tar-stream": "^3.2.1"
   },
   "devDependencies": {
+    "@types/adm-zip": "^0.5.8",
+    "@types/dockerode": "^4.0.1",
+    "@types/express": "^5.0.6",
     "@types/js-yaml": "^4.0.9",
+    "@types/multer": "^2.2.0",
     "@types/node": "^22.14.0",
+    "@types/tar-stream": "^3.1.4",
     "@vitejs/plugin-react": "^5.0.0",
+    "concurrently": "^10.0.5",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   }

@@ -4,13 +4,17 @@
 
 ### Project overview
 
-ETS Agent is a client-side React SPA (Vite + TypeScript) for AI-powered product experience analysis. It has no backend, no database, and no Docker dependencies. All AI calls go directly from the browser to the DeepSeek API; there is no provider switch.
+ETS Agent is a React SPA (Vite + TypeScript) with an Express service for runtime Skill uploads,
+server-side Skill calls, and per-conversation sandbox allocation. The legacy evaluation and two
+built-in assistants still call DeepSeek from the browser; the Skills Workspace keeps its key on
+the server.
 
 ### Running the app
 
-- `npm run dev` — starts Vite dev server on `http://localhost:3000` (host `0.0.0.0`).
+- `npm run dev` — starts Vite on `http://localhost:3000` and the proxied Skills API on port 3001.
 - `npm run build` — production build to `dist/`.
 - `npm run preview` — preview the production build.
+- `npm start` — serves `dist/` and `/api` from Express (production/Render).
 
 ### Environment variables
 
@@ -23,6 +27,10 @@ Configured in `.env.local` at the project root. Vite injects them at build/dev t
   the default name is wrong for an account, change it here rather than in code — the API error
   points at this variable.
 - `DEEPSEEK_API_BASE_URL` — optional override, defaults to `https://api.deepseek.com`.
+- `DATA_DIR` — uploaded Skills and conversation workspaces; defaults to `data/`.
+- `DOCKER_HOST` — optional Docker Engine endpoint. When available, each Skills Workspace
+  conversation gets an isolated container; otherwise the API explicitly reports workspace fallback.
+- `SKILLS_ADMIN_TOKEN` — when set, required as a bearer token for uploading/deleting Skills.
 
 ### Research skills (`skills/`)
 
@@ -53,6 +61,11 @@ drawer, skill-trace chip, card rendering. Per-skill behaviour lives in `services
 
 Adding a third conversational entry = drop a skill folder in `skills/`, add an `AgentDefinition`,
 register it in `services/agents/registry.ts`. The shell needs no changes.
+
+`components/SkillsWorkspacePage.tsx` is a separate runtime-upload experience backed by
+`server/index.mjs`. Uploaded ZIPs are validated and stored under `DATA_DIR/skills`. Calls follow
+progressive disclosure: route on metadata, load the selected `SKILL.md`, then expose scoped
+`read_skill_file` and container-only `run_command` tools.
 
 **Context isolation** (an explicit product requirement): each session owns its own `messages`,
 `toDeepSeekMessages` only flattens the current session, and starting a new chat swaps the session id

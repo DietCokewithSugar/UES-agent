@@ -54,6 +54,13 @@
     约定存放技能，`services/skills/skillRegistry.ts` 在构建期自动加载。
     详见 [`skills/README.md`](./skills/README.md)。
 
+- **Skills 工作台（运行时上传）**
+  - 支持上传包含 `SKILL.md` 的 ZIP 技能包，不需要重新构建前端
+  - 每条对话分配独立运行环境；连接 Docker Engine 时创建独立、无网络、限额容器
+  - 采用渐进式调用：先读取所有技能的 `name` / `description`，选中后才加载完整 `SKILL.md`
+  - 模型可按需读取 `references/` / `templates/`，并在容器模式下调用 Skill 脚本
+  - API Key 仅保存在服务端，工作台不会把密钥打进浏览器产物
+
 ---
 
 ## 本地运行
@@ -89,6 +96,7 @@ npm run dev
 默认地址：`http://localhost:3000`
 
 > 应用默认先进入落地页，点击「开始评测」进入评测配置流程。
+> `npm run dev` 会同时启动 Vite（3000）和 Skills API（3001）。
 
 ### 4) 生产构建
 
@@ -134,8 +142,25 @@ npm run build
 ## 技术栈
 
 - React 19 + TypeScript + Vite
+- Express + Dockerode（运行时 Skill 上传与对话沙箱）
 - DeepSeek（前端直连，全站唯一模型来源；截图走视觉模型，对话产出走流式）
 - Recharts（图表）
 - html-to-image + JSZip + file-saver（导出）
 - docx（浏览器端生成 Word 文档）
 - mammoth / pdfjs-dist / read-excel-file（读取上传的 docx / pdf / xlsx）
+
+---
+
+## Render 部署与对话容器
+
+仓库提供 `Dockerfile` 与 `render.yaml`。在 Render Blueprint 中创建服务后配置
+`DEEPSEEK_API_KEY`，持久盘会保存上传的 Skills 和对话工作区。Blueprint 会生成
+`SKILLS_ADMIN_TOKEN`；上传或删除 Skill 时在页面填写该值，避免公开部署被任意改写。
+
+Render Web Service 本身通常不能访问宿主机 Docker Socket，因此若要做到真正的
+“每个对话一个容器”，还需把 `DOCKER_HOST` 指向受保护的远程 Docker Engine
+（建议仅通过私网/TLS 暴露）。配置成功后，服务会为每条对话创建一个无网络、
+有限内存/CPU/PID 的 `node:22-alpine` 容器，并在 24 小时后清理。
+
+未配置或无法连接 Docker Engine 时，页面会明确显示“隔离工作区”：每条对话仍使用
+独立目录，但这不是安全边界。不要在该模式下执行不可信 Skill 脚本。
